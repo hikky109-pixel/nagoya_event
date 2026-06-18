@@ -9,6 +9,10 @@ import re
 import subprocess
 import tempfile
 
+import pytesseract
+
+pytesseract.pytesseract.tesseract_cmd = "/opt/homebrew/bin/tesseract"
+
 
 JST = timezone(timedelta(hours=9))
 LIST_URLS = [

@@ -1,8 +1,15 @@
 import sys
-sys.path.append("/home/ubuntu/libs")
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+LOCAL_LIBS = PROJECT_ROOT.parent / "libs"
+ORACLE_LIBS = Path("/home/ubuntu/libs")
+
+for libs_path in (LOCAL_LIBS, ORACLE_LIBS):
+    if libs_path.exists():
+        sys.path.insert(0, str(libs_path))
 
 from rokuyou import get_rokuyou
-
 from discord_sender import send_discord
 
 import logging
@@ -11,7 +18,6 @@ import re
 import csv
 
 import requests
-from pathlib import Path
 
 from datetime import date, datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright
@@ -70,7 +76,7 @@ ROAD_CATEGORY_ICONS = {
     "オービス": "📷",
     "イベント": "🎪",
 }
-LOG_DIR = Path("/home/ubuntu/share/logs")
+LOG_DIR = Path(os.getenv("EVENT_BOT_LOG_DIR", PROJECT_ROOT / "logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
