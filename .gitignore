@@ -1,0 +1,30 @@
+# Virtualenv
+.venv/
+.venv-1/
+.venv-2/
+
+# Python
+__pycache__/
+*.pyc
+
+# Credentials
+credentials/
+.env
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+data/*.json
+
+# Backup
+*.bak
+
+# macOS
+.DS_Store
+
+# Runtime/generated data
+data/
+!data/.gitkeep
+
