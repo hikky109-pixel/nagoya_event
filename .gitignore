@@ -28,3 +28,6 @@ data/*.json
 data/
 !data/.gitkeep
 
+# Runtime CSV
+csv_events/*.csv
+!csv_events/*.example.csv
