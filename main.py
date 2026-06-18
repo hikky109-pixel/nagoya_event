@@ -528,6 +528,10 @@ def build_road_message(events, target_date):
 
         wrote_group = True
 
+    message += "────────────\n"
+    message += "※道路交通情報・オービス実績データは、あくまでも参考情報です。\n"
+    message += "鵜呑みにせず、速度を守った安全運転をお願いします。\n"
+    message += "別地点や、これまで見かけなかった取締があれば、当チャンネルで呟いてください🚕🚨\n"
     return message.rstrip()
 
 
