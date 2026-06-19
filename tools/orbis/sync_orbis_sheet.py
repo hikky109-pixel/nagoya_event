@@ -13,7 +13,7 @@ from scrapers.utils.google_sheet_events import sync_simple_csv_to_sheet
 CSV_PATH = BASE_DIR / "data" / "orbis" / "orbis_mobile.csv"
 SHEET_NAME = "オービス_可搬式"
 LABEL = "オービス"
-ORBIS_COLUMNS = ["category", "road", "direction", "location", "note"]
+ORBIS_COLUMNS = ["category", "city", "road", "direction", "location", "note"]
 
 
 def _validate_header(csv_path):
