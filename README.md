@@ -25,6 +25,27 @@ Google Sheets sync uses the existing OAuth files under `credentials/`:
 
 If `GOOGLE_SHEET_ID` is set, it overrides the spreadsheet ID inferred from the existing sheet URL.
 
+### オービス秘伝のタレ
+
+Google Sheets「オービス_可搬式」を正本にする。
+
+通常運用:
+
+```bash
+python3 tools/orbis/pull_orbis_sheet.py
+git add data/orbis/orbis_mobile.csv
+git commit
+git push
+```
+
+例外運用:
+
+CSVからGoogle Sheetsを復旧したい時だけ、明示的に `--push` を付けて上書きする。
+
+```bash
+python3 tools/orbis/sync_orbis_sheet.py --push
+```
+
 ## OCR dependency
 
 The Misonoza scraper calls the external `tesseract` command for schedule images. Install it at the OS level if OCR fallback is needed, for example:
