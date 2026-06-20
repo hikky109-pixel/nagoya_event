@@ -47,11 +47,18 @@ def _target_date(today):
 
 def _title_from_soup(soup):
     title = soup.title.get_text(" ", strip=True) if soup.title else "不明"
-    return title.split("｜公演ご案内ラインアップ｜御園座")[0].strip()
+    return _normalize_show_title(title)
+
+
+def _normalize_show_title(title: str) -> str:
+    title = title.split("｜公演ご案内ラインアップ｜御園座")[0].strip()
+    title = re.sub(r"\s+", " ", title)
+    title = title.replace("ヨネダ 2000", "ヨネダ2000")
+    return title.strip()
 
 
 def _date_from_url(url):
-    match = re.search(r"month(\d{2})(\d{2})(\d{2})\.html", url)
+    match = re.search(r"month(\d{2})(\d{2})(\d{2})(?:-\d+)?\.html", url)
     if not match:
         return None
 
@@ -105,7 +112,7 @@ def _is_misonoza_show_page(url: str) -> bool:
     parsed = urlparse(url)
     return (
         parsed.netloc == "www.misonoza.co.jp"
-        and bool(re.search(r"/lineup/month\d{6}\.html$", parsed.path))
+        and bool(re.search(r"/lineup/month\d{6}(?:-\d+)?\.html$", parsed.path))
     )
 
 
@@ -162,6 +169,31 @@ def _events_from_rental_text(soup, url, title):
         event["end_time"] = end_time
 
     return [event]
+
+
+def _events_from_individual_page_text(soup, url, title):
+    text = soup.get_text("\n", strip=True)
+    pattern = re.compile(
+        r"公演期間\s*[：:]\s*"
+        r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日"
+        r"(?:[（(][^)）]*[）)])?\s*"
+        r"(\d{1,2}:\d{2})\s*開演"
+    )
+    match = pattern.search(text)
+    if not match:
+        return []
+
+    year, month, day, start_time = match.groups()
+    return [
+        {
+            "date": f"{int(year):04d}/{int(month):02d}/{int(day):02d}",
+            "time": start_time,
+            "venue": "御園座",
+            "title": title,
+            "note": "個別ページHTML取得",
+            "url": url,
+        }
+    ]
 
 
 def _apply_event_metadata(events: list[dict], title: str, url: str, soup) -> list[dict]:
@@ -661,9 +693,13 @@ def _scrape_show_page_with_notifications(page, url):
     soup = BeautifulSoup(page.content(), "html.parser")
     title = _title_from_soup(soup)
 
-    events = _events_from_timetable(soup, page.url, title)
+    events = _events_from_individual_page_text(soup, page.url, title)
+    if not events:
+        events = _events_from_timetable(soup, page.url, title)
     if not events:
         events = _events_from_schedule_images(soup, page.url, title)
+    if not events:
+        events = _events_from_individual_page_text(soup, page.url, title)
     if not events:
         events = _events_from_rental_text(soup, page.url, title)
 
