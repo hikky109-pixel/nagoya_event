@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -31,6 +32,8 @@ sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 from tools.ai import chat_memory  # noqa: E402
 from tools.ai import content_filter  # noqa: E402
+from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
+from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
 
 
 def get_token() -> str:
@@ -138,9 +141,12 @@ def load_incidents() -> list[Any]:
 
 def build_prompt(command: str, source: Any, history_text: str = "") -> str:
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
+    entity_prompt = entity_system_prompt(command)
     return f"""あなたはジェンマ課長です。
 
 Discordコマンド {command} への短い返答を作ってください。
+
+{entity_prompt}
 
 ルール:
 - 3〜5行
@@ -218,8 +224,21 @@ def channel_rule(channel_name: str) -> str:
 
 
 def classify_message_text(message_text: str) -> str | None:
+    dictionary_category = classify_by_dictionary(message_text)
+    if dictionary_category in {"food", "road", "railway"}:
+        return dictionary_category
+    if dictionary_category == "dragons":
+        return "event"
+    if dictionary_category == "facility":
+        return "event"
+    if dictionary_category == "place":
+        return "unknown"
+
+    entity_prompt = entity_system_prompt(message_text)
     prompt = f"""あなたはジェンマ課長の分類器です。
 次のDiscord発言を1語だけで分類してください。
+
+{entity_prompt}
 
 分類:
 weather, road, railway, event, food, unknown
@@ -309,11 +328,14 @@ def source_for_mode(mode: str) -> Any:
 
 def build_natural_prompt(message_text: str, mode: str, source: Any, history_text: str = "") -> str:
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
+    entity_prompt = entity_system_prompt(message_text)
     return f"""あなたはジェンマ課長です。
 
 Discordの通常発言へ、担当班モードに合わせて短く返答してください。
 
 mode: {mode}
+
+{entity_prompt}
 
 ルール:
 - 3〜5行
@@ -350,6 +372,40 @@ def trim_discord_message(text: str) -> str:
     if len(text) <= 1900:
         return text
     return text[:1897].rstrip() + "..."
+
+
+def is_mention_to_me(message: Any, client: Any) -> bool:
+    user = getattr(client, "user", None)
+    if user is None:
+        return False
+    if user in getattr(message, "mentions", []):
+        return True
+    reference = getattr(message, "reference", None)
+    resolved = getattr(reference, "resolved", None)
+    author = getattr(resolved, "author", None)
+    return author == user
+
+
+def strip_bot_mentions(content: str, client: Any) -> str:
+    user = getattr(client, "user", None)
+    if user is None:
+        return content
+    user_id = getattr(user, "id", "")
+    cleaned = content.replace(f"<@{user_id}>", "").replace(f"<@!{user_id}>", "")
+    return cleaned.strip()
+
+
+def search_history_reply(query: str) -> str:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "ai" / "search_history.py"), query],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return "未確認です。"
+    return result.stdout.strip() or "未確認です。"
 
 
 def main() -> int:
@@ -426,6 +482,15 @@ def main() -> int:
         user_name = getattr(message.author, "display_name", str(message.author))
         history = chat_memory.load_history(channel_id)
         history_text = chat_memory.format_history(history)
+
+        if is_mention_to_me(message, client):
+            query = strip_bot_mentions(content, client) or content
+            reply = trim_discord_message(search_history_reply(query))
+            if reply not in {"Gemma4B未起動", "日誌記憶なし"}:
+                chat_memory.append_message(channel_id, user_name, content, "user")
+                chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
+            await message.channel.send(reply)
+            return
 
         command = content.split(maxsplit=1)[0]
         if command in COMMANDS:

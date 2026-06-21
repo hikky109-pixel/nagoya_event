@@ -49,6 +49,8 @@ LISTEN_ONLY_CHANNELS = {"バーボンハウス🥃"}
 
 sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
+from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
+from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
 
 
 def get_setting(name: str) -> str:
@@ -184,8 +186,21 @@ def call_ollama(prompt: str, num_predict: int = 160) -> str | None:
 
 
 def classify_message(message: str) -> str | None:
+    dictionary_category = classify_by_dictionary(message)
+    if dictionary_category == "dragons":
+        return "dragons"
+    if dictionary_category in {"food", "road", "railway"}:
+        return dictionary_category
+    if dictionary_category == "facility":
+        return "event"
+    if dictionary_category == "place":
+        return "chat"
+
+    entity_prompt = entity_system_prompt(message)
     prompt = f"""あなたはDiscord運行管理部長の分類器です。
 次の発言を1語だけで分類してください。
+
+{entity_prompt}
 
 分類:
 weather, road, railway, dragons, event, food, chat, unknown
@@ -237,10 +252,13 @@ def category_source(category: str) -> dict[str, Any]:
 
 def build_reply(message: str, category: str, source: dict[str, Any]) -> str | None:
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
+    entity_prompt = entity_system_prompt(message)
     prompt = f"""あなたはジェンマ課長です。
 Discordの自然言語発言に、担当班として短く返答してください。
 
 分類: {category}
+
+{entity_prompt}
 
 ルール:
 - 3〜5行
