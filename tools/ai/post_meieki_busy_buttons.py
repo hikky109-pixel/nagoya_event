@@ -4,12 +4,40 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+
+
+def load_env_file() -> None:
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return
+    try:
+        from dotenv import load_dotenv  # type: ignore[import-not-found]
+    except ImportError:
+        load_env_file_simple(env_path)
+        return
+    load_dotenv(env_path)
+
+
+def load_env_file_simple(env_path: Path) -> None:
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file()
 
 import config  # noqa: E402
 from tools.ai.meieki_busy_buttons import build_meieki_busy_view, message_text  # noqa: E402
@@ -42,14 +70,14 @@ def default_channel_id() -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="名駅繁忙ボタンをDiscordへ投稿する。")
-    parser.add_argument("--channel-id", default=default_channel_id(), help="投稿先DiscordチャンネルID。")
+    parser.add_argument("--channel-id", default="", help="投稿先DiscordチャンネルID。")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     token = get_setting("DISCORD_BOT_TOKEN")
-    channel_id = normalize_channel_id(str(args.channel_id))
+    channel_id = normalize_channel_id(str(args.channel_id)) or default_channel_id()
     if not token:
         print("名駅繁忙ボタン投稿設定未完了: DISCORD_BOT_TOKEN")
         return 0
