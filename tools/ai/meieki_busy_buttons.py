@@ -78,6 +78,7 @@ async def handle_busy_interaction(interaction: Any, place: str, label: str) -> N
         user = getattr(interaction, "user", None)
         channel = getattr(interaction, "channel", None)
         message = getattr(interaction, "message", None)
+        emoji = str(PLACE_BY_ID.get(place, {}).get("emoji", ""))
         append_busy_log(
             place=place,
             label=label,
@@ -86,6 +87,9 @@ async def handle_busy_interaction(interaction: Any, place: str, label: str) -> N
             channel_id=str(getattr(channel, "id", "")),
             message_id=str(getattr(message, "id", "")),
         )
+        if channel is None:
+            raise RuntimeError("interaction channel is missing")
+        await channel.send(f"🚕 名駅繁忙報告: {emoji} {label}".strip())
         await interaction.response.send_message("記録しました😇", ephemeral=True)
     except Exception:
         traceback.print_exc()
