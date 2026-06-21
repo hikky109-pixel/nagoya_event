@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,52 @@ RESULT_KEYWORDS = ("成功", "完了", "解決", "動いた", "生成", "同期"
 TRAFFIC_KEYWORDS = ("事故", "通行止", "オービス", "新幹線", "運休")
 EVENT_KEYWORDS = ("御園座", "IGアリーナ", "熱田まつり", "ドラゴンズ")
 ALL_KEYWORDS = PROBLEM_KEYWORDS + SOLUTION_KEYWORDS + RESULT_KEYWORDS + TRAFFIC_KEYWORDS + EVENT_KEYWORDS
+GEMMA_AUTHOR_WORDS = (
+    "ジェンマ課長",
+    "Gemma",
+    "gemma",
+    "#1206",
+    "bot",
+    "Bot",
+)
+GEMMA_CONTENT_WORDS = (
+    "・調査したところ",
+    "・詳細は未確認です。",
+    "公式情報は未確認です",
+    "過去事例:",
+    "直近のログを確認しました",
+    "詳細な状況は記録されていません",
+)
+GEMMA_CALL_WORDS = (
+    "ジェンマ課長",
+    "@ジェンマ課長",
+    "<@1518154055455871036>",
+    "<@!1518154055455871036>",
+)
+GEMMA_TEACHING_WORDS = (
+    "ジェンマ課長覚えて",
+    "【教訓】",
+    "【成功事例】",
+    "【失敗事例】",
+    "【注意】",
+)
 
 sys.path.insert(0, str(ROOT))
 from tools.ai import content_filter  # noqa: E402
+
+
+def is_gemma_generated(author: str, content: str) -> bool:
+    author = author or ""
+    content = content or ""
+    if any(word in content for word in GEMMA_TEACHING_WORDS):
+        return False
+    if any(word in author for word in GEMMA_AUTHOR_WORDS):
+        return True
+    if any(word in content for word in GEMMA_CONTENT_WORDS):
+        return True
+    if any(word in content for word in GEMMA_CALL_WORDS):
+        return True
+    return False
 
 
 def load_index() -> set[str]:
@@ -63,6 +107,9 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         if not isinstance(data, dict):
             continue
         content = str(data.get("content", ""))
+        author = str(data.get("author", ""))
+        if is_gemma_generated(author, content):
+            continue
         if content_filter.is_filtered(content):
             continue
         rows.append(data)
@@ -170,8 +217,25 @@ def iter_history_files() -> list[Path]:
     return sorted(DISCORD_HISTORY_DIR.glob("*.jsonl"))
 
 
+def rebuild_case_memory() -> None:
+    CASE_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    for path in CASE_MEMORY_DIR.glob("*.json"):
+        path.unlink()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Discord履歴JSONLからOracle用case_memoryを作る。")
+    parser.add_argument("--rebuild", action="store_true", help="既存case_memoryを削除して再生成する。")
+    return parser.parse_args()
+
+
 def main() -> int:
-    indexed = load_index()
+    args = parse_args()
+    if args.rebuild:
+        rebuild_case_memory()
+        indexed: set[str] = set()
+    else:
+        indexed = load_index()
     total_detected = 0
     total_saved = 0
     total_skipped = 0

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sys
+import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ LISTEN_ONLY_CHANNEL_KEYWORDS = ("バーボンハウス",)
 sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 from tools.ai import content_filter  # noqa: E402
+from tools.ai.build_case_memory import is_gemma_generated  # noqa: E402
 
 
 def get_setting(name: str) -> str:
@@ -71,7 +73,7 @@ def get_json(url: str, token: str, params: dict[str, Any] | None = None) -> tupl
         return None, str(exc)
 
 
-def fetch_channels(token: str, guild_id: str) -> list[dict[str, Any]]:
+def fetch_channels(token: str, guild_id: str, all_normal: bool = False) -> list[dict[str, Any]]:
     url = f"{DISCORD_API_BASE}/guilds/{guild_id}/channels"
     data, error = get_json(url, token)
     if error or not isinstance(data, list):
@@ -87,7 +89,7 @@ def fetch_channels(token: str, guild_id: str) -> list[dict[str, Any]]:
             continue
         if channel_is_ignored(name):
             continue
-        if channel_is_target(name):
+        if all_normal or channel_is_target(name):
             channels.append(channel)
     return channels
 
@@ -116,10 +118,13 @@ def fetch_messages(token: str, channel_id: str, limit: int = MAX_MESSAGES_PER_CH
 
 def normalize_message(message: dict[str, Any], channel: dict[str, Any]) -> dict[str, Any] | None:
     content = str(message.get("content", ""))
+    author = message.get("author", {})
+    author_name = str(author.get("username", "")) if isinstance(author, dict) else ""
+    if is_gemma_generated(author_name, content):
+        return None
     if content_filter.is_filtered(content):
         return None
 
-    author = message.get("author", {})
     referenced = message.get("referenced_message")
     attachments = message.get("attachments", [])
     if not isinstance(attachments, list):
@@ -129,7 +134,7 @@ def normalize_message(message: dict[str, Any], channel: dict[str, Any]) -> dict[
         "timestamp": message.get("timestamp", ""),
         "channel_id": str(channel.get("id", "")),
         "channel_name": str(channel.get("name", "")),
-        "author": str(author.get("username", "")) if isinstance(author, dict) else "",
+        "author": author_name,
         "content": content,
         "attachments": [
             {
@@ -155,21 +160,29 @@ def write_jsonl(channel: dict[str, Any], rows: list[dict[str, Any]]) -> Path:
     return path
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Discordの過去ログをGemma/Oracle用素材としてJSONL保存する。")
+    parser.add_argument("--all-normal", action="store_true", help="ignore/listen_only以外の全テキストチャンネルを対象にする。")
+    parser.add_argument("--limit", type=int, default=MAX_MESSAGES_PER_CHANNEL, help="各チャンネルの取得件数。")
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = parse_args()
     token = get_setting("DISCORD_BOT_TOKEN")
     guild_id = get_setting("GEMMA_GUILD_ID")
     if not token or not guild_id:
         print("Discord履歴取得設定未完了")
         return 0
 
-    channels = fetch_channels(token, guild_id)
+    channels = fetch_channels(token, guild_id, all_normal=args.all_normal)
     if not channels:
         print("Discord履歴対象チャンネルなし")
         return 0
 
     exported = 0
     for channel in channels:
-        messages = fetch_messages(token, str(channel.get("id", "")))
+        messages = fetch_messages(token, str(channel.get("id", "")), limit=max(1, args.limit))
         rows = [
             row
             for message in messages
