@@ -18,6 +18,7 @@ DB_PATH = DATA_DIR / "nagoya_event.db"
 ORBIS_PATH = DATA_DIR / "orbis" / "orbis_mobile.csv"
 INCIDENTS_DIR = DATA_DIR / "incidents"
 WEATHER_PATH = AI_DIR / "weather_summary.json"
+RAILWAY_PATH = AI_DIR / "railway_summary.json"
 X_SUMMARY_PATH = AI_DIR / "x_summary.json"
 DRAGONS_PATH = AI_DIR / "dragons_log.yml"
 OUTPUT_PATH = AI_DIR / "daily_context.json"
@@ -271,6 +272,7 @@ def build_context() -> dict[str, Any]:
         "orbis": read_csv(ORBIS_PATH, notes),
         "incidents": read_incidents(yaml_module, notes),
         "weather": read_json(WEATHER_PATH, notes),
+        "railway": read_json(RAILWAY_PATH, notes),
         "x_summary": read_json(X_SUMMARY_PATH, notes),
         "dragons": read_yaml(DRAGONS_PATH, yaml_module, notes) or {},
         "notes": notes,
@@ -292,6 +294,7 @@ def main() -> int:
     print(f"orbis: {len(context['orbis'])}")
     print(f"incidents: {len(context['incidents'])}")
     print(f"weather: {1 if context['weather'] else 0}")
+    print(f"railway: {1 if context['railway'] else 0}")
     print(f"x_summary: {1 if context['x_summary'] else 0}")
     print(f"dragons: {1 if context['dragons'] else 0}")
     print(f"notes: {len(context['notes'])}")
