@@ -79,18 +79,20 @@ async def handle_busy_interaction(interaction: Any, place: str, label: str) -> N
         channel = getattr(interaction, "channel", None)
         message = getattr(interaction, "message", None)
         emoji = str(PLACE_BY_ID.get(place, {}).get("emoji", ""))
+        user_name = str(getattr(user, "display_name", user or ""))
         append_busy_log(
             place=place,
             label=label,
             user_id=str(getattr(user, "id", "")),
-            user_name=str(getattr(user, "display_name", user or "")),
+            user_name=user_name,
             channel_id=str(getattr(channel, "id", "")),
             message_id=str(getattr(message, "id", "")),
         )
         if channel is None:
             raise RuntimeError("interaction channel is missing")
-        await channel.send(f"🚕 名駅繁忙報告: {emoji} {label}".strip())
-        await interaction.response.send_message("記録しました😇", ephemeral=True)
+        await channel.send(f"🚕 名駅繁忙報告: {emoji} {label} / 報告: {user_name}".strip())
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True, thinking=False)
     except Exception:
         traceback.print_exc()
         if not interaction.response.is_done():
@@ -142,4 +144,7 @@ def build_meieki_busy_view(discord: Any) -> Any:
 
 
 def message_text() -> str:
-    return "🚖 名駅繁忙ボタン\n場所を押すと記録します。"
+    return (
+        "📍 名駅繁忙報告\n"
+        "場所を押すと投稿します"
+    )
