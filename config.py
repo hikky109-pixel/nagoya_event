@@ -1,3 +1,5 @@
+import os
+
 # ==========================
 # 名古屋イベントBOT 共通設定
 # ==========================
@@ -68,3 +70,25 @@ WANTED_VENUES = [
     "SAKAE SP-RING",
     "栄スプリング",
 ]
+
+# ==========================
+# ジェンマ課長 Discord Bot API設定
+# ==========================
+# Bot TokenはGit管理に載せない運用。
+# 環境変数で設定してください。
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
+GEMMA_DISCORD_CHANNEL_ID = os.getenv("GEMMA_DISCORD_CHANNEL_ID", "")
+GEMMA_GUILD_ID = os.getenv("GEMMA_GUILD_ID", "")
+
+# Webhook版を使う場合のみ環境変数で設定。
+GEMMA_DISCORD_WEBHOOK = os.getenv("GEMMA_DISCORD_WEBHOOK", "")
+GEMMA_WEBHOOK_URL = os.getenv("GEMMA_WEBHOOK_URL", "")
+
+GEMMA_CHANNELS = {
+    "main": os.getenv("GEMMA_CHANNEL_MAIN", ""),
+    "railway": os.getenv("GEMMA_CHANNEL_RAILWAY", ""),
+    "road": os.getenv("GEMMA_CHANNEL_ROAD", ""),
+    "event": os.getenv("GEMMA_CHANNEL_EVENT", ""),
+    "nagoya": os.getenv("GEMMA_CHANNEL_NAGOYA", ""),
+    "food": os.getenv("GEMMA_CHANNEL_FOOD", ""),
+}
