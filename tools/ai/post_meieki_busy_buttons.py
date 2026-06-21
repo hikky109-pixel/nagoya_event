@@ -137,6 +137,11 @@ async def visible_button_message_exists(channel: Any, client_user: Any) -> bool:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="名駅繁忙ボタンをDiscordへ投稿する。")
     parser.add_argument("--channel-id", default="", help="投稿先DiscordチャンネルID。")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="稼働時間や再掲制限を無視して強制投稿する。",
+    )
     return parser.parse_args()
 
 
@@ -144,10 +149,10 @@ def main() -> int:
     args = parse_args()
     token = get_setting("DISCORD_BOT_TOKEN")
     channel_id = normalize_channel_id(str(args.channel_id)) or default_channel_id()
-    if not is_active_hours():
+    if not args.force and not is_active_hours():
         print("名駅繁忙ボタン再掲停止時間")
         return 0
-    if posted_within_last_hour():
+    if not args.force and posted_within_last_hour():
         print("名駅繁忙ボタン再掲スキップ: last_posted_within_1h")
         return 0
     if not token:
