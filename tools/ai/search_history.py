@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 from tools.ai import content_filter  # noqa: E402
 from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
+from tools.ai.oracle_memory import format_oracle_memory  # noqa: E402
 
 
 def today() -> date:
@@ -183,6 +184,7 @@ def build_prompt(query: str, items: list[dict[str, str]]) -> str:
     source_json = json.dumps(items, ensure_ascii=False, indent=2)
     dictionary_category = classify_by_dictionary(query) or "none"
     entity_prompt = entity_system_prompt(query)
+    oracle_text = format_oracle_memory(query)
     return f"""あなたはジェンマ課長です。
 
 過去の日誌・記憶を根拠に、ユーザーへ3〜7行で回答してください。
@@ -200,6 +202,9 @@ def build_prompt(query: str, items: list[dict[str, str]]) -> str:
 
 辞書分類: {dictionary_category}
 質問: {query}
+
+Oracle記憶:
+{oracle_text}
 
 検索結果:
 {source_json}

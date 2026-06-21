@@ -77,8 +77,11 @@ WANTED_VENUES = [
 # Bot TokenはGit管理に載せない運用。
 # 環境変数で設定してください。
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
+DISCORD_BOT_ID = os.getenv("DISCORD_BOT_ID", "1518154055455871036")
 GEMMA_DISCORD_CHANNEL_ID = os.getenv("GEMMA_DISCORD_CHANNEL_ID", "")
 GEMMA_GUILD_ID = os.getenv("GEMMA_GUILD_ID", "")
+GEMMA_CHANNEL_TEST = os.getenv("GEMMA_CHANNEL_TEST", "")
+GEMMA_CHANNEL_ADMIN = os.getenv("GEMMA_CHANNEL_ADMIN", "")
 
 # Webhook版を使う場合のみ環境変数で設定。
 GEMMA_DISCORD_WEBHOOK = os.getenv("GEMMA_DISCORD_WEBHOOK", "")

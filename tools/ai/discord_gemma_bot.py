@@ -32,8 +32,15 @@ sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 from tools.ai import chat_memory  # noqa: E402
 from tools.ai import content_filter  # noqa: E402
+from tools.ai import image_memory  # noqa: E402
+from tools.ai import image_router  # noqa: E402
+from tools.ai import ocr_worker  # noqa: E402
+from tools.ai import build_tsv_candidate  # noqa: E402
+from tools.ai import check_tsv_candidate  # noqa: E402
+from tools.ai.oracle_memory import format_oracle_memory  # noqa: E402
 from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
+from tools.ai.search_router import needs_research  # noqa: E402
 
 
 def get_token() -> str:
@@ -45,6 +52,22 @@ def get_guild_id() -> int | None:
     value = getattr(config, "GEMMA_GUILD_ID", "")
     value = value.strip() if isinstance(value, str) else str(value).strip()
     return int(value) if value.isdigit() else None
+
+
+
+def get_admin_channel_id() -> str:
+    value = getattr(config, "GEMMA_CHANNEL_ADMIN", "")
+    return value.strip() if isinstance(value, str) else str(value).strip()
+
+
+def get_admin_like_channel_ids() -> set[str]:
+    ids: set[str] = set()
+    for name in ("GEMMA_CHANNEL_ADMIN", "GEMMA_CHANNEL_TEST"):
+        value = getattr(config, name, "")
+        value = value.strip() if isinstance(value, str) else str(value).strip()
+        if value:
+            ids.add(value)
+    return ids
 
 
 def gemma_is_running() -> bool:
@@ -142,6 +165,7 @@ def load_incidents() -> list[Any]:
 def build_prompt(command: str, source: Any, history_text: str = "") -> str:
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(command)
+    oracle_text = format_oracle_memory(command)
     return f"""あなたはジェンマ課長です。
 
 Discordコマンド {command} への短い返答を作ってください。
@@ -163,6 +187,9 @@ Discordコマンド {command} への短い返答を作ってください。
 
 現在のチャンネルの直近20件:
 {history_text or "履歴なし"}
+
+Oracle記憶:
+{oracle_text}
 """
 
 
@@ -329,6 +356,7 @@ def source_for_mode(mode: str) -> Any:
 def build_natural_prompt(message_text: str, mode: str, source: Any, history_text: str = "") -> str:
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(message_text)
+    oracle_text = format_oracle_memory(message_text)
     return f"""あなたはジェンマ課長です。
 
 Discordの通常発言へ、担当班モードに合わせて短く返答してください。
@@ -352,6 +380,9 @@ mode: {mode}
 
 現在のチャンネルの直近20件:
 {history_text or "履歴なし"}
+
+Oracle記憶:
+{oracle_text}
 
 参照データ:
 {source_json}
@@ -386,6 +417,7 @@ def is_mention_to_me(message: Any, client: Any) -> bool:
     return author == user
 
 
+
 def strip_bot_mentions(content: str, client: Any) -> str:
     user = getattr(client, "user", None)
     if user is None:
@@ -393,6 +425,18 @@ def strip_bot_mentions(content: str, client: Any) -> str:
     user_id = getattr(user, "id", "")
     cleaned = content.replace(f"<@{user_id}>", "").replace(f"<@!{user_id}>", "")
     return cleaned.strip()
+
+
+def log_attachment_debug(message: Any) -> None:
+    attachments = getattr(message, "attachments", [])
+    print(f"attachments={len(attachments)}")
+    for attachment in attachments:
+        filename = getattr(attachment, "filename", "")
+        content_type = getattr(attachment, "content_type", "")
+        url = getattr(attachment, "url", "")
+        print(f"attachment filename={filename}")
+        print(f"attachment content_type={content_type}")
+        print(f"attachment url={url}")
 
 
 def search_history_reply(query: str) -> str:
@@ -406,6 +450,96 @@ def search_history_reply(query: str) -> str:
     if result.returncode != 0:
         return "未確認です。"
     return result.stdout.strip() or "未確認です。"
+
+
+def recent_history_text(history: list[dict[str, Any]], limit: int = 4) -> str:
+    parts: list[str] = []
+    for item in history[-limit:]:
+        user_name = item.get("user_name", "")
+        message = item.get("message", "")
+        if message:
+            parts.append(f"{user_name}: {message}")
+    return "\n".join(parts)
+
+
+def search_router_reply(query: str) -> str:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "ai" / "search_router.py"), query],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return "error"
+    return result.stdout.strip() or "error"
+
+
+def should_use_search_router(content: str, history: list[dict[str, Any]]) -> bool:
+    if needs_research(content):
+        return True
+    context = f"{recent_history_text(history)}\n{content}".strip()
+    return needs_research(context)
+
+
+def build_attachment_reply(
+    image_cases: list[dict[str, Any]],
+    ocr_case: dict[str, Any] | None,
+    tsv_result: dict[str, Any] | None,
+    quality_result: dict[str, Any] | None = None,
+) -> str:
+    if ocr_case is None:
+        ocr_line = "・OCRは未実行または失敗しました。"
+        warning_line = ""
+        empty_line = ""
+    elif str(ocr_case.get("ocr_text", "")).strip():
+        ocr_line = "・OCR結果を取得しました。"
+        warning_line = "・日本語OCR辞書(jpn)が未導入のため、英語OCRで処理しました。" if ocr_case.get("warning") == "japanese_language_not_installed" else ""
+        empty_line = ""
+    else:
+        ocr_line = "・OCRを実行しました。"
+        warning_line = "・日本語OCR辞書(jpn)が未導入のため、英語OCRで処理しました。" if ocr_case.get("warning") == "japanese_language_not_installed" else ""
+        empty_line = "・文字は抽出できませんでした。"
+    if tsv_result is not None and not tsv_result.get("error") and int(tsv_result.get("rows", 0)) > 0:
+        tsv_line = f"・{tsv_result.get('rows', 0)}件のイベント候補を生成しました。"
+    else:
+        tsv_line = "・TSV候補は生成されていません。"
+    case_type = image_cases[0].get("type", "unknown") if image_cases else "unknown"
+    lines = [
+        "画像/PDF案件を受け付けました😇",
+        "・ファイル案件として保存しました。",
+        f"・種別は {case_type} の可能性があります。",
+        ocr_line,
+    ]
+    if warning_line:
+        lines.append(warning_line)
+    if empty_line:
+        lines.append(empty_line)
+    lines.append(tsv_line)
+    if quality_result is not None:
+        lines.append(f"・案件種別: {quality_result.get('case_type', 'unknown')}")
+        if quality_result.get("road_candidate"):
+            lines.append("・交通規制情報も検出しました。")
+        lines.append(f"・信頼度: {quality_result.get('confidence', 'unknown')}")
+    lines.append("・OCR誤認識の可能性があるため、人手確認をお願いします。")
+    return "\n".join(lines)
+
+
+async def save_attachments_locally(message: Any) -> dict[str, str]:
+    local_paths: dict[str, str] = {}
+    for attachment in getattr(message, "attachments", []) or []:
+        filename = str(getattr(attachment, "filename", "") or "")
+        if not filename:
+            continue
+        path = image_memory.attachment_path(getattr(message, "id", "unknown"), filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            await attachment.save(path)
+        except Exception as exc:
+            print(f"attachment_save_failed={filename}: {exc}")
+            continue
+        local_paths[filename] = str(path.relative_to(ROOT))
+    return local_paths
 
 
 def main() -> int:
@@ -458,9 +592,10 @@ def main() -> int:
             return
 
         content = message.content.strip()
-        if not content:
+        attachments = getattr(message, "attachments", [])
+        if not content and not attachments:
             return
-        if content_filter.is_filtered(content):
+        if content and content_filter.is_filtered(content):
             return
 
         channel_name = getattr(message.channel, "name", "")
@@ -482,21 +617,70 @@ def main() -> int:
         user_name = getattr(message.author, "display_name", str(message.author))
         history = chat_memory.load_history(channel_id)
         history_text = chat_memory.format_history(history)
+        command = content.split(maxsplit=1)[0]
+        addressed_to_me = is_mention_to_me(message, client)
+        admin_like_channel_ids = get_admin_like_channel_ids()
+        is_admin_channel = str(channel_id) in admin_like_channel_ids
+        if attachments:
+            log_attachment_debug(message)
+        attachment_local_paths = await save_attachments_locally(message) if attachments and (addressed_to_me or is_admin_channel) else {}
+        image_cases = image_router.save_message_image_cases(message, attachment_local_paths) if addressed_to_me or is_admin_channel else []
+        if attachments:
+            print(f"image_case_saved={bool(image_cases)}")
+        is_command = command in COMMANDS
+        if addressed_to_me:
+            reply_reason = "mention" if getattr(client, "user", None) in getattr(message, "mentions", []) else "reply"
+        elif is_command:
+            reply_reason = "command"
+        else:
+            reply_reason = "none"
+        should_reply = addressed_to_me or is_command
 
-        if is_mention_to_me(message, client):
-            query = strip_bot_mentions(content, client) or content
-            reply = trim_discord_message(search_history_reply(query))
+        if content:
+            chat_memory.append_message(channel_id, user_name, content, "user")
+        print(f"should_reply={should_reply}")
+        print(f"reply_reason={reply_reason}")
+
+        if not should_reply:
+            return
+
+        if addressed_to_me:
+            if image_cases:
+                query = "添付ファイル案件です。"
+                ocr_case = None
+                tsv_result = None
+                quality_result = None
+                saved_path = image_cases[0].get("saved_path")
+                if saved_path:
+                    ocr_case = ocr_worker.process_image_case(ROOT / str(saved_path))
+                    if ocr_case is not None:
+                        tsv_result = build_tsv_candidate.process_ocr_case(ROOT / str(ocr_case["saved_path"]))
+                        if tsv_result is not None and not tsv_result.get("error") and tsv_result.get("tsv_path"):
+                            quality_result = check_tsv_candidate.check_tsv_candidate(ROOT / str(tsv_result["tsv_path"]))
+                print(f"ocr_case_created={ocr_case is not None}")
+                print(f"tsv_created={tsv_result is not None}")
+                reply = trim_discord_message(build_attachment_reply(image_cases, ocr_case, tsv_result, quality_result))
+                chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
+                await message.channel.send(reply)
+                return
+
+            query = strip_bot_mentions(content, client) or content or "未確認です。"
+            if should_use_search_router(query, history):
+                search_query = query
+                print(f"search_router_input={search_query}")
+                reply = trim_discord_message(search_router_reply(search_query))
+            else:
+                reply = "no_search"
+            if reply in {"no_search", "not_applicable", "error"}:
+                reply = trim_discord_message(search_history_reply(query))
             if reply not in {"Gemma4B未起動", "日誌記憶なし"}:
-                chat_memory.append_message(channel_id, user_name, content, "user")
                 chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
             await message.channel.send(reply)
             return
 
-        command = content.split(maxsplit=1)[0]
-        if command in COMMANDS:
+        if is_command:
             if command == "!dragons" and not load_yaml(DRAGONS_PATH):
                 reply = "ドラゴンズ関連ログはありません"
-                chat_memory.append_message(channel_id, user_name, content, "user")
                 chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
                 await message.channel.send(reply)
                 return
@@ -508,29 +692,9 @@ def main() -> int:
                 await message.channel.send("Gemma4B未起動")
                 return
             reply = trim_discord_message(normalize_reply(response))
-            chat_memory.append_message(channel_id, user_name, content, "user")
             chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
             await message.channel.send(reply)
             return
-
-        mode = channel_info["mode"]
-        if mode == "chat":
-            classified = classify_message_text(content)
-            if classified is None:
-                await message.channel.send("Gemma4B未起動")
-                return
-            mode = classified
-
-        source = source_for_mode(mode)
-        prompt = build_natural_prompt(content, mode, source, history_text)
-        response = call_ollama(prompt)
-        if response is None:
-            await message.channel.send("Gemma4B未起動")
-            return
-        reply = trim_discord_message(normalize_reply(response))
-        chat_memory.append_message(channel_id, user_name, content, "user")
-        chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
-        await message.channel.send(reply)
 
     client.run(token)
     return 0
