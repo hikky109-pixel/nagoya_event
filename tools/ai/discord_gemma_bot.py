@@ -44,6 +44,7 @@ from tools.ai import image_router  # noqa: E402
 from tools.ai import ocr_worker  # noqa: E402
 from tools.ai import build_tsv_candidate  # noqa: E402
 from tools.ai import check_tsv_candidate  # noqa: E402
+from tools.ai.meieki_busy_buttons import build_meieki_busy_view  # noqa: E402
 from tools.ai.oracle_memory import format_oracle_memory, oracle_log_values  # noqa: E402
 from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
@@ -600,6 +601,7 @@ def main() -> int:
     intents = discord.Intents.default()
     intents.message_content = True
     client = discord.Client(intents=intents)
+    client.add_view(build_meieki_busy_view(discord))
     channel_modes: dict[int, dict[str, str]] = {}
 
     @client.event
