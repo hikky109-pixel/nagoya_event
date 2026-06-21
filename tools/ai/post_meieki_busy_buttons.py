@@ -20,16 +20,23 @@ def get_setting(name: str) -> str:
     return value.strip() if isinstance(value, str) else str(value).strip()
 
 
+def normalize_channel_id(value: str) -> str:
+    value = value.strip()
+    if value.startswith("<") and value.endswith(">"):
+        value = value[1:-1].strip()
+    return value if value.isdigit() else ""
+
+
 def default_channel_id() -> str:
+    direct = normalize_channel_id(get_setting("GEMMA_CHANNEL_NAGOYA"))
+    if direct:
+        return direct
+
     channels = getattr(config, "GEMMA_CHANNELS", {}) or {}
     if isinstance(channels, dict):
-        nagoya = str(channels.get("nagoya", "")).strip()
+        nagoya = normalize_channel_id(str(channels.get("nagoya", "")).strip())
         if nagoya:
             return nagoya
-    for name in ("GEMMA_CHANNEL_NAGOYA", "GEMMA_CHANNEL_TEST", "GEMMA_DISCORD_CHANNEL_ID"):
-        value = get_setting(name)
-        if value:
-            return value
     return ""
 
 
@@ -42,8 +49,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     token = get_setting("DISCORD_BOT_TOKEN")
-    if not token or not args.channel_id:
-        print("名駅繁忙ボタン投稿設定未完了")
+    channel_id = normalize_channel_id(str(args.channel_id))
+    if not token:
+        print("名駅繁忙ボタン投稿設定未完了: DISCORD_BOT_TOKEN")
+        return 0
+    if not channel_id:
+        print("名駅繁忙ボタン投稿設定未完了: GEMMA_CHANNEL_NAGOYA")
         return 0
 
     try:
@@ -57,9 +68,9 @@ def main() -> int:
 
     @client.event
     async def on_ready() -> None:
-        channel = client.get_channel(int(args.channel_id))
+        channel = client.get_channel(int(channel_id))
         if channel is None:
-            print(f"投稿先チャンネルが見つかりません: {args.channel_id}")
+            print(f"投稿先チャンネルが見つかりません: {channel_id}")
             await client.close()
             return
         await channel.send(message_text(), view=build_meieki_busy_view(discord))

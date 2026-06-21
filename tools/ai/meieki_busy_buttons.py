@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ MEIEKI_BUSY_PLACES = (
         "custom_id": "meieki_busy_midland",
     },
 )
+PLACE_BY_ID = {place["place"]: place for place in MEIEKI_BUSY_PLACES}
 
 
 def now_jst_iso() -> str:
@@ -71,36 +73,66 @@ def append_busy_log(
         f.write("\n")
 
 
+async def handle_busy_interaction(interaction: Any, place: str, label: str) -> None:
+    try:
+        user = getattr(interaction, "user", None)
+        channel = getattr(interaction, "channel", None)
+        message = getattr(interaction, "message", None)
+        append_busy_log(
+            place=place,
+            label=label,
+            user_id=str(getattr(user, "id", "")),
+            user_name=str(getattr(user, "display_name", user or "")),
+            channel_id=str(getattr(channel, "id", "")),
+            message_id=str(getattr(message, "id", "")),
+        )
+        await interaction.response.send_message("記録しました😇", ephemeral=True)
+    except Exception:
+        traceback.print_exc()
+        if not interaction.response.is_done():
+            await interaction.response.send_message("記録に失敗しました", ephemeral=True)
+
+
 def build_meieki_busy_view(discord: Any) -> Any:
     class MeiekiBusyView(discord.ui.View):
         def __init__(self) -> None:
             super().__init__(timeout=None)
-            for place in MEIEKI_BUSY_PLACES:
-                button = discord.ui.Button(
-                    label=place["label"],
-                    emoji=place["emoji"],
-                    style=discord.ButtonStyle.primary,
-                    custom_id=place["custom_id"],
-                )
-                button.callback = self._make_callback(place)
-                self.add_item(button)
 
-        def _make_callback(self, place: dict[str, str]) -> Any:
-            async def callback(interaction: Any) -> None:
-                user = getattr(interaction, "user", None)
-                channel = getattr(interaction, "channel", None)
-                message = getattr(interaction, "message", None)
-                append_busy_log(
-                    place=place["place"],
-                    label=place["label"],
-                    user_id=str(getattr(user, "id", "")),
-                    user_name=str(getattr(user, "display_name", user or "")),
-                    channel_id=str(getattr(channel, "id", "")),
-                    message_id=str(getattr(message, "id", "")),
-                )
-                await interaction.response.send_message("記録しました😇", ephemeral=True)
+        @discord.ui.button(
+            label="桜通口",
+            emoji="🌸",
+            style=discord.ButtonStyle.primary,
+            custom_id="meieki_busy_sakuradori",
+        )
+        async def sakuradori_button(self, interaction: Any, button: Any) -> None:
+            await handle_busy_interaction(interaction, "sakuradori", "桜通口")
 
-            return callback
+        @discord.ui.button(
+            label="太閤通口",
+            emoji="🚄",
+            style=discord.ButtonStyle.primary,
+            custom_id="meieki_busy_taiko",
+        )
+        async def taiko_button(self, interaction: Any, button: Any) -> None:
+            await handle_busy_interaction(interaction, "taiko", "太閤通口")
+
+        @discord.ui.button(
+            label="名鉄／近鉄乗り場",
+            emoji="🚃",
+            style=discord.ButtonStyle.primary,
+            custom_id="meieki_busy_meitetsu_kintetsu",
+        )
+        async def meitetsu_kintetsu_button(self, interaction: Any, button: Any) -> None:
+            await handle_busy_interaction(interaction, "meitetsu_kintetsu", "名鉄／近鉄乗り場")
+
+        @discord.ui.button(
+            label="ミッドランド前",
+            emoji="🏢",
+            style=discord.ButtonStyle.primary,
+            custom_id="meieki_busy_midland",
+        )
+        async def midland_button(self, interaction: Any, button: Any) -> None:
+            await handle_busy_interaction(interaction, "midland", "ミッドランド前")
 
     return MeiekiBusyView()
 

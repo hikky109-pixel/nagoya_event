@@ -600,8 +600,13 @@ def main() -> int:
 
     intents = discord.Intents.default()
     intents.message_content = True
-    client = discord.Client(intents=intents)
-    client.add_view(build_meieki_busy_view(discord))
+
+    class GemmaDiscordClient(discord.Client):
+        async def setup_hook(self) -> None:
+            self.add_view(build_meieki_busy_view(discord))
+            print("persistent_view_registered=meieki_busy", flush=True)
+
+    client = GemmaDiscordClient(intents=intents)
     channel_modes: dict[int, dict[str, str]] = {}
 
     @client.event

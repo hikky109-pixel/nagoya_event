@@ -1,5 +1,12 @@
 import os
 
+
+def _channel_id_env(name):
+    value = os.getenv(name, "").strip()
+    if value.startswith("<") and value.endswith(">"):
+        value = value[1:-1].strip()
+    return value
+
 # ==========================
 # 名古屋イベントBOT 共通設定
 # ==========================
@@ -82,7 +89,7 @@ GEMMA_DISCORD_CHANNEL_ID = os.getenv("GEMMA_DISCORD_CHANNEL_ID", "")
 GEMMA_GUILD_ID = os.getenv("GEMMA_GUILD_ID", "")
 GEMMA_CHANNEL_TEST = os.getenv("GEMMA_CHANNEL_TEST", "")
 GEMMA_CHANNEL_ADMIN = os.getenv("GEMMA_CHANNEL_ADMIN", "")
-GEMMA_CHANNEL_NAGOYA = os.getenv("GEMMA_CHANNEL_NAGOYA", "")
+GEMMA_CHANNEL_NAGOYA = _channel_id_env("GEMMA_CHANNEL_NAGOYA")
 
 # Webhook版を使う場合のみ環境変数で設定。
 GEMMA_DISCORD_WEBHOOK = os.getenv("GEMMA_DISCORD_WEBHOOK", "")
