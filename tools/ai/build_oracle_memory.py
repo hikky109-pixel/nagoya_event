@@ -95,15 +95,39 @@ def lesson_for_failure(text: str) -> str:
     return "失敗事例として、断定せずcandidate扱いで人手確認へ回す。"
 
 
+def title_for_case(text: str, topics: list[str]) -> str:
+    if "熱田まつり" in text:
+        return "熱田まつりPDF案件"
+    if "御園座" in text and ("OCR" in text or "読めねー案件" in text):
+        return "御園座OCR案件"
+    if "新幹線" in text:
+        return "新幹線インシデント"
+    if "オービス" in text:
+        return "オービス道路情報"
+    if "CSV" in text or "Sheets" in text or "同期" in text:
+        return "CSV/Sheets同期案件"
+    if "OCR" in text or "PDF" in text or "画像" in text:
+        return "画像/PDF OCR案件"
+    if "road" in topics:
+        return "道路交通案件"
+    if "event" in topics:
+        return "イベント需要案件"
+    if "railway" in topics:
+        return "公共交通案件"
+    return "運用案件"
+
+
 def build_case_item(path: Path, case: dict[str, Any], kind: str) -> dict[str, Any]:
     text = case_text(case)
+    topics = classify_topics(text)
     lesson = lesson_for_success(text) if kind == "success" else lesson_for_failure(text)
     return {
+        "title": title_for_case(text, topics),
         "timestamp": str(case.get("timestamp", "")),
         "channel": str(case.get("channel", "")),
         "summary": summarize_text(text),
         "lesson": lesson,
-        "topics": classify_topics(text),
+        "topics": topics,
         "source": source_file(path),
     }
 
@@ -133,8 +157,11 @@ def build_cautions(cases: list[tuple[Path, dict[str, Any]]]) -> list[dict[str, A
     for topic, count in topic_counts.most_common():
         cautions.append(
             {
+                "title": f"{topic}注意点",
                 "topic": topic,
                 "note": notes.get(topic, notes["general"]),
+                "summary": notes.get(topic, notes["general"]),
+                "lesson": notes.get(topic, notes["general"]),
                 "count": count,
                 "examples": examples.get(topic, []),
             }
@@ -178,8 +205,8 @@ def build_oracle_memory() -> dict[str, Any]:
             "case_memory_dir": source_file(CASE_MEMORY_DIR),
             "case_memory_count": len(all_cases),
         },
-        "success_cases": success_cases[:40],
-        "failure_cases": failure_cases[:40],
+        "success_cases": success_cases,
+        "failure_cases": failure_cases,
         "cautions": build_cautions(all_cases)[:20],
         "notes": [
             "Oracle記憶は判断補助です。本番データを勝手に確定しない。",

@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from tools.ai.oracle_search import search_oracle
+
 
 ROOT = Path(__file__).resolve().parents[2]
 ORACLE_MEMORY_PATH = ROOT / "data" / "ai" / "oracle_memory.json"
@@ -23,40 +25,33 @@ def load_oracle_memory() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _matches_query(item: dict[str, Any], query: str) -> bool:
-    if not query:
-        return True
-    text = json.dumps(item, ensure_ascii=False)
-    words = [word for word in query.replace("？", " ").replace("?", " ").split() if word]
-    return any(word in text for word in words) if words else True
-
-
 def compact_oracle_memory(query: str = "", max_items: int = 4) -> dict[str, Any]:
-    memory = load_oracle_memory()
-    if not memory:
+    matches = search_oracle(query, limit=max_items)
+    if not matches:
         return {}
-
-    successes = [item for item in memory.get("success_cases", []) if isinstance(item, dict) and _matches_query(item, query)]
-    failures = [item for item in memory.get("failure_cases", []) if isinstance(item, dict) and _matches_query(item, query)]
-    cautions = [item for item in memory.get("cautions", []) if isinstance(item, dict) and _matches_query(item, query)]
-
-    if not successes:
-        successes = [item for item in memory.get("success_cases", []) if isinstance(item, dict)]
-    if not failures:
-        failures = [item for item in memory.get("failure_cases", []) if isinstance(item, dict)]
-    if not cautions:
-        cautions = [item for item in memory.get("cautions", []) if isinstance(item, dict)]
-
     return {
-        "generated_at": memory.get("generated_at", ""),
-        "success_cases": successes[:max_items],
-        "failure_cases": failures[:max_items],
-        "cautions": cautions[:max_items],
+        "matches": matches,
     }
 
 
 def format_oracle_memory(query: str = "", max_items: int = 4) -> str:
-    compact = compact_oracle_memory(query, max_items=max_items)
-    if not compact:
-        return "Oracle記憶なし"
-    return json.dumps(compact, ensure_ascii=False, indent=2)
+    matches = search_oracle(query, limit=max_items)
+    if not matches:
+        return "過去事例なし"
+
+    lines = ["過去事例:"]
+    for item in matches:
+        lines.append(f"・{item.get('title', '')}")
+        summary = str(item.get("summary", "")).strip()
+        lesson = str(item.get("lesson", "")).strip()
+        if summary:
+            lines.append(summary)
+        if lesson:
+            lines.append(lesson)
+    return "\n".join(lines)
+
+
+def oracle_log_values(query: str, max_items: int = 5) -> tuple[int, str]:
+    matches = search_oracle(query, limit=max_items)
+    titles = ",".join(str(item.get("title", "")) for item in matches)
+    return len(matches), titles

@@ -40,7 +40,7 @@ CATEGORY_WORDS = {
 
 sys.path.insert(0, str(ROOT))
 from tools.ai.entity_resolver import entity_system_prompt, resolve_entity  # noqa: E402
-from tools.ai.oracle_memory import format_oracle_memory  # noqa: E402
+from tools.ai.oracle_memory import format_oracle_memory, oracle_log_values  # noqa: E402
 from tools.ai.result_formatter import format_results  # noqa: E402
 from tools.ai.web_query import search_web  # noqa: E402
 
@@ -111,6 +111,9 @@ def build_prompt(text: str, category: str, formatted_result: dict[str, Any]) -> 
     result_json = json.dumps(formatted_result, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(text)
     oracle_text = format_oracle_memory(text)
+    oracle_count, oracle_titles = oracle_log_values(text)
+    print(f"oracle_matches={oracle_count}", file=sys.stderr)
+    print(f"oracle_titles={oracle_titles}", file=sys.stderr)
     return f"""あなたはジェンマ課長です。
 
 {entity_prompt}
@@ -147,7 +150,7 @@ URLの読み上げは禁止。
 分類: {category}
 質問: {text}
 
-Oracle記憶:
+過去事例:
 {oracle_text}
 
 整理済み検索結果:
@@ -171,15 +174,27 @@ def normalize_answer(text: str) -> str:
     ]
     if not lines:
         return "・外部調査では確認できる内容は未確認です。\n"
-    if len(lines) < 3:
-        lines.extend(["・詳細は未確認です。"] * (3 - len(lines)))
+    if len(lines) < 3 and "・詳細は未確認です。" not in lines:
+        lines.append("・詳細は未確認です。")
     normalized = []
     for line in lines[:7]:
         line = line.replace("調査したところ / 公式候補では / 検索結果では / ", "調査したところ、")
         line = line.replace("調査したところ / 公式候補では / 検索結果では、", "検索結果では、")
         line = line.replace("これらのウェブサイトは全て公式ではない候補です。", "公式判定は未確認のため、candidateとして扱います。")
         normalized.append(line if line.startswith(("・", "-", "*", "🤖")) else f"・{line}")
-    return "\n".join(normalized).rstrip() + "\n"
+    deduped = []
+    seen = set()
+    detail_seen = False
+    for line in normalized:
+        if line == "・詳細は未確認です。":
+            if detail_seen:
+                continue
+            detail_seen = True
+        elif line in seen:
+            continue
+        deduped.append(line)
+        seen.add(line)
+    return "\n".join(deduped).rstrip() + "\n"
 
 
 def answer_with_research(text: str) -> str:
