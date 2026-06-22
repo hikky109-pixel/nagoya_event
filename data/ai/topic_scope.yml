@@ -1,0 +1,35 @@
+ocr:
+  channels:
+    - 管理用⚙️
+
+pdf:
+  channels:
+    - 管理用⚙️
+
+github:
+  channels:
+    - 管理用⚙️
+
+server:
+  channels:
+    - 管理用⚙️
+
+busy:
+  channels:
+    - 名古屋駅入構状況🚕🚕🚕
+
+traffic:
+  channels:
+    - 名古屋駅入構状況🚕🚕🚕
+
+weather:
+  channels:
+    - 名古屋駅入構状況🚕🚕🚕
+
+event:
+  channels:
+    - 名古屋駅入構状況🚕🚕🚕
+
+chat:
+  channels:
+    - 雑談💬

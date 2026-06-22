@@ -25,8 +25,11 @@ data/*.json
 .DS_Store
 
 # Runtime/generated data
-data/
+data/*
 !data/.gitkeep
+!data/ai/
+data/ai/*
+!data/ai/topic_scope.yml
 
 # Runtime CSV
 csv_events/*.csv

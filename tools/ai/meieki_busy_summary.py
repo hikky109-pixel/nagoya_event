@@ -46,6 +46,7 @@ def read_recent_busy(minutes: int = 10) -> dict[str, int]:
     except OSError:
         return counts
 
+    rows: list[dict[str, Any]] = []
     for line in lines:
         if not line.strip():
             continue
@@ -55,7 +56,21 @@ def read_recent_busy(minutes: int = 10) -> dict[str, int]:
             continue
         if not isinstance(row, dict):
             continue
-        ts = parse_ts(str(row.get("ts", "")))
+        rows.append(row)
+
+    cancelled_ids = {
+        str(row.get("original_id", ""))
+        for row in rows
+        if row.get("type") == "cancel" and str(row.get("original_id", ""))
+    }
+
+    for row in rows:
+        if row.get("type") == "cancel":
+            continue
+        message_id = str(row.get("message_id", ""))
+        if message_id and message_id in cancelled_ids:
+            continue
+        ts = parse_ts(str(row.get("ts") or row.get("timestamp") or ""))
         if ts is None or ts < since or ts > now:
             continue
         place = str(row.get("place", ""))
