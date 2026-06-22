@@ -50,11 +50,11 @@ def get_oracle_max_items() -> int:
 
 
 def get_ollama_timeout() -> int:
-    value = getattr(config, "GEMMA_SEARCH_HISTORY_OLLAMA_TIMEOUT", 42)
+    value = getattr(config, "GEMMA_SEARCH_HISTORY_OLLAMA_TIMEOUT", 35)
     try:
         return max(1, int(value))
     except (TypeError, ValueError):
-        return 42
+        return 35
 
 
 def today() -> date:
