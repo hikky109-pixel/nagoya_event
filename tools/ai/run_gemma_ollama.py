@@ -10,6 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from railway_status_normalizer import get_all_railway_alerts
+except ModuleNotFoundError:
+    from tools.ai.railway_status_normalizer import get_all_railway_alerts
+
 
 ROOT = Path(__file__).resolve().parents[2]
 AI_DIR = ROOT / "data" / "ai"
@@ -19,6 +24,10 @@ TEXT_OUTPUT_PATH = AI_DIR / "gemma_comment.txt"
 JSON_OUTPUT_PATH = AI_DIR / "gemma_comment.json"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
+RAILWAY_BETA_EXCLUDE_MARKERS = (
+    "取得失敗",
+    "運行情報提供停止",
+)
 
 
 def now_iso() -> str:
@@ -68,8 +77,46 @@ def load_simple_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def build_prompt(report: str, profile: dict[str, Any]) -> str:
+def public_railway_alerts(alerts: list[str]) -> list[str]:
+    public_alerts: list[str] = []
+    for alert in alerts:
+        text = " ".join(str(alert or "").split())
+        if not text:
+            continue
+        if any(marker in text for marker in RAILWAY_BETA_EXCLUDE_MARKERS):
+            continue
+        public_alerts.append(text)
+    return public_alerts
+
+
+def load_railway_beta_alerts() -> list[str]:
+    try:
+        return public_railway_alerts(get_all_railway_alerts())
+    except Exception:
+        return []
+
+
+def build_railway_beta_block(alerts: list[str]) -> str:
+    if not alerts:
+        return ""
+
+    alert_lines = "\n".join(f"- {alert}" for alert in alerts)
+    return f"""交通情報ベータ:
+{alert_lines}
+
+交通情報ベータの扱い:
+- この情報はベータ機能による自動取得です。
+- 取得タイミングや各社サイトの更新状況により、実際の状況と異なる場合があります。
+- ご利用の方は各鉄道会社の公式サイトや公式アプリ等でも最新情報をご確認くださいね😇
+- 上の交通情報は省略せず、取得できた事実を最大限活用してください。
+- AIによる原因の補完、復旧見込みの創作、影響範囲の拡大解釈は禁止です。
+- 短い情報しかない場合は、短いまま自然に伝えてください。
+"""
+
+
+def build_prompt(report: str, profile: dict[str, Any], railway_beta_alerts: list[str] | None = None) -> str:
     profile_json = json.dumps(profile, ensure_ascii=False, indent=2)
+    railway_beta_block = build_railway_beta_block(railway_beta_alerts or [])
     return f"""あなたはジェンマ課長です。
 
 以下のプロフィールと日報をもとに、短いコメントだけを作ってください。
@@ -83,12 +130,15 @@ def build_prompt(report: str, profile: dict[str, Any]) -> str:
 - 運転再開≠復旧
 - ツッコミは最大1回
 - スギケツバットは毎回出さない
+- 交通情報ベータがある場合だけ、交通情報にも短く触れる
 
 profile:
 {profile_json}
 
 report:
 {report}
+
+{railway_beta_block}
 """
 
 
@@ -121,7 +171,12 @@ def call_ollama(prompt: str) -> dict[str, Any] | None:
 def main() -> int:
     report = REPORT_PATH.read_text(encoding="utf-8")
     profile = load_profile(PROFILE_PATH)
-    prompt = build_prompt(report, profile)
+    railway_beta_alerts = load_railway_beta_alerts()
+    if railway_beta_alerts:
+        print(f"railway_beta_alerts: {len(railway_beta_alerts)}")
+    else:
+        print("railway_beta_alerts: 0")
+    prompt = build_prompt(report, profile, railway_beta_alerts)
     response = call_ollama(prompt)
 
     if response is None:
@@ -133,6 +188,7 @@ def main() -> int:
         "generated_at": now_iso(),
         "model": MODEL,
         "comment": comment,
+        "railway_beta_alerts": railway_beta_alerts,
         "done": bool(response.get("done")),
     }
 
