@@ -4,19 +4,27 @@
 from __future__ import annotations
 
 import json
+import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
 try:
     from railway_status_normalizer import get_all_railway_alerts
 except ModuleNotFoundError:
     from tools.ai.railway_status_normalizer import get_all_railway_alerts
 
+try:
+    from tools.weather.weather_normalizer import get_all_weather_alerts
+except ModuleNotFoundError:
+    from weather_normalizer import get_all_weather_alerts
 
-ROOT = Path(__file__).resolve().parents[2]
+
 AI_DIR = ROOT / "data" / "ai"
 REPORT_PATH = AI_DIR / "gemma_report.txt"
 PROFILE_PATH = AI_DIR / "gemma_profile.yml"
@@ -110,6 +118,13 @@ def load_railway_beta_alerts(now: datetime | None = None) -> list[str]:
         return []
 
 
+def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
+    try:
+        return get_all_weather_alerts(now)
+    except Exception:
+        return []
+
+
 def build_railway_beta_block(alerts: list[str]) -> str:
     if not alerts:
         return ""
@@ -128,9 +143,31 @@ def build_railway_beta_block(alerts: list[str]) -> str:
 """
 
 
-def build_prompt(report: str, profile: dict[str, Any], railway_beta_alerts: list[str] | None = None) -> str:
+def build_weather_beta_block(alerts: list[str]) -> str:
+    if not alerts:
+        return ""
+
+    alerts_json = json.dumps(alerts, ensure_ascii=False, indent=2)
+    return f"""【天気ベータ】
+以下は名古屋中心部の営業に影響する可能性がある気象情報です。
+- 普段の天気予報ではありません
+- 営業判断に関係しそうな異常・直近変化だけです
+- 大げさにせず短く書いてください
+- 取得失敗や不明点は書かないでください
+weather_beta_alerts:
+{alerts_json}
+"""
+
+
+def build_prompt(
+    report: str,
+    profile: dict[str, Any],
+    railway_beta_alerts: list[str] | None = None,
+    weather_beta_alerts: list[str] | None = None,
+) -> str:
     profile_json = json.dumps(profile, ensure_ascii=False, indent=2)
     railway_beta_block = build_railway_beta_block(railway_beta_alerts or [])
+    weather_beta_block = build_weather_beta_block(weather_beta_alerts or [])
     return f"""あなたはジェンマ課長です。
 
 以下のプロフィールと日報をもとに、短いコメントだけを作ってください。
@@ -145,6 +182,7 @@ def build_prompt(report: str, profile: dict[str, Any], railway_beta_alerts: list
 - ツッコミは最大1回
 - スギケツバットは毎回出さない
 - 交通情報ベータがある場合だけ、交通情報にも短く触れる
+- 天気ベータがある場合だけ、名古屋中心部の需要変化にも短く触れる
 
 profile:
 {profile_json}
@@ -153,6 +191,7 @@ report:
 {report}
 
 {railway_beta_block}
+{weather_beta_block}
 """
 
 
@@ -188,13 +227,15 @@ def main() -> int:
     now_jst = datetime.now(JST)
     railway_beta_is_active = is_railway_beta_active(now_jst)
     railway_beta_alerts = load_railway_beta_alerts(now_jst)
+    weather_beta_alerts = load_weather_beta_alerts(now_jst)
     if not railway_beta_is_active:
         print("railway_beta_alerts: skipped overnight")
     elif railway_beta_alerts:
         print(f"railway_beta_alerts: {len(railway_beta_alerts)}")
     else:
         print("railway_beta_alerts: 0")
-    prompt = build_prompt(report, profile, railway_beta_alerts)
+    print(f"weather_beta_alerts: {len(weather_beta_alerts)}")
+    prompt = build_prompt(report, profile, railway_beta_alerts, weather_beta_alerts)
     response = call_ollama(prompt)
 
     if response is None:
@@ -207,6 +248,7 @@ def main() -> int:
         "model": MODEL,
         "comment": comment,
         "railway_beta_alerts": railway_beta_alerts,
+        "weather_beta_alerts": weather_beta_alerts,
         "done": bool(response.get("done")),
     }
 
