@@ -224,6 +224,17 @@ def build_prompt(text: str, category: str, formatted_result: dict[str, Any]) -> 
     oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
     print(f"oracle_matches={oracle_count}", file=sys.stderr)
     print(f"oracle_titles={oracle_titles}", file=sys.stderr)
+    railway_style = ""
+    if category == "railway":
+        railway_style = """交通系回答ルール:
+- あなたは交通情報に詳しい30代OL課長です。
+- 自然な日本語で簡潔に回答してください。
+- 箇条書きよりも2〜4文程度の自然な文章を優先してください。
+- 以下の表現は禁止します: 調査したところ / candidate情報 / 検索結果では / 詳細は未確認です / これは公式情報ではありません
+- official_first=True の場合は「公式情報では、」から始めてください。
+- official_first=False の場合は「公式情報は確認できませんでしたが、検索結果ベースでは、」から始めてください。
+- 最後は柔らかく締めてください。😇 を付けても構いません。
+"""
     return f"""あなたはジェンマ課長です。
 
 {entity_prompt}
@@ -249,16 +260,16 @@ URLの読み上げは禁止。
 公式ドメイン以外の情報は candidate として扱い、断定しないこと。
 公式情報がある場合は「公式情報では、」で始めてください。
 公式情報がない場合は「公式情報は確認できませんでした。検索結果ベースでは、」で始めてください。
+{railway_style}
 
 ルール:
 - 勝手に補完しない
 - 不明なら未確認
-- candidate を利用
 - ツッコミ最大1回
 - 本番データを勝手に確定しない
-- 推奨表現: 調査したところ / 公式候補では / 検索結果では / 未確認ですが / candidateとして
+- 推奨表現: 公式情報では / 公式情報は確認できませんでしたが、検索結果ベースでは
 - 推奨表現: 詳細は公式をご確認ください。
-- 禁止表現: 調べます / 確認します / 候補を探します / ピックアップします / 期待しています
+- 禁止表現: 調べます / 確認します / 候補を探します / ピックアップします / 期待しています / 調査したところ / candidate情報 / 詳細は未確認です
 - URLを出力しない
 
 分類: {category}
@@ -272,8 +283,14 @@ URLの読み上げは禁止。
 """
 
 
-def normalize_answer(text: str) -> str:
+def normalize_answer(text: str, category: str = "") -> str:
     blocked_phrases = ("未確認事項はありません",)
+    railway_blocked_phrases = (
+        "調査したところ",
+        "candidate情報",
+        "詳細は未確認です",
+        "これは公式情報ではありません",
+    )
     banned_plan_phrases = ("調べます", "確認します", "候補を探します", "ピックアップします", "期待しています")
     url_pattern = ("http://", "https://")
     lines = [
@@ -283,19 +300,27 @@ def normalize_answer(text: str) -> str:
         and not line.startswith(("承知", "了解"))
         and line.strip("*：:") not in {"分析", "未確認事項", "推論", "回答", "調査結果：かつや 限定メニュー"}
         and not any(phrase in line for phrase in blocked_phrases)
+        and not (category == "railway" and any(phrase in line for phrase in railway_blocked_phrases))
         and not any(phrase in line for phrase in banned_plan_phrases)
         and not any(pattern in line for pattern in url_pattern)
     ]
     if not lines:
+        if category == "railway":
+            return "公式情報は確認できませんでしたが、検索結果ベースでは運行情報ページが見つかっています😇\n各事業者の案内をご確認ください。\n"
         return "・外部調査では確認できる内容は未確認です。\n"
-    if len(lines) < 3 and "・詳細は未確認です。" not in lines:
+    if category != "railway" and len(lines) < 3 and "・詳細は未確認です。" not in lines:
         lines.append("・詳細は未確認です。")
     normalized = []
-    for line in lines[:7]:
+    limit = 4 if category == "railway" else 7
+    for line in lines[:limit]:
         line = line.replace("調査したところ / 公式候補では / 検索結果では / ", "調査したところ、")
         line = line.replace("調査したところ / 公式候補では / 検索結果では、", "検索結果では、")
         line = line.replace("これらのウェブサイトは全て公式ではない候補です。", "公式判定は未確認のため、candidateとして扱います。")
-        normalized.append(line if line.startswith(("・", "-", "*", "🤖")) else f"・{line}")
+        if category == "railway":
+            line = line.lstrip("・-*🤖 ").strip()
+            normalized.append(line)
+        else:
+            normalized.append(line if line.startswith(("・", "-", "*", "🤖")) else f"・{line}")
     deduped = []
     seen = set()
     detail_seen = False
@@ -327,7 +352,7 @@ def answer_with_research(text: str) -> str:
         answer = call_ollama(build_prompt(text, category, formatted_result))
         if answer is None:
             return "Gemma4B未起動"
-        return normalize_answer(answer).rstrip()
+        return normalize_answer(answer, category=category).rstrip()
 
 
 def main() -> int:
