@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,7 @@ RAILWAY_BETA_EXCLUDE_MARKERS = (
     "取得失敗",
     "運行情報提供停止",
 )
+JST = timezone(timedelta(hours=9), "JST")
 
 
 def now_iso() -> str:
@@ -89,7 +90,20 @@ def public_railway_alerts(alerts: list[str]) -> list[str]:
     return public_alerts
 
 
-def load_railway_beta_alerts() -> list[str]:
+def is_railway_beta_active(now: datetime | None = None) -> bool:
+    if now is None:
+        now = datetime.now(JST)
+    elif now.tzinfo is not None:
+        now = now.astimezone(JST)
+
+    current_time = now.time()
+    return current_time >= time(5, 0) or current_time < time(1, 0)
+
+
+def load_railway_beta_alerts(now: datetime | None = None) -> list[str]:
+    if not is_railway_beta_active(now):
+        return []
+
     try:
         return public_railway_alerts(get_all_railway_alerts())
     except Exception:
@@ -171,8 +185,12 @@ def call_ollama(prompt: str) -> dict[str, Any] | None:
 def main() -> int:
     report = REPORT_PATH.read_text(encoding="utf-8")
     profile = load_profile(PROFILE_PATH)
-    railway_beta_alerts = load_railway_beta_alerts()
-    if railway_beta_alerts:
+    now_jst = datetime.now(JST)
+    railway_beta_is_active = is_railway_beta_active(now_jst)
+    railway_beta_alerts = load_railway_beta_alerts(now_jst)
+    if not railway_beta_is_active:
+        print("railway_beta_alerts: skipped overnight")
+    elif railway_beta_alerts:
         print(f"railway_beta_alerts: {len(railway_beta_alerts)}")
     else:
         print("railway_beta_alerts: 0")
