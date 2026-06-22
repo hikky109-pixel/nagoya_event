@@ -39,10 +39,21 @@ CATEGORY_WORDS = {
 }
 
 sys.path.insert(0, str(ROOT))
+import config  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt, resolve_entity  # noqa: E402
-from tools.ai.oracle_memory import format_oracle_memory, oracle_log_values  # noqa: E402
+from tools.ai.light_context import build_light_context  # noqa: E402
+from tools.ai.oracle_memory import format_oracle_matches, oracle_log_values_from_matches  # noqa: E402
+from tools.ai.oracle_search import search_oracle  # noqa: E402
 from tools.ai.result_formatter import format_results  # noqa: E402
 from tools.ai.web_query import search_web  # noqa: E402
+
+
+def get_oracle_max_items() -> int:
+    value = getattr(config, "GEMMA_ORACLE_MAX_ITEMS", 3)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 3
 
 
 def needs_research(text: str) -> bool:
@@ -110,13 +121,17 @@ def call_ollama(prompt: str) -> str | None:
 def build_prompt(text: str, category: str, formatted_result: dict[str, Any]) -> str:
     result_json = json.dumps(formatted_result, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(text)
-    oracle_text = format_oracle_memory(text)
-    oracle_count, oracle_titles = oracle_log_values(text)
+    light_context = build_light_context()
+    oracle_matches = search_oracle(text, limit=get_oracle_max_items())
+    oracle_text = format_oracle_matches(oracle_matches)
+    oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
     print(f"oracle_matches={oracle_count}", file=sys.stderr)
     print(f"oracle_titles={oracle_titles}", file=sys.stderr)
     return f"""あなたはジェンマ課長です。
 
 {entity_prompt}
+
+{light_context}
 
 以下は外部調査結果です。
 以下は検索結果です。

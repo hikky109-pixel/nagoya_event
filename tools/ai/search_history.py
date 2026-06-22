@@ -23,10 +23,29 @@ MODEL = "gemma3:4b"
 MAX_ITEMS = 18
 
 sys.path.insert(0, str(ROOT))
+import config  # noqa: E402
 from tools.ai import content_filter  # noqa: E402
 from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
-from tools.ai.oracle_memory import format_oracle_memory, oracle_log_values  # noqa: E402
+from tools.ai.light_context import build_light_context  # noqa: E402
+from tools.ai.oracle_memory import format_oracle_matches, oracle_log_values_from_matches  # noqa: E402
+from tools.ai.oracle_search import search_oracle  # noqa: E402
+
+
+def get_search_max_items() -> int:
+    value = getattr(config, "GEMMA_HISTORY_SEARCH_MAX_ITEMS", MAX_ITEMS)
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return MAX_ITEMS
+
+
+def get_oracle_max_items() -> int:
+    value = getattr(config, "GEMMA_ORACLE_MAX_ITEMS", 3)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 3
 
 
 def today() -> date:
@@ -166,7 +185,7 @@ def collect_history(query: str) -> list[dict[str, str]]:
     topic = classify_by_dictionary(query)
     if topic is not None:
         items = rank_topic_items(items, query)
-    return items[:MAX_ITEMS]
+    return items[:get_search_max_items()]
 
 
 def rank_topic_items(items: list[dict[str, str]], query: str) -> list[dict[str, str]]:
@@ -184,8 +203,10 @@ def build_prompt(query: str, items: list[dict[str, str]]) -> str:
     source_json = json.dumps(items, ensure_ascii=False, indent=2)
     dictionary_category = classify_by_dictionary(query) or "none"
     entity_prompt = entity_system_prompt(query)
-    oracle_text = format_oracle_memory(query)
-    oracle_count, oracle_titles = oracle_log_values(query)
+    light_context = build_light_context()
+    oracle_matches = search_oracle(query, limit=get_oracle_max_items())
+    oracle_text = format_oracle_matches(oracle_matches)
+    oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
     print(f"oracle_matches={oracle_count}", file=sys.stderr)
     print(f"oracle_titles={oracle_titles}", file=sys.stderr)
     return f"""あなたはジェンマ課長です。
@@ -193,6 +214,8 @@ def build_prompt(query: str, items: list[dict[str, str]]) -> str:
 過去の日誌・記憶を根拠に、ユーザーへ3〜7行で回答してください。
 
 {entity_prompt}
+
+{light_context}
 
 ルール:
 - 不明なら「未確認」

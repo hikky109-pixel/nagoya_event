@@ -34,8 +34,7 @@ def compact_oracle_memory(query: str = "", max_items: int = 4) -> dict[str, Any]
     }
 
 
-def format_oracle_memory(query: str = "", max_items: int = 4) -> str:
-    matches = search_oracle(query, limit=max_items)
+def format_oracle_matches(matches: list[dict[str, str]]) -> str:
     if not matches:
         return "過去事例なし"
 
@@ -51,7 +50,15 @@ def format_oracle_memory(query: str = "", max_items: int = 4) -> str:
     return "\n".join(lines)
 
 
-def oracle_log_values(query: str, max_items: int = 5) -> tuple[int, str]:
+def format_oracle_memory(query: str = "", max_items: int = 4) -> str:
     matches = search_oracle(query, limit=max_items)
+    return format_oracle_matches(matches)
+
+
+def oracle_log_values_from_matches(matches: list[dict[str, str]]) -> tuple[int, str]:
     titles = ",".join(str(item.get("title", "")) for item in matches)
     return len(matches), titles
+
+
+def oracle_log_values(query: str, max_items: int = 5) -> tuple[int, str]:
+    return oracle_log_values_from_matches(search_oracle(query, limit=max_items))
