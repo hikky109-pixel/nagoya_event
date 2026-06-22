@@ -480,8 +480,16 @@ def is_mention_to_me(message: Any, client: Any) -> bool:
     user = getattr(client, "user", None)
     if user is None:
         return False
+    print("my_id=", getattr(user, "id", None), flush=True)
+    print(
+        "mention_ids=",
+        [getattr(m, "id", None) for m in getattr(message, "mentions", [])],
+        flush=True,
+    )
     if user in getattr(message, "mentions", []):
+        print("mention_match_by_object=True", flush=True)
         return True
+    print("mention_match_by_object=False", flush=True)
     reference = getattr(message, "reference", None)
     resolved = getattr(reference, "resolved", None)
     author = getattr(resolved, "author", None)
@@ -687,6 +695,7 @@ def main() -> int:
         print("on_ready_start", flush=True)
         user = client.user
         print(f"Gemma課長Discord Bot起動: {user}", flush=True)
+        print("my_id=", user.id, flush=True)
         guild_id = get_guild_id()
         guild = client.get_guild(guild_id) if guild_id is not None else None
         if guild is None and guild_id is not None:
@@ -760,7 +769,8 @@ def main() -> int:
             direct_addressed_to_me = is_mention_to_me(message, client)
             name_mention_detected = is_name_mention(content)
             addressed_to_me = direct_addressed_to_me or name_mention_detected
-            print("name_mention_detected=", name_mention_detected)
+            print("direct_addressed_to_me=", direct_addressed_to_me, flush=True)
+            print("name_mention_detected=", name_mention_detected, flush=True)
             admin_like_channel_ids = get_admin_like_channel_ids()
             is_admin_channel = str(channel_id) in admin_like_channel_ids
             if attachments:
