@@ -29,6 +29,8 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 SUBPROCESS_TIMEOUT_SECONDS = 45
 SLOW_REPLY = "😇 調査に時間がかかっています。\n😇 少し短めに聞いてください。"
+ACK_REPLY = "確認します。少し時間ください😇"
+HEAVY_FALLBACK_REPLY = "今は重くて確認しきれませんでした。短めに聞いてください😇"
 COMMANDS = {"!brief", "!weather", "!dragons", "!incident", "!road"}
 IGNORE_CHANNELS = {"利用規約", "自己紹介"}
 LISTEN_ONLY_CHANNELS = {"バーボンハウス"}
@@ -951,14 +953,23 @@ def main() -> int:
                 elif is_light_chat_query(query):
                     print("reply_path=light_chat", flush=True)
                     reply = await light_chat_reply_async(query, channel_name)
-                elif should_use_search_router(query, history):
-                    search_query = query
-                    print(f"search_router_input={search_query}")
-                    reply = await search_router_reply_async(search_query)
                 else:
-                    reply = "no_search"
-                if reply in {"no_search", "not_applicable", "error"}:
-                    reply = await search_history_reply_async(query)
+                    print("reply_path=heavy_lookup", flush=True)
+                    await message.channel.send(ACK_REPLY)
+                    try:
+                        if should_use_search_router(query, history):
+                            search_query = query
+                            print(f"search_router_input={search_query}")
+                            reply = await search_router_reply_async(search_query)
+                        else:
+                            reply = "no_search"
+                        if reply in {"no_search", "not_applicable", "error"}:
+                            reply = await search_history_reply_async(query)
+                    except Exception:
+                        traceback.print_exc()
+                        reply = "確認中にエラーが出ました。短めに聞き直してください😇"
+                    if not reply or reply in {"Gemma4B未起動", "日誌記憶なし", "error", "not_applicable"}:
+                        reply = HEAVY_FALLBACK_REPLY
                 if reply not in {"Gemma4B未起動", "日誌記憶なし"}:
                     chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
                 await message.channel.send(reply)
