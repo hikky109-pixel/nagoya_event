@@ -30,6 +30,7 @@ from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
 from tools.ai.light_context import build_light_context  # noqa: E402
 from tools.ai.oracle_memory import format_oracle_matches, oracle_log_values_from_matches  # noqa: E402
 from tools.ai.oracle_search import search_oracle  # noqa: E402
+from tools.ai.time_debug import timer  # noqa: E402
 
 
 def get_search_max_items() -> int:
@@ -178,14 +179,19 @@ def add_chat_memory(items: list[dict[str, str]], target_dates: list[date] | None
 def collect_history(query: str) -> list[dict[str, str]]:
     dates = query_dates(query)
     items: list[dict[str, str]] = []
-    add_daily_summary(items, dates)
-    add_daily_memory(items, dates)
-    add_hourly_summary(items, dates)
-    add_chat_memory(items, dates)
-    topic = classify_by_dictionary(query)
-    if topic is not None:
-        items = rank_topic_items(items, query)
-    return items[:get_search_max_items()]
+    with timer("search_history.daily_summary", stream=sys.stderr):
+        add_daily_summary(items, dates)
+    with timer("search_history.daily_memory", stream=sys.stderr):
+        add_daily_memory(items, dates)
+    with timer("search_history.hourly_summary", stream=sys.stderr):
+        add_hourly_summary(items, dates)
+    with timer("search_history.chat_memory", stream=sys.stderr):
+        add_chat_memory(items, dates)
+    with timer("search_history.rank", stream=sys.stderr):
+        topic = classify_by_dictionary(query)
+        if topic is not None:
+            items = rank_topic_items(items, query)
+        return items[:get_search_max_items()]
 
 
 def rank_topic_items(items: list[dict[str, str]], query: str) -> list[dict[str, str]]:
@@ -204,7 +210,8 @@ def build_prompt(query: str, items: list[dict[str, str]]) -> str:
     dictionary_category = classify_by_dictionary(query) or "none"
     entity_prompt = entity_system_prompt(query)
     light_context = build_light_context()
-    oracle_matches = search_oracle(query, limit=get_oracle_max_items())
+    with timer("oracle_memory", stream=sys.stderr):
+        oracle_matches = search_oracle(query, limit=get_oracle_max_items())
     oracle_text = format_oracle_matches(oracle_matches)
     oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
     print(f"oracle_matches={oracle_count}", file=sys.stderr)
@@ -238,29 +245,30 @@ def build_prompt(query: str, items: list[dict[str, str]]) -> str:
 
 
 def call_ollama(prompt: str) -> str | None:
-    payload = {
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"num_predict": 360},
-    }
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        OLLAMA_URL,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            response_body = response.read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        return None
+    with timer("ollama", stream=sys.stderr):
+        payload = {
+            "model": MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_predict": 360},
+        }
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            OLLAMA_URL,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                response_body = response.read().decode("utf-8")
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            return None
 
-    data = json.loads(response_body)
-    if not isinstance(data, dict):
-        return ""
-    return str(data.get("response", "")).strip()
+        data = json.loads(response_body)
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("response", "")).strip()
 
 
 def normalize_answer(text: str) -> str:
@@ -281,13 +289,15 @@ def normalize_answer(text: str) -> str:
 
 
 def answer_query(query: str) -> str:
-    items = collect_history(query)
-    if not items:
-        return "日誌記憶なし"
-    answer = call_ollama(build_prompt(query, items))
-    if answer is None:
-        return "Gemma4B未起動"
-    return normalize_answer(answer).rstrip()
+    with timer("total", stream=sys.stderr):
+        with timer("search_history", stream=sys.stderr):
+            items = collect_history(query)
+        if not items:
+            return "日誌記憶なし"
+        answer = call_ollama(build_prompt(query, items))
+        if answer is None:
+            return "Gemma4B未起動"
+        return normalize_answer(answer).rstrip()
 
 
 def main() -> int:

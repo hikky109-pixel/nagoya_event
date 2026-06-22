@@ -11,6 +11,13 @@ def _int_env(name, default):
         return default
 
 
+def _bool_env(name, default):
+    value = os.getenv(name, "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
 def _channel_id_env(name):
     value = os.getenv(name, "").strip()
     if value.startswith("<") and value.endswith(">"):
@@ -121,3 +128,4 @@ GEMMA_CHANNELS = {
 GEMMA_CHAT_HISTORY_LIMIT = _int_env("GEMMA_CHAT_HISTORY_LIMIT", 20)
 GEMMA_HISTORY_SEARCH_MAX_ITEMS = _int_env("GEMMA_HISTORY_SEARCH_MAX_ITEMS", 12)
 GEMMA_ORACLE_MAX_ITEMS = _int_env("GEMMA_ORACLE_MAX_ITEMS", 3)
+GEMMA_TIME_DEBUG = _bool_env("GEMMA_TIME_DEBUG", True)

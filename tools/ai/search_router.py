@@ -45,6 +45,7 @@ from tools.ai.light_context import build_light_context  # noqa: E402
 from tools.ai.oracle_memory import format_oracle_matches, oracle_log_values_from_matches  # noqa: E402
 from tools.ai.oracle_search import search_oracle  # noqa: E402
 from tools.ai.result_formatter import format_results  # noqa: E402
+from tools.ai.time_debug import timer  # noqa: E402
 from tools.ai.web_query import search_web  # noqa: E402
 
 
@@ -93,36 +94,38 @@ def build_search_query(text: str, category: str) -> str:
 
 
 def call_ollama(prompt: str) -> str | None:
-    payload = {
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"num_predict": 360},
-    }
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        OLLAMA_URL,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            response_body = response.read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        return None
+    with timer("ollama", stream=sys.stderr):
+        payload = {
+            "model": MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_predict": 360},
+        }
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            OLLAMA_URL,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                response_body = response.read().decode("utf-8")
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            return None
 
-    data = json.loads(response_body)
-    if not isinstance(data, dict):
-        return ""
-    return str(data.get("response", "")).strip()
+        data = json.loads(response_body)
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("response", "")).strip()
 
 
 def build_prompt(text: str, category: str, formatted_result: dict[str, Any]) -> str:
     result_json = json.dumps(formatted_result, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(text)
     light_context = build_light_context()
-    oracle_matches = search_oracle(text, limit=get_oracle_max_items())
+    with timer("oracle_memory", stream=sys.stderr):
+        oracle_matches = search_oracle(text, limit=get_oracle_max_items())
     oracle_text = format_oracle_matches(oracle_matches)
     oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
     print(f"oracle_matches={oracle_count}", file=sys.stderr)
@@ -213,16 +216,20 @@ def normalize_answer(text: str) -> str:
 
 
 def answer_with_research(text: str) -> str:
-    if not needs_research(text):
-        return "no_search"
+    with timer("total", stream=sys.stderr):
+        with timer("search_router", stream=sys.stderr):
+            if not needs_research(text):
+                return "no_search"
 
-    category = classify_category(text)
-    web_result = search_web(build_search_query(text, category), category=category)
-    formatted_result = format_results(web_result)
-    answer = call_ollama(build_prompt(text, category, formatted_result))
-    if answer is None:
-        return "Gemma4B未起動"
-    return normalize_answer(answer).rstrip()
+            category = classify_category(text)
+            with timer("search_router.web_query", stream=sys.stderr):
+                web_result = search_web(build_search_query(text, category), category=category)
+            with timer("search_router.format_results", stream=sys.stderr):
+                formatted_result = format_results(web_result)
+        answer = call_ollama(build_prompt(text, category, formatted_result))
+        if answer is None:
+            return "Gemma4B未起動"
+        return normalize_answer(answer).rstrip()
 
 
 def main() -> int:

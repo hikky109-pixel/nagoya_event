@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 from tools.ai.oracle_search import search_oracle
+from tools.ai.time_debug import timer
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,7 +28,8 @@ def load_oracle_memory() -> dict[str, Any]:
 
 
 def compact_oracle_memory(query: str = "", max_items: int = 4) -> dict[str, Any]:
-    matches = search_oracle(query, limit=max_items)
+    with timer("oracle_memory", stream=sys.stderr):
+        matches = search_oracle(query, limit=max_items)
     if not matches:
         return {}
     return {
@@ -51,7 +54,8 @@ def format_oracle_matches(matches: list[dict[str, str]]) -> str:
 
 
 def format_oracle_memory(query: str = "", max_items: int = 4) -> str:
-    matches = search_oracle(query, limit=max_items)
+    with timer("oracle_memory", stream=sys.stderr):
+        matches = search_oracle(query, limit=max_items)
     return format_oracle_matches(matches)
 
 
@@ -61,4 +65,6 @@ def oracle_log_values_from_matches(matches: list[dict[str, str]]) -> tuple[int, 
 
 
 def oracle_log_values(query: str, max_items: int = 5) -> tuple[int, str]:
-    return oracle_log_values_from_matches(search_oracle(query, limit=max_items))
+    with timer("oracle_memory", stream=sys.stderr):
+        matches = search_oracle(query, limit=max_items)
+    return oracle_log_values_from_matches(matches)

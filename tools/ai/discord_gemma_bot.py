@@ -56,6 +56,7 @@ from tools.ai.oracle_search import search_oracle  # noqa: E402
 from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
 from tools.ai.search_router import needs_research  # noqa: E402
+from tools.ai.time_debug import timer  # noqa: E402
 
 
 def get_token() -> str:
@@ -197,7 +198,8 @@ def build_prompt(command: str, source: Any, history_text: str = "") -> str:
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(command)
     light_context = build_light_context()
-    oracle_matches = search_oracle(command, limit=get_oracle_max_items())
+    with timer("oracle_memory"):
+        oracle_matches = search_oracle(command, limit=get_oracle_max_items())
     oracle_text = format_oracle_matches(oracle_matches)
     oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
     history_limit = get_chat_history_limit()
@@ -233,29 +235,30 @@ Discordコマンド {command} への短い返答を作ってください。
 
 
 def call_ollama(prompt: str) -> str | None:
-    payload = {
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False,
-    }
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        OLLAMA_URL,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    with timer("ollama"):
+        payload = {
+            "model": MODEL,
+            "prompt": prompt,
+            "stream": False,
+        }
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            OLLAMA_URL,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
 
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            response_body = response.read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        return None
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                response_body = response.read().decode("utf-8")
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            return None
 
-    data = json.loads(response_body)
-    if not isinstance(data, dict):
-        return ""
-    return str(data.get("response", "")).strip()
+        data = json.loads(response_body)
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("response", "")).strip()
 
 
 def classify_channel_mode(channel_name: str) -> str:
@@ -396,7 +399,8 @@ def build_natural_prompt(message_text: str, mode: str, source: Any, history_text
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(message_text)
     light_context = build_light_context()
-    oracle_matches = search_oracle(message_text, limit=get_oracle_max_items())
+    with timer("oracle_memory"):
+        oracle_matches = search_oracle(message_text, limit=get_oracle_max_items())
     oracle_text = format_oracle_matches(oracle_matches)
     oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
     history_limit = get_chat_history_limit()
@@ -512,20 +516,29 @@ def log_attachment_debug(message: Any) -> None:
         print(f"attachment url={url}")
 
 
+def relay_subprocess_stderr(stderr_text: str, include_all: bool = False) -> None:
+    for line in stderr_text.splitlines():
+        if line.strip() and (include_all or line.startswith("[TIME]")):
+            print(line, flush=True)
+
+
 def search_history_reply(query: str) -> str:
     try:
-        result = subprocess.run(
-            [sys.executable, str(ROOT / "tools" / "ai" / "search_history.py"), query],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=SUBPROCESS_TIMEOUT_SECONDS,
-        )
+        with timer("search_history"):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "tools" / "ai" / "search_history.py"), query],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=SUBPROCESS_TIMEOUT_SECONDS,
+            )
     except subprocess.TimeoutExpired:
         return SLOW_REPLY
     if result.returncode != 0:
+        relay_subprocess_stderr(result.stderr, include_all=True)
         return "未確認です。"
+    relay_subprocess_stderr(result.stderr)
     return result.stdout.strip() or "未確認です。"
 
 
@@ -545,18 +558,21 @@ def recent_history_text(history: list[dict[str, Any]], limit: int = 4) -> str:
 
 def search_router_reply(query: str) -> str:
     try:
-        result = subprocess.run(
-            [sys.executable, str(ROOT / "tools" / "ai" / "search_router.py"), query],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=SUBPROCESS_TIMEOUT_SECONDS,
-        )
+        with timer("search_router"):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "tools" / "ai" / "search_router.py"), query],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=SUBPROCESS_TIMEOUT_SECONDS,
+            )
     except subprocess.TimeoutExpired:
         return SLOW_REPLY
     if result.returncode != 0:
+        relay_subprocess_stderr(result.stderr, include_all=True)
         return "error"
+    relay_subprocess_stderr(result.stderr)
     return result.stdout.strip() or "error"
 
 
