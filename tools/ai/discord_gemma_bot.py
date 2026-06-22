@@ -18,6 +18,8 @@ AI_DIR = ROOT / "data" / "ai"
 DATA_DIR = ROOT / "data"
 CONTEXT_PATH = AI_DIR / "daily_context.json"
 REPORT_PATH = AI_DIR / "gemma_report.txt"
+BRIEF_PATH = AI_DIR / "gemma_brief.json"
+BRIEF_TEXT_PATH = AI_DIR / "gemma_brief.txt"
 WEATHER_PATH = AI_DIR / "weather_summary.json"
 DRAGONS_PATH = AI_DIR / "dragons_log.yml"
 RAILWAY_PATH = AI_DIR / "railway_summary.json"
@@ -45,7 +47,9 @@ from tools.ai import ocr_worker  # noqa: E402
 from tools.ai import build_tsv_candidate  # noqa: E402
 from tools.ai import check_tsv_candidate  # noqa: E402
 from tools.ai.meieki_busy_buttons import build_meieki_busy_cancel_view, build_meieki_busy_view  # noqa: E402
-from tools.ai.oracle_memory import format_oracle_memory, oracle_log_values  # noqa: E402
+from tools.ai.light_context import build_light_context  # noqa: E402
+from tools.ai.oracle_memory import format_oracle_matches, oracle_log_values_from_matches  # noqa: E402
+from tools.ai.oracle_search import search_oracle  # noqa: E402
 from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
 from tools.ai.search_router import needs_research  # noqa: E402
@@ -76,6 +80,22 @@ def get_admin_like_channel_ids() -> set[str]:
         if value:
             ids.add(value)
     return ids
+
+
+def get_chat_history_limit() -> int:
+    value = getattr(config, "GEMMA_CHAT_HISTORY_LIMIT", 20)
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return 20
+
+
+def get_oracle_max_items() -> int:
+    value = getattr(config, "GEMMA_ORACLE_MAX_ITEMS", 3)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 3
 
 
 def gemma_is_running() -> bool:
@@ -173,8 +193,11 @@ def load_incidents() -> list[Any]:
 def build_prompt(command: str, source: Any, history_text: str = "") -> str:
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(command)
-    oracle_text = format_oracle_memory(command)
-    oracle_count, oracle_titles = oracle_log_values(command)
+    light_context = build_light_context()
+    oracle_matches = search_oracle(command, limit=get_oracle_max_items())
+    oracle_text = format_oracle_matches(oracle_matches)
+    oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
+    history_limit = get_chat_history_limit()
     print(f"oracle_matches={oracle_count}")
     print(f"oracle_titles={oracle_titles}")
     return f"""あなたはジェンマ課長です。
@@ -182,6 +205,8 @@ def build_prompt(command: str, source: Any, history_text: str = "") -> str:
 Discordコマンド {command} への短い返答を作ってください。
 
 {entity_prompt}
+
+{light_context}
 
 ルール:
 - 3〜5行
@@ -196,7 +221,7 @@ Discordコマンド {command} への短い返答を作ってください。
 入力:
 {source_json}
 
-現在のチャンネルの直近20件:
+現在のチャンネルの直近{history_limit}件:
 {history_text or "履歴なし"}
 
 過去事例:
@@ -304,8 +329,8 @@ weather, road, railway, event, food, unknown
 def source_for_command(command: str) -> Any:
     if command == "!brief":
         return {
-            "daily_context": load_json(CONTEXT_PATH),
-            "gemma_report": load_text(REPORT_PATH),
+            "gemma_brief": load_json(BRIEF_PATH),
+            "gemma_brief_text": load_text(BRIEF_TEXT_PATH) or load_text(REPORT_PATH),
         }
     if command == "!weather":
         return load_json(WEATHER_PATH)
@@ -359,7 +384,7 @@ def source_for_mode(mode: str) -> Any:
     if mode == "test":
         return {"note": "testチャンネル。短く動作確認。"}
     return {
-        "daily_context": context,
+        "gemma_brief": load_json(BRIEF_PATH),
         "gemma_report": load_text(REPORT_PATH),
     }
 
@@ -367,8 +392,11 @@ def source_for_mode(mode: str) -> Any:
 def build_natural_prompt(message_text: str, mode: str, source: Any, history_text: str = "") -> str:
     source_json = json.dumps(source, ensure_ascii=False, indent=2)
     entity_prompt = entity_system_prompt(message_text)
-    oracle_text = format_oracle_memory(message_text)
-    oracle_count, oracle_titles = oracle_log_values(message_text)
+    light_context = build_light_context()
+    oracle_matches = search_oracle(message_text, limit=get_oracle_max_items())
+    oracle_text = format_oracle_matches(oracle_matches)
+    oracle_count, oracle_titles = oracle_log_values_from_matches(oracle_matches)
+    history_limit = get_chat_history_limit()
     print(f"oracle_matches={oracle_count}")
     print(f"oracle_titles={oracle_titles}")
     return f"""あなたはジェンマ課長です。
@@ -378,6 +406,8 @@ Discordの通常発言へ、担当班モードに合わせて短く返答して�
 mode: {mode}
 
 {entity_prompt}
+
+{light_context}
 
 ルール:
 - 3〜5行
@@ -392,7 +422,7 @@ mode: {mode}
 発言:
 {message_text}
 
-現在のチャンネルの直近20件:
+現在のチャンネルの直近{history_limit}件:
 {history_text or "履歴なし"}
 
 過去事例:
@@ -681,7 +711,7 @@ def main() -> int:
             channel_id = getattr(message.channel, "id", "unknown")
             user_name = getattr(message.author, "display_name", str(message.author))
             history = chat_memory.load_history(channel_id)
-            history_text = chat_memory.format_history(history)
+            history_text = chat_memory.format_history(history, limit=get_chat_history_limit())
             command = content.split(maxsplit=1)[0]
             direct_addressed_to_me = is_mention_to_me(message, client)
             name_mention_detected = is_name_mention(content)

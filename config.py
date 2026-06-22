@@ -1,6 +1,16 @@
 import os
 
 
+def _int_env(name, default):
+    value = os.getenv(name, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 def _channel_id_env(name):
     value = os.getenv(name, "").strip()
     if value.startswith("<") and value.endswith(">"):
@@ -103,3 +113,11 @@ GEMMA_CHANNELS = {
     "nagoya": GEMMA_CHANNEL_NAGOYA,
     "food": os.getenv("GEMMA_CHANNEL_FOOD", ""),
 }
+
+# ==========================
+# ジェンマ課長 CPU高速化設定
+# ==========================
+# プロンプトへ投入する会話履歴と検索候補を絞り、CPU環境での応答待ちを減らす。
+GEMMA_CHAT_HISTORY_LIMIT = _int_env("GEMMA_CHAT_HISTORY_LIMIT", 20)
+GEMMA_HISTORY_SEARCH_MAX_ITEMS = _int_env("GEMMA_HISTORY_SEARCH_MAX_ITEMS", 12)
+GEMMA_ORACLE_MAX_ITEMS = _int_env("GEMMA_ORACLE_MAX_ITEMS", 3)
