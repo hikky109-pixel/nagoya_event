@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 import sys
@@ -26,6 +27,8 @@ RAILWAY_PATH = AI_DIR / "railway_summary.json"
 INCIDENTS_DIR = DATA_DIR / "incidents"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
+SUBPROCESS_TIMEOUT_SECONDS = 45
+SLOW_REPLY = "😇 調査に時間がかかっています。\n😇 少し短めに聞いてください。"
 COMMANDS = {"!brief", "!weather", "!dragons", "!incident", "!road"}
 IGNORE_CHANNELS = {"利用規約", "自己紹介"}
 LISTEN_ONLY_CHANNELS = {"バーボンハウス"}
@@ -510,16 +513,24 @@ def log_attachment_debug(message: Any) -> None:
 
 
 def search_history_reply(query: str) -> str:
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "tools" / "ai" / "search_history.py"), query],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "ai" / "search_history.py"), query],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return SLOW_REPLY
     if result.returncode != 0:
         return "未確認です。"
     return result.stdout.strip() or "未確認です。"
+
+
+async def search_history_reply_async(query: str) -> str:
+    return await asyncio.to_thread(lambda: trim_discord_message(search_history_reply(query)))
 
 
 def recent_history_text(history: list[dict[str, Any]], limit: int = 4) -> str:
@@ -533,16 +544,24 @@ def recent_history_text(history: list[dict[str, Any]], limit: int = 4) -> str:
 
 
 def search_router_reply(query: str) -> str:
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "tools" / "ai" / "search_router.py"), query],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "ai" / "search_router.py"), query],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return SLOW_REPLY
     if result.returncode != 0:
         return "error"
     return result.stdout.strip() or "error"
+
+
+async def search_router_reply_async(query: str) -> str:
+    return await asyncio.to_thread(lambda: trim_discord_message(search_router_reply(query)))
 
 
 def should_use_search_router(content: str, history: list[dict[str, Any]]) -> bool:
@@ -769,11 +788,11 @@ def main() -> int:
                 if should_use_search_router(query, history):
                     search_query = query
                     print(f"search_router_input={search_query}")
-                    reply = trim_discord_message(search_router_reply(search_query))
+                    reply = await search_router_reply_async(search_query)
                 else:
                     reply = "no_search"
                 if reply in {"no_search", "not_applicable", "error"}:
-                    reply = trim_discord_message(search_history_reply(query))
+                    reply = await search_history_reply_async(query)
                 if reply not in {"Gemma4B未起動", "日誌記憶なし"}:
                     chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
                 await message.channel.send(reply)
@@ -788,7 +807,7 @@ def main() -> int:
 
                 source = source_for_command(command)
                 prompt = build_prompt(command, source, history_text)
-                response = call_ollama(prompt)
+                response = await asyncio.to_thread(call_ollama, prompt)
                 if response is None:
                     await message.channel.send("Gemma4B未起動")
                     return
