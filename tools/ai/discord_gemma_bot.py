@@ -684,8 +684,9 @@ def main() -> int:
 
     @client.event
     async def on_ready() -> None:
+        print("on_ready_start", flush=True)
         user = client.user
-        print(f"Gemma課長Discord Bot起動: {user}")
+        print(f"Gemma課長Discord Bot起動: {user}", flush=True)
         guild_id = get_guild_id()
         guild = client.get_guild(guild_id) if guild_id is not None else None
         if guild is None and guild_id is not None:
@@ -697,23 +698,24 @@ def main() -> int:
 
         channel_modes.clear()
         text_channels = list(guild.text_channels)
-        print(f"サーバー名: {guild.name}")
-        print(f"取得チャンネル数: {len(text_channels)}")
+        print(f"サーバー名: {guild.name}", flush=True)
+        print(f"取得チャンネル数: {len(text_channels)}", flush=True)
         for channel in text_channels:
             mode = classify_channel_mode(channel.name)
             rule = channel_rule(channel.name)
             channel_modes[channel.id] = {"name": channel.name, "mode": mode, "rule": rule}
-            print(f"- {channel.name}: mode={mode}, rule={rule}")
+            print(f"- {channel.name}: mode={mode}, rule={rule}", flush=True)
 
     @client.event
     async def on_message(message: Any) -> None:
         try:
+            print("on_message_start", flush=True)
             attachments = getattr(message, "attachments", [])
-            print("raw_message:", repr(getattr(message, "content", "")))
-            print("channel:", getattr(message.channel, "name", ""))
-            print("author:", message.author)
-            print("mentions:", [m.id for m in getattr(message, "mentions", [])])
-            print("attachments:", len(attachments))
+            print("raw_message:", repr(getattr(message, "content", "")), flush=True)
+            print("channel:", getattr(message.channel, "name", ""), flush=True)
+            print("author:", message.author, flush=True)
+            print("mentions:", [m.id for m in getattr(message, "mentions", [])], flush=True)
+            print("attachments:", len(attachments), flush=True)
 
             if message.author == client.user:
                 print("ignore_reason=self_bot")
@@ -780,8 +782,8 @@ def main() -> int:
 
             if content:
                 chat_memory.append_message(channel_id, user_name, content, "user")
-            print("should_reply=", should_reply)
-            print("reply_reason=", reply_reason)
+            print("should_reply=", should_reply, flush=True)
+            print("reply_reason=", reply_reason, flush=True)
 
             if not should_reply:
                 return
@@ -840,7 +842,9 @@ def main() -> int:
                 return
         except Exception:
             traceback.print_exc()
+            raise
 
+    print("before_client_run", flush=True)
     client.run(token)
     return 0
 
