@@ -585,51 +585,76 @@ def is_manual_weather_forecast_query(query: str) -> bool:
     return "天気予報" in compact
 
 
-def build_manual_weather_forecast_prompt(query: str, forecast: dict[str, Any]) -> str:
-    forecast_json = json.dumps(forecast, ensure_ascii=False, indent=2)
-    return f"""あなたはジェンマ課長です。
+def _forecast_temperature(day_forecast: dict[str, Any]) -> str:
+    min_temp = str(day_forecast.get("min_temperature") or "").strip()
+    max_temp = str(day_forecast.get("max_temperature") or "").strip()
+    if min_temp and max_temp:
+        return f"{min_temp}〜{max_temp}"
 
-【今日の天気】
-以下の気象庁予報を自然な文章で簡潔に説明してください。
-
-ルール:
-- 3〜5行
-- 名古屋の今日と明日の天気、気温、降水確率を必要な範囲で短く伝える
-- 気象庁データにない数値は書かない
-- Yahoo!やtenki.jpなど他社情報は使わない
-- 取得失敗や不明点は書かない
-- 営業目線の一言は入れてよいが、大げさにしない
-
-ユーザー発言:
-{query}
-
-気象庁予報:
-{forecast_json}
-"""
+    values = day_forecast.get("temperature_values")
+    if isinstance(values, list):
+        cleaned = [str(value).strip() for value in values if str(value).strip()]
+        if len(cleaned) >= 2:
+            return f"{cleaned[0]}〜{cleaned[1]}"
+        if cleaned:
+            return cleaned[0]
+    return "未発表"
 
 
-def manual_weather_forecast_reply(query: str) -> str:
+def _forecast_pop(day_forecast: dict[str, Any]) -> str:
+    pops = day_forecast.get("precipitation_probability")
+    if not isinstance(pops, list):
+        return "未発表"
+    cleaned = [str(pop).strip() for pop in pops if str(pop).strip()]
+    if not cleaned:
+        return "未発表"
+    return max(cleaned, key=lambda value: int(value.rstrip("%")) if value.rstrip("%").isdigit() else -1)
+
+
+def _forecast_weather(day_forecast: dict[str, Any]) -> str:
+    return str(day_forecast.get("weather") or "未発表").strip()
+
+
+def build_manual_weather_forecast_reply(forecast: dict[str, Any]) -> str:
+    today = forecast.get("today") if isinstance(forecast.get("today"), dict) else {}
+    tomorrow = forecast.get("tomorrow") if isinstance(forecast.get("tomorrow"), dict) else {}
+    if not today and not tomorrow:
+        return ""
+
+    return "\n".join(
+        [
+            "🌤️ 名古屋の天気予報",
+            "今日:",
+            _forecast_weather(today),
+            f"気温: {_forecast_temperature(today)}",
+            f"降水確率: {_forecast_pop(today)}",
+            "",
+            "明日:",
+            _forecast_weather(tomorrow),
+            f"気温: {_forecast_temperature(tomorrow)}",
+            f"降水確率: {_forecast_pop(tomorrow)}",
+            "",
+            "※ 気象庁データより",
+        ]
+    )
+
+
+def manual_weather_forecast_reply() -> str:
     forecast = get_today_forecast()
-    print(f"manual_weather_forecast: {1 if forecast else 0}", flush=True)
     if not forecast:
-        return "気象庁の予報を今うまく取れませんでした。少ししてから聞いてください😇"
+        print("manual_weather_forecast: fetch_failed", flush=True)
+        return "天気予報を取得できませんでした"
 
-    with timer("manual_weather_forecast"):
-        response = call_ollama(
-            build_manual_weather_forecast_prompt(query, forecast),
-            options={
-                "num_predict": 180,
-                "num_ctx": 2048,
-                "temperature": 0.5,
-            },
-        )
-    if response is None:
-        return "Gemma4B未起動"
-    return normalize_reply(response)
+    reply = build_manual_weather_forecast_reply(forecast)
+    if not reply:
+        print("manual_weather_forecast: fetch_failed", flush=True)
+        return "天気予報を取得できませんでした"
+    print("manual_weather_forecast: direct_reply", flush=True)
+    return reply
 
 
-async def manual_weather_forecast_reply_async(query: str) -> str:
-    return await asyncio.to_thread(lambda: trim_discord_message(manual_weather_forecast_reply(query)))
+async def manual_weather_forecast_reply_async() -> str:
+    return await asyncio.to_thread(lambda: trim_discord_message(manual_weather_forecast_reply()))
 
 
 def normalize_reply(text: str) -> str:
@@ -1018,7 +1043,7 @@ def main() -> int:
                     reply = trim_discord_message(quick_reply)
                 elif is_manual_weather_forecast_query(query):
                     print("reply_path=manual_weather_forecast", flush=True)
-                    reply = await manual_weather_forecast_reply_async(query)
+                    reply = await manual_weather_forecast_reply_async()
                 elif is_light_chat_query(query):
                     print("reply_path=light_chat", flush=True)
                     reply = await light_chat_reply_async(query, channel_name)
