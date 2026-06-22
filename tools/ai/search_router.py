@@ -33,9 +33,43 @@ RESEARCH_TRIGGERS = {
 CATEGORY_WORDS = {
     "food": {"かつや", "すき家", "スガキヤ", "吉野家", "松屋"},
     "dragons": {"ドラゴンズ", "中日", "バンテリン"},
-    "railway": {"新幹線", "JR", "名鉄", "近鉄"},
+    "railway": {"新幹線", "JR", "JR東海", "名鉄", "近鉄", "地下鉄", "名古屋市営地下鉄", "あおなみ線", "リニモ"},
     "road": {"オービス", "事故", "通行止", "高速"},
     "event": {"IGアリーナ", "バンテリンドーム", "ポートメッセ", "御園座"},
+}
+
+RAIL_OFFICIAL_HINTS = {
+    "新幹線": [
+        "traininfo.jr-central.co.jp",
+        "jr-central.co.jp",
+    ],
+    "東海道新幹線": [
+        "traininfo.jr-central.co.jp",
+        "jr-central.co.jp",
+    ],
+    "名鉄": [
+        "top.meitetsu.co.jp",
+        "meitetsu.co.jp",
+    ],
+    "近鉄": [
+        "kintetsu.jp",
+    ],
+    "JR東海": [
+        "traininfo.jr-central.co.jp",
+        "jr-central.co.jp",
+    ],
+    "地下鉄": [
+        "kotsu.city.nagoya.jp",
+    ],
+    "名古屋市営地下鉄": [
+        "kotsu.city.nagoya.jp",
+    ],
+    "あおなみ線": [
+        "aonamiline.co.jp",
+    ],
+    "リニモ": [
+        "linimo.jp",
+    ],
 }
 
 sys.path.insert(0, str(ROOT))
@@ -91,6 +125,66 @@ def build_search_query(text: str, category: str) -> str:
         "event": "公式 最新",
     }.get(category, "最新")
     return f"{text} {suffix}".strip()
+
+
+def official_domains_for_query(query: str) -> list[str]:
+    domains: list[str] = []
+    for keyword, hints in RAIL_OFFICIAL_HINTS.items():
+        if keyword in query:
+            domains.extend(hints)
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for domain in domains:
+        if domain not in seen:
+            unique.append(domain)
+            seen.add(domain)
+    return unique
+
+
+def result_url(item: dict[str, Any]) -> str:
+    return str(item.get("url", "") or item.get("link", "")).lower()
+
+
+def is_official_url(url: str, domains: list[str]) -> bool:
+    return any(domain in url for domain in domains)
+
+
+def rank_official_first(query: str, search_result: dict[str, Any]) -> dict[str, Any]:
+    domains = official_domains_for_query(query)
+    print(f"official_hint_domains={domains}", file=sys.stderr)
+    if not domains:
+        print("official_first=False", file=sys.stderr)
+        return search_result
+
+    results = search_result.get("results", [])
+    if not isinstance(results, list):
+        print("official_first=False", file=sys.stderr)
+        return search_result
+
+    official_candidates: list[dict[str, Any]] = []
+    enriched: list[dict[str, Any]] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        official = is_official_url(result_url(normalized), domains)
+        normalized["official"] = official
+        enriched.append(normalized)
+        if official:
+            official_candidates.append(normalized)
+
+    ranked = sorted(enriched, key=lambda item: (not bool(item.get("official")), result_url(item)))
+    official_first = bool(official_candidates)
+    print(f"official_first={official_first}", file=sys.stderr)
+
+    updated = dict(search_result)
+    updated["results"] = ranked
+    updated["official_candidates"] = official_candidates
+    updated["official_status"] = "公式候補あり" if official_first else "公式情報は確認できませんでした。検索結果ベースです"
+    updated["official_hint_domains"] = domains
+    updated["official_first"] = official_first
+    return updated
 
 
 def call_ollama(prompt: str) -> str | None:
@@ -153,6 +247,8 @@ URLの読み上げは禁止。
 事実と推測を分け、
 未確認事項は断定しないこと。
 公式ドメイン以外の情報は candidate として扱い、断定しないこと。
+公式情報がある場合は「公式情報では、」で始めてください。
+公式情報がない場合は「公式情報は確認できませんでした。検索結果ベースでは、」で始めてください。
 
 ルール:
 - 勝手に補完しない
@@ -224,6 +320,8 @@ def answer_with_research(text: str) -> str:
             category = classify_category(text)
             with timer("search_router.web_query", stream=sys.stderr):
                 web_result = search_web(build_search_query(text, category), category=category)
+            if category == "railway":
+                web_result = rank_official_first(text, web_result)
             with timer("search_router.format_results", stream=sys.stderr):
                 formatted_result = format_results(web_result)
         answer = call_ollama(build_prompt(text, category, formatted_result))

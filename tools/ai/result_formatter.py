@@ -37,6 +37,8 @@ def format_results(search_result: dict[str, Any]) -> dict[str, Any]:
         "official": official,
         "candidate": candidate,
         "official_status": search_result.get("official_status", ""),
+        "official_first": bool(search_result.get("official_first", bool(official))),
+        "official_hint_domains": search_result.get("official_hint_domains", []),
     }
 
 

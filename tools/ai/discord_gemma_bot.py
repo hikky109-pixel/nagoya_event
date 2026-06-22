@@ -671,7 +671,7 @@ def relay_subprocess_stderr(stderr_text: str | bytes | None, include_all: bool =
     else:
         text = stderr_text
     for line in text.splitlines():
-        if line.strip() and (include_all or line.startswith("[TIME]")):
+        if line.strip() and (include_all or line.startswith(("[TIME]", "official_"))):
             print(line, flush=True)
 
 
