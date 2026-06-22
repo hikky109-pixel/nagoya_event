@@ -39,6 +39,49 @@ BOT_NAME_MENTION_TOKENS = (
     "<@1518154055455871036>",
     "<@!1518154055455871036>",
 )
+LIGHT_CHAT_EXACT_PHRASES = {
+    "こんにちは",
+    "おはよう",
+    "おはようございます",
+    "こんばんは",
+    "ありがとう",
+    "ありがと",
+    "ありがとうございます",
+    "サンキュー",
+    "どうも",
+    "やあ",
+    "テスト",
+    "かつや",
+}
+LIGHT_CHAT_PREFIXES = (
+    "こんにちは",
+    "おはよう",
+    "こんばんは",
+    "ありがとう",
+    "ありがと",
+    "お疲れ",
+    "おつかれ",
+)
+LIGHT_CHAT_FOOD_WORDS = {"かつや", "スガキヤ", "すき家", "吉野家", "松屋"}
+LIGHT_CHAT_BLOCK_WORDS = {
+    "新幹線",
+    "JR",
+    "名鉄",
+    "近鉄",
+    "地下鉄",
+    "事故",
+    "通行止",
+    "渋滞",
+    "雨",
+    "天気",
+    "名駅",
+    "名古屋駅",
+    "御園座",
+    "OCR",
+    "PDF",
+    "GitHub",
+    "サーバー",
+}
 
 sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
@@ -234,13 +277,15 @@ Discordコマンド {command} への短い返答を作ってください。
 """
 
 
-def call_ollama(prompt: str) -> str | None:
+def call_ollama(prompt: str, num_predict: int | None = None) -> str | None:
     with timer("ollama"):
         payload = {
             "model": MODEL,
             "prompt": prompt,
             "stream": False,
         }
+        if num_predict is not None:
+            payload["options"] = {"num_predict": num_predict}
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             OLLAMA_URL,
@@ -438,6 +483,57 @@ mode: {mode}
 参照データ:
 {source_json}
 """
+
+
+def normalize_light_reply(text: str) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return "😇 聞いてます。"
+    return "\n".join(lines[:3])
+
+
+def is_light_chat_query(query: str) -> bool:
+    normalized = query.strip().replace("　", " ")
+    compact = "".join(normalized.split()).strip("。、.!！?？")
+    if not compact:
+        return True
+    if any(word in normalized for word in LIGHT_CHAT_BLOCK_WORDS):
+        return False
+    if compact in LIGHT_CHAT_EXACT_PHRASES:
+        return True
+    if len(compact) <= 12 and any(compact.startswith(prefix) for prefix in LIGHT_CHAT_PREFIXES):
+        return True
+    if len(compact) <= 8 and any(word in compact for word in LIGHT_CHAT_FOOD_WORDS):
+        return True
+    return False
+
+
+def build_light_chat_prompt(query: str, channel_name: str) -> str:
+    return f"""あなたはジェンマ課長です。
+
+Discordの短い雑談・あいさつへ軽く返答してください。
+
+ルール:
+- 1〜2行
+- 長い説明をしない
+- 業務ログ、過去履歴、Oracle記憶を参照しない
+- OCR、PDF、GitHub、サーバー話題へ広げない
+- 断定調査をしない
+
+channel: {channel_name}
+発言: {query}
+"""
+
+
+def light_chat_reply(query: str, channel_name: str) -> str:
+    response = call_ollama(build_light_chat_prompt(query, channel_name), num_predict=80)
+    if response is None:
+        return "😇 聞いてます。"
+    return normalize_light_reply(response)
+
+
+async def light_chat_reply_async(query: str, channel_name: str) -> str:
+    return await asyncio.to_thread(lambda: trim_discord_message(light_chat_reply(query, channel_name)))
 
 
 def normalize_reply(text: str) -> str:
@@ -820,7 +916,10 @@ def main() -> int:
 
                 query = strip_bot_mentions(content, client) or content or "未確認です。"
                 print("cleaned_input=", query)
-                if should_use_search_router(query, history):
+                if is_light_chat_query(query):
+                    print("reply_path=light_chat", flush=True)
+                    reply = await light_chat_reply_async(query, channel_name)
+                elif should_use_search_router(query, history):
                     search_query = query
                     print(f"search_router_input={search_query}")
                     reply = await search_router_reply_async(search_query)
