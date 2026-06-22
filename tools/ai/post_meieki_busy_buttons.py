@@ -125,7 +125,7 @@ def posted_within_last_hour() -> bool:
 
 
 async def visible_button_message_exists(channel: Any, client_user: Any) -> bool:
-    async for message in channel.history(limit=50):
+    async for message in channel.history(limit=5):
         if str(getattr(message, "content", "")).strip() != message_text():
             continue
         author = getattr(message, "author", None)
@@ -182,7 +182,7 @@ def main() -> int:
                 await client.close()
                 return
         if await visible_button_message_exists(channel, client.user):
-            print("名駅繁忙ボタン再掲スキップ: visible_in_recent_50")
+            print("名駅繁忙ボタン再掲スキップ: visible_in_recent_5")
             await client.close()
             return
         sent = await channel.send(message_text(), view=build_meieki_busy_view(discord))
