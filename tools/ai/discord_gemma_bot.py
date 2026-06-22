@@ -516,8 +516,14 @@ def log_attachment_debug(message: Any) -> None:
         print(f"attachment url={url}")
 
 
-def relay_subprocess_stderr(stderr_text: str, include_all: bool = False) -> None:
-    for line in stderr_text.splitlines():
+def relay_subprocess_stderr(stderr_text: str | bytes | None, include_all: bool = False) -> None:
+    if not stderr_text:
+        return
+    if isinstance(stderr_text, bytes):
+        text = stderr_text.decode("utf-8", errors="replace")
+    else:
+        text = stderr_text
+    for line in text.splitlines():
         if line.strip() and (include_all or line.startswith("[TIME]")):
             print(line, flush=True)
 
@@ -533,7 +539,8 @@ def search_history_reply(query: str) -> str:
                 check=False,
                 timeout=SUBPROCESS_TIMEOUT_SECONDS,
             )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        relay_subprocess_stderr(exc.stderr)
         return SLOW_REPLY
     if result.returncode != 0:
         relay_subprocess_stderr(result.stderr, include_all=True)

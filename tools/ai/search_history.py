@@ -49,6 +49,14 @@ def get_oracle_max_items() -> int:
         return 3
 
 
+def get_ollama_timeout() -> int:
+    value = getattr(config, "GEMMA_SEARCH_HISTORY_OLLAMA_TIMEOUT", 42)
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return 42
+
+
 def today() -> date:
     return datetime.now(timezone.utc).astimezone().date()
 
@@ -179,15 +187,16 @@ def add_chat_memory(items: list[dict[str, str]], target_dates: list[date] | None
 def collect_history(query: str) -> list[dict[str, str]]:
     dates = query_dates(query)
     items: list[dict[str, str]] = []
-    with timer("search_history.daily_summary", stream=sys.stderr):
-        add_daily_summary(items, dates)
-    with timer("search_history.daily_memory", stream=sys.stderr):
-        add_daily_memory(items, dates)
-    with timer("search_history.hourly_summary", stream=sys.stderr):
-        add_hourly_summary(items, dates)
-    with timer("search_history.chat_memory", stream=sys.stderr):
-        add_chat_memory(items, dates)
-    with timer("search_history.rank", stream=sys.stderr):
+    with timer("search_history_load", stream=sys.stderr):
+        with timer("search_history.daily_summary", stream=sys.stderr):
+            add_daily_summary(items, dates)
+        with timer("search_history.daily_memory", stream=sys.stderr):
+            add_daily_memory(items, dates)
+        with timer("search_history.hourly_summary", stream=sys.stderr):
+            add_hourly_summary(items, dates)
+        with timer("search_history.chat_memory", stream=sys.stderr):
+            add_chat_memory(items, dates)
+    with timer("search_history_search", stream=sys.stderr):
         topic = classify_by_dictionary(query)
         if topic is not None:
             items = rank_topic_items(items, query)
@@ -206,10 +215,11 @@ def rank_topic_items(items: list[dict[str, str]], query: str) -> list[dict[str, 
 
 
 def build_prompt(query: str, items: list[dict[str, str]]) -> str:
-    source_json = json.dumps(items, ensure_ascii=False, indent=2)
-    dictionary_category = classify_by_dictionary(query) or "none"
-    entity_prompt = entity_system_prompt(query)
-    light_context = build_light_context()
+    with timer("build_prompt", stream=sys.stderr):
+        source_json = json.dumps(items, ensure_ascii=False, indent=2)
+        dictionary_category = classify_by_dictionary(query) or "none"
+        entity_prompt = entity_system_prompt(query)
+        light_context = build_light_context()
     with timer("oracle_memory", stream=sys.stderr):
         oracle_matches = search_oracle(query, limit=get_oracle_max_items())
     oracle_text = format_oracle_matches(oracle_matches)
@@ -260,7 +270,7 @@ def call_ollama(prompt: str) -> str | None:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=90) as response:
+            with urllib.request.urlopen(request, timeout=get_ollama_timeout()) as response:
                 response_body = response.read().decode("utf-8")
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             return None
@@ -289,12 +299,13 @@ def normalize_answer(text: str) -> str:
 
 
 def answer_query(query: str) -> str:
-    with timer("total", stream=sys.stderr):
-        with timer("search_history", stream=sys.stderr):
+    with timer("search_history_total", stream=sys.stderr):
+        with timer("search_history_collect", stream=sys.stderr):
             items = collect_history(query)
         if not items:
             return "日誌記憶なし"
-        answer = call_ollama(build_prompt(query, items))
+        prompt = build_prompt(query, items)
+        answer = call_ollama(prompt)
         if answer is None:
             return "Gemma4B未起動"
         return normalize_answer(answer).rstrip()
