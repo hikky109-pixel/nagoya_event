@@ -127,6 +127,7 @@ from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
 from tools.ai.search_router import needs_research  # noqa: E402
 from tools.ai.time_debug import timer  # noqa: E402
+from tools.weather.get_today_forecast import get_today_forecast  # noqa: E402
 
 
 def get_token() -> str:
@@ -579,6 +580,58 @@ async def light_chat_reply_async(query: str, channel_name: str) -> str:
     return await asyncio.to_thread(lambda: trim_discord_message(light_chat_reply(query, channel_name)))
 
 
+def is_manual_weather_forecast_query(query: str) -> bool:
+    compact = "".join(query.strip().replace("　", " ").split()).strip("。、.!！?？")
+    return "天気予報" in compact
+
+
+def build_manual_weather_forecast_prompt(query: str, forecast: dict[str, Any]) -> str:
+    forecast_json = json.dumps(forecast, ensure_ascii=False, indent=2)
+    return f"""あなたはジェンマ課長です。
+
+【今日の天気】
+以下の気象庁予報を自然な文章で簡潔に説明してください。
+
+ルール:
+- 3〜5行
+- 名古屋の今日と明日の天気、気温、降水確率を必要な範囲で短く伝える
+- 気象庁データにない数値は書かない
+- Yahoo!やtenki.jpなど他社情報は使わない
+- 取得失敗や不明点は書かない
+- 営業目線の一言は入れてよいが、大げさにしない
+
+ユーザー発言:
+{query}
+
+気象庁予報:
+{forecast_json}
+"""
+
+
+def manual_weather_forecast_reply(query: str) -> str:
+    forecast = get_today_forecast()
+    print(f"manual_weather_forecast: {1 if forecast else 0}", flush=True)
+    if not forecast:
+        return "気象庁の予報を今うまく取れませんでした。少ししてから聞いてください😇"
+
+    with timer("manual_weather_forecast"):
+        response = call_ollama(
+            build_manual_weather_forecast_prompt(query, forecast),
+            options={
+                "num_predict": 180,
+                "num_ctx": 2048,
+                "temperature": 0.5,
+            },
+        )
+    if response is None:
+        return "Gemma4B未起動"
+    return normalize_reply(response)
+
+
+async def manual_weather_forecast_reply_async(query: str) -> str:
+    return await asyncio.to_thread(lambda: trim_discord_message(manual_weather_forecast_reply(query)))
+
+
 def normalize_reply(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines:
@@ -963,6 +1016,9 @@ def main() -> int:
                 if quick_reply is not None:
                     print("reply_path=quick_reply", flush=True)
                     reply = trim_discord_message(quick_reply)
+                elif is_manual_weather_forecast_query(query):
+                    print("reply_path=manual_weather_forecast", flush=True)
+                    reply = await manual_weather_forecast_reply_async(query)
                 elif is_light_chat_query(query):
                     print("reply_path=light_chat", flush=True)
                     reply = await light_chat_reply_async(query, channel_name)
