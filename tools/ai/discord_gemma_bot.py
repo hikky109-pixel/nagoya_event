@@ -39,6 +39,18 @@ BOT_NAME_MENTION_TOKENS = (
     "<@1518154055455871036>",
     "<@!1518154055455871036>",
 )
+QUICK_REPLIES = {
+    "こんにちは": "こんにちは😇 今日もよろしくお願いします。",
+    "こんにちわ": "こんにちは😇 今日もよろしくお願いします。",
+    "おはよう": "おはようございます😇 今日も安全運転でいきましょう。",
+    "おはようございます": "おはようございます😇 今日も安全運転でいきましょう。",
+    "ありがとう": "どういたしまして😇 お役に立てたなら嬉しいです。",
+    "ありがと": "どういたしまして😇 お役に立てたなら嬉しいです。",
+    "ありがとうございます": "どういたしまして😇 お役に立てたなら嬉しいです。",
+    "お疲れ": "お疲れさまです😇 無理せずいきましょう。",
+    "おつかれ": "お疲れさまです😇 無理せずいきましょう。",
+    "かつや": "かつやですね😇 詳細が必要なら聞いてください。",
+}
 LIGHT_CHAT_EXACT_PHRASES = {
     "こんにちは",
     "おはよう",
@@ -492,6 +504,14 @@ def normalize_light_reply(text: str) -> str:
     return "\n".join(lines[:3])
 
 
+def normalize_quick_reply_key(query: str) -> str:
+    return "".join(query.strip().replace("　", " ").split()).strip("。、,!！?？")
+
+
+def quick_reply_for(query: str) -> str | None:
+    return QUICK_REPLIES.get(normalize_quick_reply_key(query))
+
+
 def is_light_chat_query(query: str) -> bool:
     normalized = query.strip().replace("　", " ")
     compact = "".join(normalized.split()).strip("。、.!！?？")
@@ -924,7 +944,11 @@ def main() -> int:
 
                 query = strip_bot_mentions(content, client) or content or "未確認です。"
                 print("cleaned_input=", query)
-                if is_light_chat_query(query):
+                quick_reply = quick_reply_for(query)
+                if quick_reply is not None:
+                    print("reply_path=quick_reply", flush=True)
+                    reply = trim_discord_message(quick_reply)
+                elif is_light_chat_query(query):
                     print("reply_path=light_chat", flush=True)
                     reply = await light_chat_reply_async(query, channel_name)
                 elif should_use_search_router(query, history):
