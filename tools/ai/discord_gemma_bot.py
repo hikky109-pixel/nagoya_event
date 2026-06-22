@@ -277,15 +277,15 @@ Discordコマンド {command} への短い返答を作ってください。
 """
 
 
-def call_ollama(prompt: str, num_predict: int | None = None) -> str | None:
+def call_ollama(prompt: str, options: dict[str, Any] | None = None) -> str | None:
     with timer("ollama"):
         payload = {
             "model": MODEL,
             "prompt": prompt,
             "stream": False,
         }
-        if num_predict is not None:
-            payload["options"] = {"num_predict": num_predict}
+        if options:
+            payload["options"] = options
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             OLLAMA_URL,
@@ -526,7 +526,15 @@ channel: {channel_name}
 
 
 def light_chat_reply(query: str, channel_name: str) -> str:
-    response = call_ollama(build_light_chat_prompt(query, channel_name), num_predict=80)
+    with timer("light_chat"):
+        response = call_ollama(
+            build_light_chat_prompt(query, channel_name),
+            options={
+                "num_predict": 40,
+                "num_ctx": 512,
+                "temperature": 0.8,
+            },
+        )
     if response is None:
         return "😇 聞いてます。"
     return normalize_light_reply(response)
