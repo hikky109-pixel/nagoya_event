@@ -32,12 +32,6 @@ MEIEKI_BUSY_PLACES = (
         "custom_id": "meieki_busy_taiko",
     },
     {
-        "place": "meitetsu_kintetsu",
-        "label": "名鉄／近鉄乗り場",
-        "emoji": "🚃",
-        "custom_id": "meieki_busy_meitetsu_kintetsu",
-    },
-    {
         "place": "midland",
         "label": "ミッドランド前",
         "emoji": "🏢",
