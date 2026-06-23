@@ -36,6 +36,37 @@ RAILWAY_BETA_EXCLUDE_MARKERS = (
     "取得失敗",
     "運行情報提供停止",
 )
+RAILWAY_BETA_FORBIDDEN_OUTPUTS = (
+    "おはようございます",
+    "本日も",
+    "状況を確認しました",
+    "報告ありがとうございます",
+    "〇〇さん",
+    "皆さん",
+    "引き続き",
+    "慎重に進めましょう",
+    "判断しましょう",
+    "支障をきたす",
+    "確認されました",
+    "情報収集",
+    "影響範囲",
+    "モニタリング",
+    "継続します",
+    "発生。",
+    "状況把握",
+    "引き続き注視",
+)
+RAILWAY_BETA_REQUIRED_ENDING = "名古屋方面の移動・乗換に影響する可能性があります。"
+RAILWAY_INFO_URLS = {
+    "JR東海道新幹線": "https://traininfo.jr-central.co.jp/shinkansen/sp/ja/index.html",
+    "JR東海在来線": "https://traininfo.jr-central.co.jp/zairaisen/index.html",
+    "名鉄": "https://top.meitetsu.co.jp/em/",
+    "名古屋市営地下鉄": "https://www.kotsu.city.nagoya.jp/rp/emergency/",
+    "近鉄": "https://www.kintetsu.jp/unkou/unkou.html",
+    "あおなみ線": "https://www.aonamiline.co.jp/railinfo",
+    "リニモ": "https://www.linimo.jp/delay/",
+    "城北線": "https://tkj-i.co.jp/status/",
+}
 JST = timezone(timedelta(hours=9), "JST")
 
 
@@ -125,6 +156,53 @@ def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
         return []
 
 
+def railway_info_source(alert: str) -> tuple[str, str, str]:
+    if "東海道新幹線" in alert:
+        return "JR東海道新幹線", "JR東海道新幹線", RAILWAY_INFO_URLS["JR東海道新幹線"]
+    if "JR東海在来線" in alert:
+        if "東海道線" in alert:
+            return "JR東海道線", "JR東海在来線", RAILWAY_INFO_URLS["JR東海在来線"]
+        return "JR東海在来線", "JR東海在来線", RAILWAY_INFO_URLS["JR東海在来線"]
+    for label in (
+        "名鉄",
+        "名古屋市営地下鉄",
+        "近鉄",
+        "あおなみ線",
+        "リニモ",
+        "城北線",
+    ):
+        if label in alert:
+            return label, label, RAILWAY_INFO_URLS[label]
+    return "鉄道運行情報", "", ""
+
+
+def official_alert_body(alert: str) -> str:
+    for separator in (":", "："):
+        if separator in alert:
+            return " ".join(alert.split(separator, 1)[1].split())
+    return " ".join(alert.split())
+
+
+def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
+    blocks: list[str] = []
+    for alert in railway_beta_alerts:
+        text = " ".join(str(alert or "").split())
+        if not text:
+            continue
+        title, url_label, url = railway_info_source(text)
+        lines = [
+            f"🚋 {title}",
+            "",
+            official_alert_body(text),
+            "",
+            RAILWAY_BETA_REQUIRED_ENDING,
+        ]
+        if url_label and url:
+            lines.extend(["", f"🔗 {url_label}", url])
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks).strip()
+
+
 def build_railway_beta_block(alerts: list[str]) -> str:
     if not alerts:
         return ""
@@ -140,12 +218,15 @@ def build_railway_beta_block(alerts: list[str]) -> str:
 - AIによる原因の補完、復旧見込みの創作、影響範囲の拡大解釈は禁止です。
 - 運転再開の判断、鉄道会社への指示、上司・部下っぽい報告は禁止です。
 - 鉄道会社や運転士への指示は禁止です。
-- 朝礼、日報、挨拶、社内報告の文体は禁止です。
+- 朝礼、日報、挨拶、社内報告、防災本部、管理職の文体は禁止です。
 - 禁止語: おはようございます / 本日も / 状況を確認しました / 報告ありがとうございます / 〇〇さん / 皆さん / 引き続き / 慎重に進めましょう / 判断しましょう
+- 禁止語: 支障をきたす / 確認されました / 情報収集 / 影響範囲 / モニタリング / 継続します / 発生。 / 状況把握 / 引き続き注視
 - 交通情報ベータがある場合は、公共交通情報として挨拶なし・前置きなしで書いてください。
 - 交通情報ベータがある場合は、3行以内にしてください。
-- 箇条書きは使っても構いません。
-- 書く内容は、取得できた事実 + 名古屋方面の移動/乗換影響のみです。
+- 箇条書きは不要です。
+- 行動指示は禁止です。
+- 書く内容は、取得できた事実のみです。
+- 最後の行は必ず「名古屋方面の移動・乗換に影響する可能性があります。」で終えてください。
 - 表現例:
 🚋 JR東海道線
 尾張一宮～木曽川駅間で列車遅延。
@@ -181,7 +262,7 @@ def build_prompt(
     weather_beta_block = build_weather_beta_block(weather_beta_alerts or [])
     railway_priority_rule = (
         "交通情報ベータがあるため、日報コメントではなく公共交通情報の掲示文を最優先で作ってください。\n"
-        "プロフィール、挨拶、朝礼、雑談、ツッコミ、日報要約は出さないでください。"
+        "プロフィール、挨拶、朝礼、雑談、ツッコミ、日報要約、防災本部風の表現は出さないでください。"
         if railway_alerts
         else ""
     )
@@ -201,9 +282,11 @@ def build_prompt(
 - 運転再開の判断、鉄道会社への指示はしない
 - 「〇〇候補さん」「皆さん」は使わない
 - 「おはようございます」「本日も」「状況を確認しました」「報告ありがとうございます」「〇〇さん」「引き続き」「慎重に進めましょう」「判断しましょう」は使わない
+- 「支障をきたす」「確認されました」「情報収集」「影響範囲」「モニタリング」「継続します」「発生。」「状況把握」「引き続き注視」は使わない
 - 上司・部下っぽい報告文にしない
 - 鉄道遅延は、事実と名古屋方面の移動・乗換への影響可能性だけを短く伝える
-- 交通情報ベータがある場合は公共交通情報として書き、挨拶なし・前置きなし・3行以内にする
+- 交通情報ベータがある場合は公共交通情報として書き、挨拶なし・前置きなし・箇条書きなし・3行以内にする
+- 交通情報ベータがある場合、最後は必ず「名古屋方面の移動・乗換に影響する可能性があります。」で終える
 - ツッコミは最大1回
 - スギケツバットは毎回出さない
 - 交通情報ベータがある場合だけ、交通情報にも短く触れる
@@ -218,6 +301,24 @@ report:
 {railway_beta_block}
 {weather_beta_block}
 """
+
+
+def validate_railway_beta_comment(comment: str) -> tuple[bool, list[str]]:
+    errors: list[str] = []
+    lines = [line.strip() for line in comment.splitlines() if line.strip()]
+    content_lines = []
+    for line in lines:
+        if line.startswith("🔗 ") or line.startswith("http://") or line.startswith("https://"):
+            continue
+        content_lines.append(line)
+    if len(content_lines) > 3:
+        errors.append("too_many_lines")
+    for forbidden in RAILWAY_BETA_FORBIDDEN_OUTPUTS:
+        if forbidden in comment:
+            errors.append(forbidden)
+    if content_lines and content_lines[-1] != RAILWAY_BETA_REQUIRED_ENDING:
+        errors.append("missing_required_ending")
+    return (not errors, errors)
 
 
 def call_ollama(prompt: str) -> dict[str, Any] | None:
@@ -260,6 +361,34 @@ def main() -> int:
     else:
         print("railway_beta_alerts: 0")
     print(f"weather_beta_alerts: {len(weather_beta_alerts)}")
+
+    if railway_beta_alerts:
+        comment = build_railway_beta_comment(railway_beta_alerts)
+        ok, errors = validate_railway_beta_comment(comment)
+        if not ok:
+            print(f"railway_beta_comment_guard: {errors}")
+            comment = ""
+        result = {
+            "generated_at": now_iso(),
+            "model": "python:railway_beta",
+            "comment": comment,
+            "railway_beta_alerts": railway_beta_alerts,
+            "weather_beta_alerts": weather_beta_alerts,
+            "done": True,
+            "ollama_skipped": True,
+        }
+
+        AI_DIR.mkdir(parents=True, exist_ok=True)
+        TEXT_OUTPUT_PATH.write_text(comment + ("\n" if comment else ""), encoding="utf-8")
+        with JSON_OUTPUT_PATH.open("w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+
+        print("railway_beta_comment: generated without Gemma")
+        print(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        print(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        return 0
+
     prompt = build_prompt(report, profile, railway_beta_alerts, weather_beta_alerts)
     response = call_ollama(prompt)
 
@@ -268,6 +397,11 @@ def main() -> int:
         return 0
 
     comment = str(response.get("response", "")).strip()
+    if railway_beta_alerts:
+        ok, errors = validate_railway_beta_comment(comment)
+        if not ok:
+            print(f"railway_beta_comment_guard: {errors}")
+            comment = ""
     result = {
         "generated_at": now_iso(),
         "model": MODEL,
