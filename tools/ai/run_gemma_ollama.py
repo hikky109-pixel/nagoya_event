@@ -501,125 +501,103 @@ def main() -> int:
         log("railway_beta_alerts: 0")
     log(f"weather_beta_alerts: {len(weather_beta_alerts)}")
 
-    state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
-    last_notify = load_railway_last_notify(RAILWAY_LAST_NOTIFY_PATH)
-    railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
     if not railway_beta_is_active:
-        if state_exists:
-            save_railway_state(RAILWAY_STATE_PATH, previous_railway_alerts, now_jst)
-        result = {
-            "generated_at": now_iso(),
-            "model": "python:railway_beta_state_diff",
-            "comment": "",
-            "railway_beta_alerts": [],
-            "railway_beta_previous_alerts": previous_railway_alerts,
-            "railway_beta_added_alerts": [],
-            "railway_beta_removed_alerts": [],
-            "railway_beta_change_type": "skipped_overnight",
-            "railway_beta_notification": False,
-            "railway_notify_allowed": False,
-            "railway_notify_suppressed_reason": "skipped_overnight",
-            "severity": railway_severity,
-            "weather_beta_alerts": weather_beta_alerts,
-            "done": False,
-            "ollama_skipped": True,
-        }
-        write_comment_result(result, "")
         log("railway_beta_comment: skipped overnight")
-        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
-        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
-        return 0
-
-    save_railway_state(RAILWAY_STATE_PATH, railway_beta_alerts, now_jst)
-    comment, change_type, added_alerts, removed_alerts = build_railway_state_comment(
-        state_exists,
-        previous_railway_alerts,
-        railway_beta_alerts,
-    )
-    record_railway_history_change(
-        RAILWAY_HISTORY_PATH,
-        previous_railway_alerts,
-        railway_beta_alerts,
-        change_type,
-        now_jst,
-    )
-    if change_type == "recovered":
-        result = {
-            "generated_at": now_iso(),
-            "model": "python:railway_beta_state_diff",
-            "comment": "",
-            "railway_beta_alerts": railway_beta_alerts,
-            "railway_beta_previous_alerts": previous_railway_alerts,
-            "railway_beta_added_alerts": added_alerts,
-            "railway_beta_removed_alerts": removed_alerts,
-            "railway_beta_change_type": "recovered_silent",
-            "railway_beta_notification": False,
-            "railway_notify_allowed": False,
-            "severity": railway_severity,
-            "weather_beta_alerts": weather_beta_alerts,
-            "done": False,
-            "ollama_skipped": True,
-        }
-        write_comment_result(result, "")
-        log("railway_beta_comment: recovered_silent")
-        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
-        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
-        log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
-        return 0
-
-    if comment or change_type == "unchanged":
-        notification_severity = detect_railway_severity(railway_beta_alerts or removed_alerts)
-        notify_allowed, cooldown_remaining = railway_notify_allowed(
-            last_notify,
-            notification_severity,
-            now_jst,
-            change_type,
+        railway_severity = detect_railway_severity([])
+    else:
+        state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
+        last_notify = load_railway_last_notify(RAILWAY_LAST_NOTIFY_PATH)
+        railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
+        save_railway_state(RAILWAY_STATE_PATH, railway_beta_alerts, now_jst)
+        comment, change_type, added_alerts, removed_alerts = build_railway_state_comment(
+            state_exists,
+            previous_railway_alerts,
+            railway_beta_alerts,
         )
-        if comment and not notify_allowed:
-            log(f"railway_notify_suppressed: cooldown {notification_severity} {cooldown_remaining}s remaining")
-            comment = ""
-        elif comment and change_type != "unchanged":
-            log("railway_notify_allowed: state changed")
-        elif comment:
-            log("railway_notify_allowed: yes")
+        record_railway_history_change(
+            RAILWAY_HISTORY_PATH,
+            previous_railway_alerts,
+            railway_beta_alerts,
+            change_type,
+            now_jst,
+        )
+        if change_type == "recovered":
+            result = {
+                "generated_at": now_iso(),
+                "model": "python:railway_beta_state_diff",
+                "comment": "",
+                "railway_beta_alerts": railway_beta_alerts,
+                "railway_beta_previous_alerts": previous_railway_alerts,
+                "railway_beta_added_alerts": added_alerts,
+                "railway_beta_removed_alerts": removed_alerts,
+                "railway_beta_change_type": "recovered_silent",
+                "railway_beta_notification": False,
+                "railway_notify_allowed": False,
+                "severity": railway_severity,
+                "weather_beta_alerts": weather_beta_alerts,
+                "done": False,
+                "ollama_skipped": True,
+            }
+            write_comment_result(result, "")
+            log("railway_beta_comment: recovered_silent")
+            log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+            return 0
 
-        ok, errors = validate_railway_beta_comment(comment)
-        if not ok:
-            log(f"railway_beta_comment_guard: {errors}")
-            comment = ""
-        if comment:
-            save_railway_last_notify(
-                RAILWAY_LAST_NOTIFY_PATH,
-                "recovery" if change_type == "recovered" else notification_severity,
+        if comment or change_type == "unchanged":
+            notification_severity = detect_railway_severity(railway_beta_alerts or removed_alerts)
+            notify_allowed, cooldown_remaining = railway_notify_allowed(
+                last_notify,
+                notification_severity,
                 now_jst,
+                change_type,
             )
-        result = {
-            "generated_at": now_iso(),
-            "model": "python:railway_beta_state_diff",
-            "comment": comment,
-            "railway_beta_alerts": railway_beta_alerts,
-            "railway_beta_previous_alerts": previous_railway_alerts,
-            "railway_beta_added_alerts": added_alerts,
-            "railway_beta_removed_alerts": removed_alerts,
-            "railway_beta_change_type": change_type,
-            "railway_beta_notification": bool(comment),
-            "railway_notify_allowed": bool(comment) and notify_allowed,
-            "railway_notify_cooldown_remaining_seconds": cooldown_remaining if not notify_allowed else 0,
-            "severity": notification_severity,
-            "weather_beta_alerts": weather_beta_alerts,
-            "done": bool(comment),
-            "ollama_skipped": True,
-        }
+            if comment and not notify_allowed:
+                log(f"railway_notify_suppressed: cooldown {notification_severity} {cooldown_remaining}s remaining")
+                comment = ""
+            elif comment and change_type != "unchanged":
+                log("railway_notify_allowed: state changed")
+            elif comment:
+                log("railway_notify_allowed: yes")
 
-        write_comment_result(result, comment)
-        if comment:
-            log(f"railway_beta_comment: {change_type}")
-        else:
-            log("railway_beta_comment: no change")
-        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
-        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
-        log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
-        return 0
+            ok, errors = validate_railway_beta_comment(comment)
+            if not ok:
+                log(f"railway_beta_comment_guard: {errors}")
+                comment = ""
+            if comment:
+                save_railway_last_notify(
+                    RAILWAY_LAST_NOTIFY_PATH,
+                    "recovery" if change_type == "recovered" else notification_severity,
+                    now_jst,
+                )
+            result = {
+                "generated_at": now_iso(),
+                "model": "python:railway_beta_state_diff",
+                "comment": comment,
+                "railway_beta_alerts": railway_beta_alerts,
+                "railway_beta_previous_alerts": previous_railway_alerts,
+                "railway_beta_added_alerts": added_alerts,
+                "railway_beta_removed_alerts": removed_alerts,
+                "railway_beta_change_type": change_type,
+                "railway_beta_notification": bool(comment),
+                "railway_notify_allowed": bool(comment) and notify_allowed,
+                "railway_notify_cooldown_remaining_seconds": cooldown_remaining if not notify_allowed else 0,
+                "severity": notification_severity,
+                "weather_beta_alerts": weather_beta_alerts,
+                "done": bool(comment),
+                "ollama_skipped": True,
+            }
+
+            write_comment_result(result, comment)
+            if comment:
+                log(f"railway_beta_comment: {change_type}")
+            else:
+                log("railway_beta_comment: no change")
+            log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+            return 0
 
     prompt = build_prompt(report, profile, railway_beta_alerts, weather_beta_alerts)
     response = call_ollama(prompt)
