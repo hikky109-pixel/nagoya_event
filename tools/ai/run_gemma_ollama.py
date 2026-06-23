@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 try:
+    from jrc_zairai_targets import jrc_target_line_display, jrc_target_line_url
     from log_utils import log
     from railway_history import record_railway_history_change
     from railway_status_normalizer import get_all_railway_alerts
@@ -28,6 +29,7 @@ try:
         save_railway_state,
     )
 except ModuleNotFoundError:
+    from tools.ai.jrc_zairai_targets import jrc_target_line_display, jrc_target_line_url
     from tools.ai.log_utils import log
     from tools.ai.railway_history import record_railway_history_change
     from tools.ai.railway_status_normalizer import get_all_railway_alerts
@@ -191,8 +193,12 @@ def railway_info_source(alert: str) -> tuple[str, str, str]:
     if "東海道新幹線" in alert:
         return "JR東海道新幹線", "JR東海道新幹線", RAILWAY_INFO_URLS["JR東海道新幹線"]
     if "JR東海在来線" in alert:
-        if "東海道線" in alert:
-            return "JR東海道線", "JR東海在来線", RAILWAY_INFO_URLS["JR東海在来線"]
+        display = jrc_target_line_display(alert)
+        url = jrc_target_line_url(alert)
+        if display and url:
+            title = display
+            url_label = "JR東海在来線 " + display.splitlines()[0]
+            return title, url_label, url
         return "JR東海在来線", "JR東海在来線", RAILWAY_INFO_URLS["JR東海在来線"]
     for label in (
         "名鉄",

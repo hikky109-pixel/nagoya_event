@@ -2,6 +2,11 @@ import json
 import urllib.request
 from typing import Any
 
+try:
+    from jrc_zairai_targets import jrc_target_line_key
+except ModuleNotFoundError:
+    from tools.ai.jrc_zairai_targets import jrc_target_line_key
+
 URL = (
     "https://traininfo.jr-central.co.jp/"
     "zairaisen/data/trainInfo/json/unkou.json"
@@ -40,6 +45,8 @@ def get_jrc_zairai_status(line_name=None):
         )
 
         if not current_line_name:
+            continue
+        if jrc_target_line_key(current_line_name) is None:
             continue
 
         message = _clean_text(next(
