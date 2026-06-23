@@ -289,3 +289,16 @@ def message_text() -> str:
         "📍 名駅繁忙報告\n"
         "場所を押すと投稿します"
     )
+
+
+def followup_message_text() -> str:
+    return (
+        "📍 名駅繁忙確認\n"
+        "前回の確認からログが流れました。\n"
+        "現在の状況を押してください。"
+    )
+
+
+def is_meieki_busy_button_message(content: str) -> bool:
+    text = str(content or "").strip()
+    return text in {message_text(), followup_message_text()}
