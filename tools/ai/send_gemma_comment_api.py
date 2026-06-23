@@ -38,6 +38,8 @@ def read_comment_meta() -> dict[str, Any]:
 
 
 def has_railway_beta_alerts(meta: dict[str, Any]) -> bool:
+    if meta.get("railway_beta_notification"):
+        return True
     alerts = meta.get("railway_beta_alerts")
     return isinstance(alerts, list) and any(str(alert or "").strip() for alert in alerts)
 
@@ -77,6 +79,10 @@ def main() -> int:
         return 0
 
     content = read_comment()
+    if not content.strip():
+        print("Gemma課長コメントなし: 送信スキップ")
+        return 0
+
     ok, status_code, body = post_comment(token, channel_id, content)
     if ok:
         print(f"Gemma課長コメントDiscord API送信成功: {channel_key}")

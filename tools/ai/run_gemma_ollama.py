@@ -16,8 +16,10 @@ sys.path.insert(0, str(ROOT))
 
 try:
     from railway_status_normalizer import get_all_railway_alerts
+    from railway_state import diff_alerts, load_railway_state, save_railway_state
 except ModuleNotFoundError:
     from tools.ai.railway_status_normalizer import get_all_railway_alerts
+    from tools.ai.railway_state import diff_alerts, load_railway_state, save_railway_state
 
 try:
     from tools.weather.weather_normalizer import get_all_weather_alerts
@@ -30,6 +32,7 @@ REPORT_PATH = AI_DIR / "gemma_report.txt"
 PROFILE_PATH = AI_DIR / "gemma_profile.yml"
 TEXT_OUTPUT_PATH = AI_DIR / "gemma_comment.txt"
 JSON_OUTPUT_PATH = AI_DIR / "gemma_comment.json"
+RAILWAY_STATE_PATH = AI_DIR / "railway_beta_state.json"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 RAILWAY_BETA_EXCLUDE_MARKERS = (
@@ -228,6 +231,63 @@ def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
     return "\n\n".join(blocks).strip()
 
 
+def build_railway_change_comment(
+    added_alerts: list[str],
+    removed_alerts: list[str],
+    current_alerts: list[str],
+) -> str:
+    if current_alerts:
+        blocks: list[str] = []
+        if added_alerts:
+            for title, url_label, url, messages in grouped_railway_alerts(added_alerts):
+                lines = [f"🔄 {title}", "", "次の情報が更新されました。"]
+                lines.extend(f"・{message}" for message in messages)
+                lines.extend(["", RAILWAY_BETA_REQUIRED_ENDING])
+                if url_label and url:
+                    lines.extend(["", f"🔗 {url_label}", url])
+                blocks.append("\n".join(lines))
+        if removed_alerts:
+            for title, url_label, url, messages in grouped_railway_alerts(removed_alerts):
+                lines = [f"🔄 {title}", "", "次の情報は解消しました。"]
+                lines.extend(f"・{message}" for message in messages)
+                lines.extend(["", RAILWAY_BETA_REQUIRED_ENDING])
+                if url_label and url:
+                    lines.extend(["", f"🔗 {url_label}", url])
+                blocks.append("\n".join(lines))
+        return "\n\n".join(blocks).strip()
+
+    blocks = []
+    for title, url_label, url, _messages in grouped_railway_alerts(removed_alerts):
+        lines = [
+            f"✅ {title}",
+            "運行情報は解消しました。",
+        ]
+        if url_label and url:
+            lines.extend(["", f"🔗 {url_label}", url])
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks).strip()
+
+
+def build_railway_state_comment(
+    state_exists: bool,
+    previous_alerts: list[str],
+    current_alerts: list[str],
+) -> tuple[str, str, list[str], list[str]]:
+    added_alerts, removed_alerts = diff_alerts(previous_alerts, current_alerts)
+    if not state_exists and current_alerts:
+        return build_railway_beta_comment(current_alerts), "initial", current_alerts, []
+    if previous_alerts and not current_alerts:
+        return build_railway_change_comment([], previous_alerts, current_alerts), "recovered", [], previous_alerts
+    if added_alerts or removed_alerts:
+        return (
+            build_railway_change_comment(added_alerts, removed_alerts, current_alerts),
+            "changed",
+            added_alerts,
+            removed_alerts,
+        )
+    return "", "unchanged", [], []
+
+
 def build_railway_beta_block(alerts: list[str]) -> str:
     if not alerts:
         return ""
@@ -338,9 +398,19 @@ def validate_railway_beta_comment(comment: str) -> tuple[bool, list[str]]:
     for forbidden in RAILWAY_BETA_FORBIDDEN_OUTPUTS:
         if forbidden in comment:
             errors.append(forbidden)
+    if comment.startswith("✅ "):
+        return (not errors, errors)
     if content_lines and content_lines[-1] != RAILWAY_BETA_REQUIRED_ENDING:
         errors.append("missing_required_ending")
     return (not errors, errors)
+
+
+def write_comment_result(result: dict[str, Any], comment: str) -> None:
+    AI_DIR.mkdir(parents=True, exist_ok=True)
+    TEXT_OUTPUT_PATH.write_text(comment + ("\n" if comment else ""), encoding="utf-8")
+    with JSON_OUTPUT_PATH.open("w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+        f.write("\n")
 
 
 def call_ollama(prompt: str) -> dict[str, Any] | None:
@@ -384,31 +454,64 @@ def main() -> int:
         print("railway_beta_alerts: 0")
     print(f"weather_beta_alerts: {len(weather_beta_alerts)}")
 
-    if railway_beta_alerts:
-        comment = build_railway_beta_comment(railway_beta_alerts)
+    state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
+    if not railway_beta_is_active:
+        if state_exists:
+            save_railway_state(RAILWAY_STATE_PATH, previous_railway_alerts, now_jst)
+        result = {
+            "generated_at": now_iso(),
+            "model": "python:railway_beta_state_diff",
+            "comment": "",
+            "railway_beta_alerts": [],
+            "railway_beta_previous_alerts": previous_railway_alerts,
+            "railway_beta_added_alerts": [],
+            "railway_beta_removed_alerts": [],
+            "railway_beta_change_type": "skipped_overnight",
+            "railway_beta_notification": False,
+            "weather_beta_alerts": weather_beta_alerts,
+            "done": False,
+            "ollama_skipped": True,
+        }
+        write_comment_result(result, "")
+        print("railway_beta_comment: skipped overnight")
+        print(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        print(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        return 0
+
+    save_railway_state(RAILWAY_STATE_PATH, railway_beta_alerts, now_jst)
+    comment, change_type, added_alerts, removed_alerts = build_railway_state_comment(
+        state_exists,
+        previous_railway_alerts,
+        railway_beta_alerts,
+    )
+    if comment or change_type == "unchanged":
         ok, errors = validate_railway_beta_comment(comment)
         if not ok:
             print(f"railway_beta_comment_guard: {errors}")
             comment = ""
         result = {
             "generated_at": now_iso(),
-            "model": "python:railway_beta",
+            "model": "python:railway_beta_state_diff",
             "comment": comment,
             "railway_beta_alerts": railway_beta_alerts,
+            "railway_beta_previous_alerts": previous_railway_alerts,
+            "railway_beta_added_alerts": added_alerts,
+            "railway_beta_removed_alerts": removed_alerts,
+            "railway_beta_change_type": change_type,
+            "railway_beta_notification": bool(comment),
             "weather_beta_alerts": weather_beta_alerts,
-            "done": True,
+            "done": bool(comment),
             "ollama_skipped": True,
         }
 
-        AI_DIR.mkdir(parents=True, exist_ok=True)
-        TEXT_OUTPUT_PATH.write_text(comment + ("\n" if comment else ""), encoding="utf-8")
-        with JSON_OUTPUT_PATH.open("w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-
-        print("railway_beta_comment: generated without Gemma")
+        write_comment_result(result, comment)
+        if comment:
+            print(f"railway_beta_comment: {change_type}")
+        else:
+            print("railway_beta_comment: no change")
         print(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
         print(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        print(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
         return 0
 
     prompt = build_prompt(report, profile, railway_beta_alerts, weather_beta_alerts)
@@ -433,11 +536,7 @@ def main() -> int:
         "done": bool(response.get("done")),
     }
 
-    AI_DIR.mkdir(parents=True, exist_ok=True)
-    TEXT_OUTPUT_PATH.write_text(comment + ("\n" if comment else ""), encoding="utf-8")
-    with JSON_OUTPUT_PATH.open("w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    write_comment_result(result, comment)
 
     print(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
     print(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
