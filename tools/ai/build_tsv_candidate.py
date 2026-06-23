@@ -17,6 +17,7 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 
 sys.path.insert(0, str(ROOT))
+from tools.ai.normalize_tsv import log_normalize_result, normalize_tsv_with_stats  # noqa: E402
 from tools.ai.output_guard import validate_output  # noqa: E402
 from tools.ai import tsv_memory  # noqa: E402
 
@@ -107,23 +108,6 @@ def call_ollama(prompt: str) -> str | None:
     return str(data.get("response", "")).strip()
 
 
-def normalize_tsv(text: str) -> str:
-    rows: list[str] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip().strip("`")
-        if not line or line.lower().startswith(("date\t", "```", "tsv")):
-            continue
-        parts = line.split("\t")
-        if len(parts) < 5:
-            continue
-        while len(parts) < 6:
-            parts.append("candidate")
-        parts = parts[:6]
-        parts[5] = "candidate"
-        rows.append("\t".join(parts))
-    return "\n".join(rows)
-
-
 def process_ocr_case(path: Path) -> dict[str, Any] | None:
     ocr_case = load_json(path)
     if not isinstance(ocr_case, dict):
@@ -145,7 +129,9 @@ def process_ocr_case(path: Path) -> dict[str, Any] | None:
         print("gemma hallucination:", errors)
         response = ""
 
-    tsv_text = normalize_tsv(response)
+    normalized = normalize_tsv_with_stats(response, source_text=ocr_text)
+    log_normalize_result(normalized)
+    tsv_text = normalized.text
     tsv_path, json_path, meta = tsv_memory.save_tsv_candidate(str(path.relative_to(ROOT)), tsv_text)
     return {
         "tsv_path": str(tsv_path.relative_to(ROOT)),

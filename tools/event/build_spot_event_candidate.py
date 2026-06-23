@@ -20,6 +20,7 @@ MODEL = "gemma3:4b"
 
 sys.path.insert(0, str(ROOT))
 from tools.ai import tsv_memory  # noqa: E402
+from tools.ai.normalize_tsv import log_normalize_result, normalize_tsv_with_stats  # noqa: E402
 from tools.ai.output_guard import validate_structured_tsv_output  # noqa: E402
 
 
@@ -225,22 +226,14 @@ def call_ollama(prompt: str) -> str | None:
     return str(data.get("response", "")).strip()
 
 
-def normalize_tsv(text: str) -> str:
-    rows: list[str] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip().strip("`")
-        if not line or line.lower().startswith(("date\t", "```", "tsv")):
-            continue
-        parts = [part.strip() for part in line.split("\t")]
-        if len(parts) < 5:
-            continue
-        while len(parts) < 6:
-            parts.append("candidate")
-        parts = parts[:6]
-        parts[2] = "null"
-        parts[5] = "candidate"
-        rows.append("\t".join(parts))
-    return "\n".join(rows)
+def _record_times(records: list[dict[str, str]]) -> set[str]:
+    times: set[str] = set()
+    for record in records:
+        for key in ("day", "night"):
+            value = record.get(key, "")
+            if value and value not in {"-", "貸切"}:
+                times.add(value)
+    return times
 
 
 def process_ocr_case(
@@ -274,7 +267,9 @@ def process_ocr_case(
         print(errors)
         response = ""
 
-    tsv_text = normalize_tsv(response)
+    normalized = normalize_tsv_with_stats(response, source_times=_record_times(records), venue=venue)
+    log_normalize_result(normalized)
+    tsv_text = normalized.text
     tsv_path, json_path, meta = tsv_memory.save_tsv_candidate(str(path.relative_to(ROOT)), tsv_text)
     return {
         "tsv_path": str(tsv_path.relative_to(ROOT)),
