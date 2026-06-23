@@ -1,5 +1,7 @@
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
 def _int_env(name, default):
     value = os.getenv(name, "").strip()
