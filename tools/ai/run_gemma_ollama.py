@@ -183,17 +183,42 @@ def official_alert_body(alert: str) -> str:
     return " ".join(alert.split())
 
 
-def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
-    blocks: list[str] = []
-    for alert in railway_beta_alerts:
+def grouped_railway_alerts(alerts: list[str]) -> list[tuple[str, str, str, list[str]]]:
+    groups: list[tuple[str, str, str, list[str]]] = []
+    group_index: dict[tuple[str, str, str], int] = {}
+
+    for alert in alerts:
         text = " ".join(str(alert or "").split())
         if not text:
             continue
+
         title, url_label, url = railway_info_source(text)
+        body = official_alert_body(text)
+        if not body:
+            continue
+
+        key = (title, url_label, url)
+        if key not in group_index:
+            group_index[key] = len(groups)
+            groups.append((title, url_label, url, []))
+
+        messages = groups[group_index[key]][3]
+        if body not in messages:
+            messages.append(body)
+
+    return groups
+
+
+def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
+    blocks: list[str] = []
+    for title, url_label, url, messages in grouped_railway_alerts(railway_beta_alerts):
+        if not messages:
+            continue
+        body_lines = messages if len(messages) == 1 else [f"・{message}" for message in messages]
         lines = [
             f"🚋 {title}",
             "",
-            official_alert_body(text),
+            "\n".join(body_lines),
             "",
             RAILWAY_BETA_REQUIRED_ENDING,
         ]
@@ -222,8 +247,7 @@ def build_railway_beta_block(alerts: list[str]) -> str:
 - 禁止語: おはようございます / 本日も / 状況を確認しました / 報告ありがとうございます / 〇〇さん / 皆さん / 引き続き / 慎重に進めましょう / 判断しましょう
 - 禁止語: 支障をきたす / 確認されました / 情報収集 / 影響範囲 / モニタリング / 継続します / 発生。 / 状況把握 / 引き続き注視
 - 交通情報ベータがある場合は、公共交通情報として挨拶なし・前置きなしで書いてください。
-- 交通情報ベータがある場合は、3行以内にしてください。
-- 箇条書きは不要です。
+- 交通情報ベータが同じ路線で複数ある場合は、ページ掲載順を維持して「・」の箇条書きにしてください。
 - 行動指示は禁止です。
 - 書く内容は、取得できた事実のみです。
 - 最後の行は必ず「名古屋方面の移動・乗換に影響する可能性があります。」で終えてください。
@@ -311,8 +335,6 @@ def validate_railway_beta_comment(comment: str) -> tuple[bool, list[str]]:
         if line.startswith("🔗 ") or line.startswith("http://") or line.startswith("https://"):
             continue
         content_lines.append(line)
-    if len(content_lines) > 3:
-        errors.append("too_many_lines")
     for forbidden in RAILWAY_BETA_FORBIDDEN_OUTPUTS:
         if forbidden in comment:
             errors.append(forbidden)

@@ -72,8 +72,15 @@ def normalize_jrc_zairai_status() -> list[str]:
         return []
 
     alerts: list[str] = []
-    for line_name, message in result.items():
-        text = _clean_text(message)
+    for line_name, messages in result.items():
+        if isinstance(messages, list):
+            for message in messages:
+                text = _clean_text(message)
+                if text:
+                    alerts.append(f"JR東海在来線 {line_name}: {text}")
+            continue
+
+        text = _clean_text(messages)
         if text:
             alerts.append(f"JR東海在来線 {line_name}: {text}")
     return alerts

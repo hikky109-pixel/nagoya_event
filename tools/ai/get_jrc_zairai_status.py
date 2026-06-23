@@ -1,10 +1,15 @@
 import json
 import urllib.request
+from typing import Any
 
 URL = (
     "https://traininfo.jr-central.co.jp/"
     "zairaisen/data/trainInfo/json/unkou.json"
 )
+
+
+def _clean_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
 
 
 def get_jrc_zairai_status(line_name=None):
@@ -37,16 +42,21 @@ def get_jrc_zairai_status(line_name=None):
         if not current_line_name:
             continue
 
-        message = next(
+        message = _clean_text(next(
             (
                 x["message"]
                 for x in message_info.get("delivery_msg", []) or []
                 if x["lang"] == "ja"
             ),
             "",
-        )
+        ))
 
-        result[current_line_name] = message
+        if not message:
+            continue
+
+        messages = result.setdefault(current_line_name, [])
+        if message not in messages:
+            messages.append(message)
 
     if line_name is not None:
         return result.get(line_name)
