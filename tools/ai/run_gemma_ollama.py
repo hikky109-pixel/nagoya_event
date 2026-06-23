@@ -90,6 +90,37 @@ RAILWAY_SEVERITY_EMOJIS = {
     "warning": "🟡",
     "critical": "🔴",
 }
+COMMENT_SIGNAL_KEYWORDS = (
+    "インシデント",
+    "障害",
+    "事故",
+    "通行止",
+    "交通規制",
+    "規制",
+    "渋滞",
+    "オービス",
+    "名駅繁忙",
+    "繁忙",
+    "入構",
+    "大型イベント",
+    "需要",
+    "IGアリーナ",
+    "バンテリン",
+    "御園座",
+    "ドラゴンズ関連ログ",
+    "天気情報があります",
+    "鉄道情報があります",
+    "道路交通案件",
+)
+COMMENT_NO_SIGNAL_MARKERS = (
+    "特記事項なし",
+    "特記事項はありません",
+    "本日も安定稼働",
+    "安定稼働です",
+    "引き続き見守ります",
+    "大きな変化は未確認",
+    "平常運転",
+)
 RAILWAY_INFO_URLS = {
     "JR東海道新幹線": "https://traininfo.jr-central.co.jp/shinkansen/sp/ja/index.html",
     "JR東海在来線": "https://traininfo.jr-central.co.jp/zairaisen/index.html",
@@ -434,6 +465,25 @@ report:
 """
 
 
+def should_generate_comment(report: str, railway_beta_alerts: list[str], weather_beta_alerts: list[str]) -> bool:
+    if railway_beta_alerts or weather_beta_alerts:
+        return True
+
+    text = " ".join(str(report or "").split())
+    if not text:
+        return False
+    if any(marker in text for marker in COMMENT_NO_SIGNAL_MARKERS):
+        return any(keyword in text for keyword in COMMENT_SIGNAL_KEYWORDS)
+    return any(keyword in text for keyword in COMMENT_SIGNAL_KEYWORDS)
+
+
+def is_empty_status_comment(comment: str) -> bool:
+    text = " ".join(str(comment or "").split())
+    if not text:
+        return True
+    return any(marker in text for marker in COMMENT_NO_SIGNAL_MARKERS)
+
+
 def validate_railway_beta_comment(comment: str) -> tuple[bool, list[str]]:
     errors: list[str] = []
     lines = [line.strip() for line in comment.splitlines() if line.strip()]
@@ -599,6 +649,24 @@ def main() -> int:
             log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
             return 0
 
+    if not should_generate_comment(report, railway_beta_alerts, weather_beta_alerts):
+        result = {
+            "generated_at": now_iso(),
+            "model": "python:silent_empty",
+            "comment": "",
+            "railway_beta_alerts": railway_beta_alerts,
+            "severity": railway_severity,
+            "weather_beta_alerts": weather_beta_alerts,
+            "done": False,
+            "ollama_skipped": True,
+            "silent_reason": "no_actionable_info",
+        }
+        write_comment_result(result, "")
+        log("gemma_comment: skipped no_actionable_info")
+        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        return 0
+
     prompt = build_prompt(report, profile, railway_beta_alerts, weather_beta_alerts)
     response = call_ollama(prompt)
 
@@ -607,6 +675,9 @@ def main() -> int:
         return 0
 
     comment = str(response.get("response", "")).strip()
+    if is_empty_status_comment(comment):
+        log("gemma_comment_guard: empty_status_comment")
+        comment = ""
     if railway_beta_alerts:
         ok, errors = validate_railway_beta_comment(comment)
         if not ok:
@@ -619,7 +690,7 @@ def main() -> int:
         "railway_beta_alerts": railway_beta_alerts,
         "severity": railway_severity,
         "weather_beta_alerts": weather_beta_alerts,
-        "done": bool(response.get("done")),
+        "done": bool(response.get("done")) and bool(comment),
     }
 
     write_comment_result(result, comment)
