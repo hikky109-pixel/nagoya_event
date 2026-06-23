@@ -17,6 +17,7 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 
 sys.path.insert(0, str(ROOT))
+from tools.ai.output_guard import validate_output  # noqa: E402
 from tools.ai import tsv_memory  # noqa: E402
 
 
@@ -134,6 +135,15 @@ def process_ocr_case(path: Path) -> dict[str, Any] | None:
     response = call_ollama(build_prompt(ocr_case))
     if response is None:
         return {"error": "Gemma4B未起動"}
+
+    ok, errors = validate_output(ocr_text, response)
+    if ok:
+        print("gemma_output_guard: ok")
+    else:
+        print("gemma_output_guard:")
+        print(errors)
+        print("gemma hallucination:", errors)
+        response = ""
 
     tsv_text = normalize_tsv(response)
     tsv_path, json_path, meta = tsv_memory.save_tsv_candidate(str(path.relative_to(ROOT)), tsv_text)
