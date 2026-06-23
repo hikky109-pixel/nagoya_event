@@ -107,6 +107,7 @@ GEMMA_GUILD_ID = os.getenv("GEMMA_GUILD_ID", "")
 GEMMA_CHANNEL_TEST = os.getenv("GEMMA_CHANNEL_TEST", "")
 GEMMA_CHANNEL_ADMIN = os.getenv("GEMMA_CHANNEL_ADMIN", "")
 GEMMA_CHANNEL_NAGOYA = _channel_id_env("GEMMA_CHANNEL_NAGOYA")
+GEMMA_CHANNEL_RAILWAY = _channel_id_env("GEMMA_CHANNEL_RAILWAY")
 
 # Webhook版を使う場合のみ環境変数で設定。
 GEMMA_DISCORD_WEBHOOK = os.getenv("GEMMA_DISCORD_WEBHOOK", "")
@@ -114,7 +115,7 @@ GEMMA_WEBHOOK_URL = os.getenv("GEMMA_WEBHOOK_URL", "")
 
 GEMMA_CHANNELS = {
     "main": os.getenv("GEMMA_CHANNEL_MAIN", ""),
-    "railway": os.getenv("GEMMA_CHANNEL_RAILWAY", ""),
+    "railway": GEMMA_CHANNEL_RAILWAY,
     "road": os.getenv("GEMMA_CHANNEL_ROAD", ""),
     "event": os.getenv("GEMMA_CHANNEL_EVENT", ""),
     "nagoya": GEMMA_CHANNEL_NAGOYA,
