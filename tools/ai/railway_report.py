@@ -20,6 +20,7 @@ if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
 from railway_history import load_history  # noqa: E402
+from railway_line_normalizer import normalize_line_name  # noqa: E402
 
 
 def parse_started_at(record: dict[str, Any]) -> datetime | None:
@@ -42,7 +43,8 @@ def build_monthly_report(records: list[dict[str, Any]], target: datetime | None 
         if started_at is None:
             continue
         if started_at.year == target.year and started_at.month == target.month:
-            by_line[str(record.get("line") or "鉄道運行情報")].append(record)
+            line = normalize_line_name(str(record.get("line") or "鉄道運行情報"))
+            by_line[line].append(record)
 
     lines = [f"{target.year}年{target.month}月"]
     if not by_line:
@@ -69,7 +71,7 @@ def build_monthly_report(records: list[dict[str, Any]], target: datetime | None 
                     longest_duration = duration
                     longest_record = record
 
-        average_duration = int(sum(durations) / len(durations)) if durations else 0
+        average_duration = int(sum(durations) / len(durations)) if durations else None
         longest_date = ""
         if longest_record is not None:
             started_at = parse_started_at(longest_record)
@@ -95,9 +97,9 @@ def build_monthly_report(records: list[dict[str, Any]], target: datetime | None 
         lines.extend(
             [
                 "平均継続時間",
-                f"{average_duration}分",
+                f"{average_duration}分" if average_duration is not None else "集計対象なし",
                 "最長",
-                f"{max(durations) if durations else 0}分",
+                f"{max(durations)}分" if durations else "集計対象なし",
             ]
         )
         if longest_date:

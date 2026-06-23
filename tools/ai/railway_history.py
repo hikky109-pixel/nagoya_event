@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from railway_line_normalizer import normalize_line_name
     from railway_severity import detect_railway_severity
 except ModuleNotFoundError:
+    from tools.ai.railway_line_normalizer import normalize_line_name
     from tools.ai.railway_severity import detect_railway_severity
 
 
@@ -18,16 +20,7 @@ def clean_text(value: Any) -> str:
 
 
 def line_from_alert(alert: str) -> str:
-    if "東海道新幹線" in alert:
-        return "JR東海道新幹線"
-    if "JR東海在来線" in alert:
-        if "東海道線" in alert:
-            return "JR東海道線"
-        return "JR東海在来線"
-    for label in ("名鉄", "名古屋市営地下鉄", "近鉄", "あおなみ線", "リニモ", "城北線"):
-        if label in alert:
-            return label
-    return "鉄道運行情報"
+    return normalize_line_name(alert)
 
 
 def body_from_alert(alert: str) -> str:
@@ -137,7 +130,7 @@ def save_history(path: Path, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines: list[str] = []
     for record in records:
-        lines.append(f"- line: {quote_yaml(record.get('line'))}")
+        lines.append(f"- line: {quote_yaml(normalize_line_name(str(record.get('line') or '')))}")
         lines.append(f"  severity: {quote_yaml(record.get('severity'))}")
         lines.append(f"  started_at: {quote_yaml(record.get('started_at'))}")
         recovered_at = record.get("recovered_at")
