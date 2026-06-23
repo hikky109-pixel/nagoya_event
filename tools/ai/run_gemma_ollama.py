@@ -543,6 +543,30 @@ def main() -> int:
         change_type,
         now_jst,
     )
+    if change_type == "recovered":
+        result = {
+            "generated_at": now_iso(),
+            "model": "python:railway_beta_state_diff",
+            "comment": "",
+            "railway_beta_alerts": railway_beta_alerts,
+            "railway_beta_previous_alerts": previous_railway_alerts,
+            "railway_beta_added_alerts": added_alerts,
+            "railway_beta_removed_alerts": removed_alerts,
+            "railway_beta_change_type": "recovered_silent",
+            "railway_beta_notification": False,
+            "railway_notify_allowed": False,
+            "severity": railway_severity,
+            "weather_beta_alerts": weather_beta_alerts,
+            "done": False,
+            "ollama_skipped": True,
+        }
+        write_comment_result(result, "")
+        log("railway_beta_comment: recovered_silent")
+        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+        return 0
+
     if comment or change_type == "unchanged":
         notification_severity = detect_railway_severity(railway_beta_alerts or removed_alerts)
         notify_allowed, cooldown_remaining = railway_notify_allowed(
