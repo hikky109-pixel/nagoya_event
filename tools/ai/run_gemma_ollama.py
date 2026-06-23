@@ -108,8 +108,6 @@ COMMENT_SIGNAL_KEYWORDS = (
     "バンテリン",
     "御園座",
     "ドラゴンズ関連ログ",
-    "天気情報があります",
-    "鉄道情報があります",
     "道路交通案件",
 )
 COMMENT_NO_SIGNAL_MARKERS = (
@@ -118,8 +116,13 @@ COMMENT_NO_SIGNAL_MARKERS = (
     "本日も安定稼働",
     "安定稼働です",
     "引き続き見守ります",
+    "見守ります",
     "大きな変化は未確認",
     "平常運転",
+    "状況を把握",
+    "モニタリング",
+    "現時点で特別な影響",
+    "影響は確認されていません",
 )
 RAILWAY_INFO_URLS = {
     "JR東海道新幹線": "https://traininfo.jr-central.co.jp/shinkansen/sp/ja/index.html",
@@ -465,6 +468,16 @@ report:
 """
 
 
+def actionable_report_text(report: str) -> str:
+    lines = []
+    for line in str(report or "").splitlines():
+        compact = " ".join(line.split())
+        if not compact or "0件" in compact:
+            continue
+        lines.append(compact)
+    return " ".join(lines)
+
+
 def should_generate_comment(report: str, railway_beta_alerts: list[str], weather_beta_alerts: list[str]) -> bool:
     if railway_beta_alerts or weather_beta_alerts:
         return True
@@ -472,9 +485,10 @@ def should_generate_comment(report: str, railway_beta_alerts: list[str], weather
     text = " ".join(str(report or "").split())
     if not text:
         return False
+    signal_text = actionable_report_text(report)
     if any(marker in text for marker in COMMENT_NO_SIGNAL_MARKERS):
-        return any(keyword in text for keyword in COMMENT_SIGNAL_KEYWORDS)
-    return any(keyword in text for keyword in COMMENT_SIGNAL_KEYWORDS)
+        return any(keyword in signal_text for keyword in COMMENT_SIGNAL_KEYWORDS)
+    return any(keyword in signal_text for keyword in COMMENT_SIGNAL_KEYWORDS)
 
 
 def is_empty_status_comment(comment: str) -> bool:
