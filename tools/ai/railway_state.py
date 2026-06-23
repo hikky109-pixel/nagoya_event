@@ -14,11 +14,6 @@ RAILWAY_COOLDOWN_SECONDS = {
     "warning": 15 * 60,
     "critical": 5 * 60,
 }
-RAILWAY_SEVERITY_RANK = {
-    "info": 1,
-    "warning": 2,
-    "critical": 3,
-}
 
 
 def clean_alerts(alerts: list[str]) -> list[str]:
@@ -123,23 +118,13 @@ def railway_notify_allowed(
     now: datetime,
     change_type: str,
 ) -> tuple[bool, int]:
-    if change_type == "recovered":
+    if change_type != "unchanged":
         return True, 0
 
     cooldown_seconds = RAILWAY_COOLDOWN_SECONDS.get(severity, RAILWAY_COOLDOWN_SECONDS["info"])
     last_sent_at = last_notify.get("last_sent_at")
-    last_severity = str(last_notify.get("severity") or "").strip()
 
     if not isinstance(last_sent_at, datetime):
-        return True, 0
-    if last_severity == "recovery":
-        return True, 0
-
-    if (
-        severity in RAILWAY_SEVERITY_RANK
-        and last_severity in RAILWAY_SEVERITY_RANK
-        and RAILWAY_SEVERITY_RANK[severity] > RAILWAY_SEVERITY_RANK[last_severity]
-    ):
         return True, 0
 
     elapsed_seconds = int((now - last_sent_at.astimezone(now.tzinfo)).total_seconds())

@@ -554,6 +554,8 @@ def main() -> int:
         if comment and not notify_allowed:
             log(f"railway_notify_suppressed: cooldown {notification_severity} {cooldown_remaining}s remaining")
             comment = ""
+        elif comment and change_type != "unchanged":
+            log("railway_notify_allowed: state changed")
         elif comment:
             log("railway_notify_allowed: yes")
 
