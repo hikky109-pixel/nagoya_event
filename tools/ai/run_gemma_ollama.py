@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 try:
     from log_utils import log
+    from railway_history import record_railway_history_change
     from railway_status_normalizer import get_all_railway_alerts
     from railway_severity import detect_railway_severity
     from railway_state import (
@@ -28,6 +29,7 @@ try:
     )
 except ModuleNotFoundError:
     from tools.ai.log_utils import log
+    from tools.ai.railway_history import record_railway_history_change
     from tools.ai.railway_status_normalizer import get_all_railway_alerts
     from tools.ai.railway_severity import detect_railway_severity
     from tools.ai.railway_state import (
@@ -52,6 +54,7 @@ TEXT_OUTPUT_PATH = AI_DIR / "gemma_comment.txt"
 JSON_OUTPUT_PATH = AI_DIR / "gemma_comment.json"
 RAILWAY_STATE_PATH = AI_DIR / "railway_beta_state.json"
 RAILWAY_LAST_NOTIFY_PATH = AI_DIR / "railway_beta_last_notify.json"
+RAILWAY_HISTORY_PATH = AI_DIR / "railway_history.yml"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 RAILWAY_BETA_EXCLUDE_MARKERS = (
@@ -526,6 +529,13 @@ def main() -> int:
         state_exists,
         previous_railway_alerts,
         railway_beta_alerts,
+    )
+    record_railway_history_change(
+        RAILWAY_HISTORY_PATH,
+        previous_railway_alerts,
+        railway_beta_alerts,
+        change_type,
+        now_jst,
     )
     if comment or change_type == "unchanged":
         notification_severity = detect_railway_severity(railway_beta_alerts or removed_alerts)
