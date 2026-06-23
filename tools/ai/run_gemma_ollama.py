@@ -17,11 +17,25 @@ sys.path.insert(0, str(ROOT))
 try:
     from railway_status_normalizer import get_all_railway_alerts
     from railway_severity import detect_railway_severity
-    from railway_state import diff_alerts, load_railway_state, save_railway_state
+    from railway_state import (
+        diff_alerts,
+        load_railway_last_notify,
+        load_railway_state,
+        railway_notify_allowed,
+        save_railway_last_notify,
+        save_railway_state,
+    )
 except ModuleNotFoundError:
     from tools.ai.railway_status_normalizer import get_all_railway_alerts
     from tools.ai.railway_severity import detect_railway_severity
-    from tools.ai.railway_state import diff_alerts, load_railway_state, save_railway_state
+    from tools.ai.railway_state import (
+        diff_alerts,
+        load_railway_last_notify,
+        load_railway_state,
+        railway_notify_allowed,
+        save_railway_last_notify,
+        save_railway_state,
+    )
 
 try:
     from tools.weather.weather_normalizer import get_all_weather_alerts
@@ -35,6 +49,7 @@ PROFILE_PATH = AI_DIR / "gemma_profile.yml"
 TEXT_OUTPUT_PATH = AI_DIR / "gemma_comment.txt"
 JSON_OUTPUT_PATH = AI_DIR / "gemma_comment.json"
 RAILWAY_STATE_PATH = AI_DIR / "railway_beta_state.json"
+RAILWAY_LAST_NOTIFY_PATH = AI_DIR / "railway_beta_last_notify.json"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 RAILWAY_BETA_EXCLUDE_MARKERS = (
@@ -476,6 +491,7 @@ def main() -> int:
     print(f"weather_beta_alerts: {len(weather_beta_alerts)}")
 
     state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
+    last_notify = load_railway_last_notify(RAILWAY_LAST_NOTIFY_PATH)
     railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
     if not railway_beta_is_active:
         if state_exists:
@@ -490,6 +506,8 @@ def main() -> int:
             "railway_beta_removed_alerts": [],
             "railway_beta_change_type": "skipped_overnight",
             "railway_beta_notification": False,
+            "railway_notify_allowed": False,
+            "railway_notify_suppressed_reason": "skipped_overnight",
             "severity": railway_severity,
             "weather_beta_alerts": weather_beta_alerts,
             "done": False,
@@ -508,10 +526,29 @@ def main() -> int:
         railway_beta_alerts,
     )
     if comment or change_type == "unchanged":
+        notification_severity = detect_railway_severity(railway_beta_alerts or removed_alerts)
+        notify_allowed, cooldown_remaining = railway_notify_allowed(
+            last_notify,
+            notification_severity,
+            now_jst,
+            change_type,
+        )
+        if comment and not notify_allowed:
+            print(f"railway_notify_suppressed: cooldown {notification_severity} {cooldown_remaining}s remaining")
+            comment = ""
+        elif comment:
+            print("railway_notify_allowed: yes")
+
         ok, errors = validate_railway_beta_comment(comment)
         if not ok:
             print(f"railway_beta_comment_guard: {errors}")
             comment = ""
+        if comment:
+            save_railway_last_notify(
+                RAILWAY_LAST_NOTIFY_PATH,
+                "recovery" if change_type == "recovered" else notification_severity,
+                now_jst,
+            )
         result = {
             "generated_at": now_iso(),
             "model": "python:railway_beta_state_diff",
@@ -522,7 +559,9 @@ def main() -> int:
             "railway_beta_removed_alerts": removed_alerts,
             "railway_beta_change_type": change_type,
             "railway_beta_notification": bool(comment),
-            "severity": detect_railway_severity(railway_beta_alerts or removed_alerts),
+            "railway_notify_allowed": bool(comment) and notify_allowed,
+            "railway_notify_cooldown_remaining_seconds": cooldown_remaining if not notify_allowed else 0,
+            "severity": notification_severity,
             "weather_beta_alerts": weather_beta_alerts,
             "done": bool(comment),
             "ollama_skipped": True,

@@ -4,9 +4,21 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+RAILWAY_COOLDOWN_SECONDS = {
+    "info": 30 * 60,
+    "warning": 15 * 60,
+    "critical": 5 * 60,
+}
+RAILWAY_SEVERITY_RANK = {
+    "info": 1,
+    "warning": 2,
+    "critical": 3,
+}
 
 
 def clean_alerts(alerts: list[str]) -> list[str]:
@@ -52,6 +64,89 @@ def save_railway_state(path: Path, alerts: list[str], updated_at: datetime | str
     with path.open("w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+
+def parse_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def load_railway_last_notify(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+
+    try:
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    last_sent_at = parse_datetime(data.get("last_sent_at"))
+    severity = str(data.get("severity") or "").strip()
+    result: dict[str, Any] = {}
+    if last_sent_at is not None:
+        result["last_sent_at"] = last_sent_at
+    if severity:
+        result["severity"] = severity
+    return result
+
+
+def save_railway_last_notify(path: Path, severity: str, sent_at: datetime | str) -> None:
+    if isinstance(sent_at, datetime):
+        sent_at_text = sent_at.isoformat(timespec="seconds")
+    else:
+        sent_at_text = str(sent_at)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state = {
+        "last_sent_at": sent_at_text,
+        "severity": severity,
+    }
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def railway_notify_allowed(
+    last_notify: dict[str, Any],
+    severity: str,
+    now: datetime,
+    change_type: str,
+) -> tuple[bool, int]:
+    if change_type == "recovered":
+        return True, 0
+
+    cooldown_seconds = RAILWAY_COOLDOWN_SECONDS.get(severity, RAILWAY_COOLDOWN_SECONDS["info"])
+    last_sent_at = last_notify.get("last_sent_at")
+    last_severity = str(last_notify.get("severity") or "").strip()
+
+    if not isinstance(last_sent_at, datetime):
+        return True, 0
+    if last_severity == "recovery":
+        return True, 0
+
+    if (
+        severity in RAILWAY_SEVERITY_RANK
+        and last_severity in RAILWAY_SEVERITY_RANK
+        and RAILWAY_SEVERITY_RANK[severity] > RAILWAY_SEVERITY_RANK[last_severity]
+    ):
+        return True, 0
+
+    elapsed_seconds = int((now - last_sent_at.astimezone(now.tzinfo)).total_seconds())
+    remaining_seconds = cooldown_seconds - elapsed_seconds
+    if remaining_seconds > 0:
+        return False, remaining_seconds
+    return True, 0
 
 
 def diff_alerts(previous: list[str], current: list[str]) -> tuple[list[str], list[str]]:
