@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 try:
+    from log_utils import log
     from railway_status_normalizer import get_all_railway_alerts
     from railway_severity import detect_railway_severity
     from railway_state import (
@@ -26,6 +27,7 @@ try:
         save_railway_state,
     )
 except ModuleNotFoundError:
+    from tools.ai.log_utils import log
     from tools.ai.railway_status_normalizer import get_all_railway_alerts
     from tools.ai.railway_severity import detect_railway_severity
     from tools.ai.railway_state import (
@@ -483,12 +485,12 @@ def main() -> int:
     railway_beta_alerts = load_railway_beta_alerts(now_jst)
     weather_beta_alerts = load_weather_beta_alerts(now_jst)
     if not railway_beta_is_active:
-        print("railway_beta_alerts: skipped overnight")
+        log("railway_beta_alerts: skipped overnight")
     elif railway_beta_alerts:
-        print(f"railway_beta_alerts: {len(railway_beta_alerts)}")
+        log(f"railway_beta_alerts: {len(railway_beta_alerts)}")
     else:
-        print("railway_beta_alerts: 0")
-    print(f"weather_beta_alerts: {len(weather_beta_alerts)}")
+        log("railway_beta_alerts: 0")
+    log(f"weather_beta_alerts: {len(weather_beta_alerts)}")
 
     state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
     last_notify = load_railway_last_notify(RAILWAY_LAST_NOTIFY_PATH)
@@ -514,9 +516,9 @@ def main() -> int:
             "ollama_skipped": True,
         }
         write_comment_result(result, "")
-        print("railway_beta_comment: skipped overnight")
-        print(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
-        print(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        log("railway_beta_comment: skipped overnight")
+        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
 
     save_railway_state(RAILWAY_STATE_PATH, railway_beta_alerts, now_jst)
@@ -534,14 +536,14 @@ def main() -> int:
             change_type,
         )
         if comment and not notify_allowed:
-            print(f"railway_notify_suppressed: cooldown {notification_severity} {cooldown_remaining}s remaining")
+            log(f"railway_notify_suppressed: cooldown {notification_severity} {cooldown_remaining}s remaining")
             comment = ""
         elif comment:
-            print("railway_notify_allowed: yes")
+            log("railway_notify_allowed: yes")
 
         ok, errors = validate_railway_beta_comment(comment)
         if not ok:
-            print(f"railway_beta_comment_guard: {errors}")
+            log(f"railway_beta_comment_guard: {errors}")
             comment = ""
         if comment:
             save_railway_last_notify(
@@ -569,26 +571,26 @@ def main() -> int:
 
         write_comment_result(result, comment)
         if comment:
-            print(f"railway_beta_comment: {change_type}")
+            log(f"railway_beta_comment: {change_type}")
         else:
-            print("railway_beta_comment: no change")
-        print(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
-        print(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
-        print(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+            log("railway_beta_comment: no change")
+        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
         return 0
 
     prompt = build_prompt(report, profile, railway_beta_alerts, weather_beta_alerts)
     response = call_ollama(prompt)
 
     if response is None:
-        print("Gemma4B未起動")
+        log("Gemma4B未起動")
         return 0
 
     comment = str(response.get("response", "")).strip()
     if railway_beta_alerts:
         ok, errors = validate_railway_beta_comment(comment)
         if not ok:
-            print(f"railway_beta_comment_guard: {errors}")
+            log(f"railway_beta_comment_guard: {errors}")
             comment = ""
     result = {
         "generated_at": now_iso(),
@@ -602,8 +604,8 @@ def main() -> int:
 
     write_comment_result(result, comment)
 
-    print(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
-    print(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+    log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+    log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
     return 0
 
 

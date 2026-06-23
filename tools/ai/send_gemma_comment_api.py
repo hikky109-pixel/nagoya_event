@@ -16,6 +16,11 @@ COMMENT_JSON_PATH = ROOT / "data" / "ai" / "gemma_comment.json"
 sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 
+try:
+    from log_utils import log
+except ModuleNotFoundError:
+    from tools.ai.log_utils import log
+
 
 def get_setting(name: str) -> str:
     value = getattr(config, name, "")
@@ -75,19 +80,19 @@ def main() -> int:
     meta = read_comment_meta()
     channel_id, channel_key = target_channel_id(meta)
     if not token or not channel_id:
-        print("Gemma課長Discord API設定未完了")
+        log("Gemma課長Discord API設定未完了")
         return 0
 
     content = read_comment()
     if not content.strip():
-        print("Gemma課長コメントなし: 送信スキップ")
+        log("Gemma課長コメントなし: 送信スキップ")
         return 0
 
     ok, status_code, body = post_comment(token, channel_id, content)
     if ok:
-        print(f"Gemma課長コメントDiscord API送信成功: {channel_key}")
+        log(f"Gemma課長コメントDiscord API送信成功: {channel_key}")
     else:
-        print(f"Gemma課長コメントDiscord API送信失敗: HTTP{status_code} {body}")
+        log(f"Gemma課長コメントDiscord API送信失敗: HTTP{status_code} {body}")
     return 0
 
 
