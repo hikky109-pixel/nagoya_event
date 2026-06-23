@@ -16,9 +16,11 @@ sys.path.insert(0, str(ROOT))
 
 try:
     from railway_status_normalizer import get_all_railway_alerts
+    from railway_severity import detect_railway_severity
     from railway_state import diff_alerts, load_railway_state, save_railway_state
 except ModuleNotFoundError:
     from tools.ai.railway_status_normalizer import get_all_railway_alerts
+    from tools.ai.railway_severity import detect_railway_severity
     from tools.ai.railway_state import diff_alerts, load_railway_state, save_railway_state
 
 try:
@@ -60,6 +62,12 @@ RAILWAY_BETA_FORBIDDEN_OUTPUTS = (
     "引き続き注視",
 )
 RAILWAY_BETA_REQUIRED_ENDING = "名古屋方面の移動・乗換に影響する可能性があります。"
+RAILWAY_BETA_CRITICAL_ENDING = "名古屋方面の移動に大きな影響が予想されます。"
+RAILWAY_SEVERITY_EMOJIS = {
+    "info": "🔵",
+    "warning": "🟡",
+    "critical": "🔴",
+}
 RAILWAY_INFO_URLS = {
     "JR東海道新幹線": "https://traininfo.jr-central.co.jp/shinkansen/sp/ja/index.html",
     "JR東海在来線": "https://traininfo.jr-central.co.jp/zairaisen/index.html",
@@ -212,18 +220,29 @@ def grouped_railway_alerts(alerts: list[str]) -> list[tuple[str, str, str, list[
     return groups
 
 
+def railway_severity_emoji(severity: str) -> str:
+    return RAILWAY_SEVERITY_EMOJIS.get(severity, RAILWAY_SEVERITY_EMOJIS["info"])
+
+
+def railway_severity_ending(severity: str) -> str:
+    if severity == "critical":
+        return RAILWAY_BETA_CRITICAL_ENDING
+    return RAILWAY_BETA_REQUIRED_ENDING
+
+
 def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
     blocks: list[str] = []
     for title, url_label, url, messages in grouped_railway_alerts(railway_beta_alerts):
         if not messages:
             continue
-        body_lines = messages if len(messages) == 1 else [f"・{message}" for message in messages]
+        severity = detect_railway_severity(messages)
+        body_lines = [f"・{message}" for message in messages]
         lines = [
-            f"🚋 {title}",
+            f"{railway_severity_emoji(severity)} {title}",
             "",
             "\n".join(body_lines),
             "",
-            RAILWAY_BETA_REQUIRED_ENDING,
+            railway_severity_ending(severity),
         ]
         if url_label and url:
             lines.extend(["", f"🔗 {url_label}", url])
@@ -240,17 +259,19 @@ def build_railway_change_comment(
         blocks: list[str] = []
         if added_alerts:
             for title, url_label, url, messages in grouped_railway_alerts(added_alerts):
-                lines = [f"🔄 {title}", "", "次の情報が更新されました。"]
+                severity = detect_railway_severity(messages)
+                lines = [f"{railway_severity_emoji(severity)} {title}", "", "次の情報が更新されました。"]
                 lines.extend(f"・{message}" for message in messages)
-                lines.extend(["", RAILWAY_BETA_REQUIRED_ENDING])
+                lines.extend(["", railway_severity_ending(severity)])
                 if url_label and url:
                     lines.extend(["", f"🔗 {url_label}", url])
                 blocks.append("\n".join(lines))
         if removed_alerts:
             for title, url_label, url, messages in grouped_railway_alerts(removed_alerts):
-                lines = [f"🔄 {title}", "", "次の情報は解消しました。"]
+                severity = detect_railway_severity(messages)
+                lines = [f"{railway_severity_emoji(severity)} {title}", "", "次の情報は解消しました。"]
                 lines.extend(f"・{message}" for message in messages)
-                lines.extend(["", RAILWAY_BETA_REQUIRED_ENDING])
+                lines.extend(["", railway_severity_ending(severity)])
                 if url_label and url:
                     lines.extend(["", f"🔗 {url_label}", url])
                 blocks.append("\n".join(lines))
@@ -400,7 +421,7 @@ def validate_railway_beta_comment(comment: str) -> tuple[bool, list[str]]:
             errors.append(forbidden)
     if comment.startswith("✅ "):
         return (not errors, errors)
-    if content_lines and content_lines[-1] != RAILWAY_BETA_REQUIRED_ENDING:
+    if content_lines and content_lines[-1] not in (RAILWAY_BETA_REQUIRED_ENDING, RAILWAY_BETA_CRITICAL_ENDING):
         errors.append("missing_required_ending")
     return (not errors, errors)
 
@@ -455,6 +476,7 @@ def main() -> int:
     print(f"weather_beta_alerts: {len(weather_beta_alerts)}")
 
     state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
+    railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
     if not railway_beta_is_active:
         if state_exists:
             save_railway_state(RAILWAY_STATE_PATH, previous_railway_alerts, now_jst)
@@ -468,6 +490,7 @@ def main() -> int:
             "railway_beta_removed_alerts": [],
             "railway_beta_change_type": "skipped_overnight",
             "railway_beta_notification": False,
+            "severity": railway_severity,
             "weather_beta_alerts": weather_beta_alerts,
             "done": False,
             "ollama_skipped": True,
@@ -499,6 +522,7 @@ def main() -> int:
             "railway_beta_removed_alerts": removed_alerts,
             "railway_beta_change_type": change_type,
             "railway_beta_notification": bool(comment),
+            "severity": detect_railway_severity(railway_beta_alerts or removed_alerts),
             "weather_beta_alerts": weather_beta_alerts,
             "done": bool(comment),
             "ollama_skipped": True,
@@ -532,6 +556,7 @@ def main() -> int:
         "model": MODEL,
         "comment": comment,
         "railway_beta_alerts": railway_beta_alerts,
+        "severity": railway_severity,
         "weather_beta_alerts": weather_beta_alerts,
         "done": bool(response.get("done")),
     }
