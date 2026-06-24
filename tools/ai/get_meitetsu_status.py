@@ -69,11 +69,27 @@ def _alert_body(status: str, details: dict[str, list[str]]) -> str:
     return " / ".join(part for part in parts if part)
 
 
-def parse_meitetsu_status(html: str) -> list[str]:
+def _em_level(block: Tag) -> str:
+    classes = block.get("class", [])
+    if not isinstance(classes, list):
+        return ""
+    return next(
+        (
+            class_name
+            for class_name in classes
+            if isinstance(class_name, str) and class_name.startswith("emLv")
+        ),
+        "",
+    )
+
+
+def parse_meitetsu_status_snapshot(html: str) -> tuple[list[str], dict[str, str]]:
     soup = BeautifulSoup(html, "html.parser")
     alerts: list[str] = []
+    level_by_alert: dict[str, str] = {}
 
     for block in soup.select("div.emInfo"):
+        level = _em_level(block)
         heading = block.find("h2")
         status = _clean_text(heading.get_text(" ", strip=True) if heading else "")
         block_text = _clean_text(block.get_text(" ", strip=True))
@@ -91,11 +107,18 @@ def parse_meitetsu_status(html: str) -> list[str]:
             alert = f"名鉄 {line}: {body}"
             if alert not in alerts:
                 alerts.append(alert)
+            if level:
+                level_by_alert[alert] = level
 
+    return alerts, level_by_alert
+
+
+def parse_meitetsu_status(html: str) -> list[str]:
+    alerts, _level_by_alert = parse_meitetsu_status_snapshot(html)
     return alerts
 
 
-def get_meitetsu_status_snapshot() -> tuple[list[str], str, datetime | None]:
+def get_meitetsu_status_snapshot() -> tuple[list[str], str, datetime | None, dict[str, str]]:
     response = requests.get(
         URL,
         headers={"User-Agent": "Mozilla/5.0"},
@@ -113,11 +136,12 @@ def get_meitetsu_status_snapshot() -> tuple[list[str], str, datetime | None]:
             pass
 
     html = response.content.decode("utf-8", errors="replace")
-    return parse_meitetsu_status(html), response.url, updated_at
+    alerts, level_by_alert = parse_meitetsu_status_snapshot(html)
+    return alerts, response.url, updated_at, level_by_alert
 
 
 def get_meitetsu_status() -> list[str]:
-    alerts, _source_url, _updated_at = get_meitetsu_status_snapshot()
+    alerts, _source_url, _updated_at, _level_by_alert = get_meitetsu_status_snapshot()
     return alerts
 
 

@@ -75,7 +75,12 @@ def load_railway_state(path: Path) -> tuple[bool, list[str]]:
     return True, clean_alerts(alerts)
 
 
-def save_railway_state(path: Path, alerts: list[str], updated_at: datetime | str) -> None:
+def save_railway_state(
+    path: Path,
+    alerts: list[str],
+    updated_at: datetime | str,
+    level_by_alert: dict[str, str] | None = None,
+) -> None:
     if isinstance(updated_at, datetime):
         updated_at_text = updated_at.isoformat(timespec="seconds")
     else:
@@ -87,6 +92,11 @@ def save_railway_state(path: Path, alerts: list[str], updated_at: datetime | str
         "updated_at": updated_at_text,
         "alerts": cleaned_alerts,
         "incidents": incidents_by_line(cleaned_alerts),
+        "levels": {
+            alert: str(level_by_alert[alert])
+            for alert in cleaned_alerts
+            if level_by_alert and level_by_alert.get(alert)
+        },
     }
     with path.open("w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)

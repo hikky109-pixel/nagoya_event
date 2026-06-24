@@ -208,18 +208,18 @@ def is_railway_beta_active(now: datetime | None = None) -> bool:
 
 
 def load_railway_beta_alerts(now: datetime | None = None) -> list[str]:
-    alerts, _updated_at_by_alert, _source_url_by_alert = load_railway_beta_snapshot(now)
+    alerts, _updated_at_by_alert, _source_url_by_alert, _level_by_alert = load_railway_beta_snapshot(now)
     return alerts
 
 
 def load_railway_beta_snapshot(
     now: datetime | None = None,
-) -> tuple[list[str], dict[str, datetime], dict[str, str]]:
+) -> tuple[list[str], dict[str, datetime], dict[str, str], dict[str, str]]:
     if not is_railway_beta_active(now):
-        return [], {}, {}
+        return [], {}, {}, {}
 
     try:
-        alerts, updated_at_by_alert, source_url_by_alert = get_all_railway_alerts_snapshot()
+        alerts, updated_at_by_alert, source_url_by_alert, level_by_alert = get_all_railway_alerts_snapshot()
         public_alerts = public_railway_alerts(alerts)
         return (
             public_alerts,
@@ -233,9 +233,14 @@ def load_railway_beta_snapshot(
                 for alert, source_url in source_url_by_alert.items()
                 if alert in public_alerts
             },
+            {
+                alert: level
+                for alert, level in level_by_alert.items()
+                if alert in public_alerts
+            },
         )
     except Exception:
-        return [], {}, {}
+        return [], {}, {}, {}
 
 
 def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
@@ -628,9 +633,12 @@ def main() -> int:
     profile = load_profile(PROFILE_PATH)
     now_jst = datetime.now(JST)
     railway_beta_is_active = is_railway_beta_active(now_jst)
-    railway_beta_alerts, railway_updated_at_by_alert, railway_source_url_by_alert = load_railway_beta_snapshot(
-        now_jst
-    )
+    (
+        railway_beta_alerts,
+        railway_updated_at_by_alert,
+        railway_source_url_by_alert,
+        railway_level_by_alert,
+    ) = load_railway_beta_snapshot(now_jst)
     weather_beta_alerts = load_weather_beta_alerts(now_jst)
     if not railway_beta_is_active:
         log("railway_beta_alerts: skipped overnight")
@@ -647,7 +655,7 @@ def main() -> int:
         state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
         last_notify = load_railway_last_notify(RAILWAY_LAST_NOTIFY_PATH)
         railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
-        save_railway_state(RAILWAY_STATE_PATH, railway_beta_alerts, now_jst)
+        save_railway_state(RAILWAY_STATE_PATH, railway_beta_alerts, now_jst, railway_level_by_alert)
         comment, change_type, added_alerts, removed_alerts = build_railway_state_comment(
             state_exists,
             previous_railway_alerts,
@@ -673,6 +681,7 @@ def main() -> int:
                 "railway_beta_added_alerts": added_alerts,
                 "railway_beta_removed_alerts": removed_alerts,
                 "railway_beta_source_urls": railway_source_url_by_alert,
+                "railway_beta_levels": railway_level_by_alert,
                 "railway_beta_change_type": "recovered_silent",
                 "railway_beta_notification": False,
                 "railway_notify_allowed": False,
@@ -723,6 +732,7 @@ def main() -> int:
                 "railway_beta_added_alerts": added_alerts,
                 "railway_beta_removed_alerts": removed_alerts,
                 "railway_beta_source_urls": railway_source_url_by_alert,
+                "railway_beta_levels": railway_level_by_alert,
                 "railway_beta_change_type": change_type,
                 "railway_beta_notification": bool(comment),
                 "railway_notify_allowed": bool(comment) and notify_allowed,
@@ -752,6 +762,7 @@ def main() -> int:
             "comment": "",
             "railway_beta_alerts": railway_beta_alerts,
             "railway_beta_source_urls": railway_source_url_by_alert,
+            "railway_beta_levels": railway_level_by_alert,
             "severity": railway_severity,
             "weather_beta_alerts": weather_beta_alerts,
             "done": False,
@@ -786,6 +797,7 @@ def main() -> int:
         "comment": comment,
         "railway_beta_alerts": railway_beta_alerts,
         "railway_beta_source_urls": railway_source_url_by_alert,
+        "railway_beta_levels": railway_level_by_alert,
         "severity": railway_severity,
         "weather_beta_alerts": weather_beta_alerts,
         "done": bool(response.get("done")) and bool(comment),
