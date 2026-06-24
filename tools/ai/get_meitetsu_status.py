@@ -7,8 +7,14 @@ from typing import Any
 import requests
 from bs4 import BeautifulSoup, Tag
 
+try:
+    from railway_debug_dump import save_railway_debug_dump
+except ModuleNotFoundError:
+    from tools.ai.railway_debug_dump import save_railway_debug_dump
+
 
 URL = "https://top.meitetsu.co.jp/em/"
+KNOWN_EM_LEVELS = {"emLv01", "emLv02"}
 ABNORMAL_STATUS_MARKERS = (
     "運転見合せ",
     "運転見合わせ",
@@ -22,6 +28,11 @@ NORMAL_STATUS_MARKERS = (
     "平常通り",
     "通常運転",
     "運行に関する情報はありません",
+)
+SERVICE_INFO_MARKERS = (
+    "サービス時間",
+    "ご利用時間",
+    "情報提供時間",
 )
 DETAIL_LABELS = ("区間", "路線", "理由", "備考")
 
@@ -83,17 +94,27 @@ def _em_level(block: Tag) -> str:
     )
 
 
-def parse_meitetsu_status_snapshot(html: str) -> tuple[list[str], dict[str, str]]:
+def _parse_meitetsu_status_diagnostics(
+    html: str,
+) -> tuple[list[str], dict[str, str], list[dict[str, Any]], bool]:
     soup = BeautifulSoup(html, "html.parser")
     alerts: list[str] = []
     level_by_alert: dict[str, str] = {}
+    issues: list[dict[str, Any]] = []
+    blocks = soup.select("div.emInfo")
 
-    for block in soup.select("div.emInfo"):
+    for index, block in enumerate(blocks):
         level = _em_level(block)
+        if level and level not in KNOWN_EM_LEVELS:
+            issues.append({"reason": "unknown_emLv", "level": level, "block_index": index})
+
         heading = block.find("h2")
         status = _clean_text(heading.get_text(" ", strip=True) if heading else "")
         block_text = _clean_text(block.get_text(" ", strip=True))
-        if not status or any(marker in status for marker in NORMAL_STATUS_MARKERS):
+        if not status:
+            issues.append({"reason": "missing_h2", "level": level, "block_index": index})
+            continue
+        if any(marker in status for marker in NORMAL_STATUS_MARKERS):
             continue
         if not any(marker in block_text for marker in ABNORMAL_STATUS_MARKERS):
             continue
@@ -101,7 +122,24 @@ def parse_meitetsu_status_snapshot(html: str) -> tuple[list[str], dict[str, str]
         details = _detail_rows(block)
         lines = details.get("路線", [])
         if not lines:
+            issues.append(
+                {
+                    "reason": "missing_line_or_section",
+                    "level": level,
+                    "block_index": index,
+                    "status": status,
+                }
+            )
             continue
+        if not details.get("理由"):
+            issues.append(
+                {
+                    "reason": "missing_reason",
+                    "level": level,
+                    "block_index": index,
+                    "status": status,
+                }
+            )
         body = _alert_body(status, details)
         for line in lines:
             alert = f"名鉄 {line}: {body}"
@@ -110,6 +148,18 @@ def parse_meitetsu_status_snapshot(html: str) -> tuple[list[str], dict[str, str]
             if level:
                 level_by_alert[alert] = level
 
+    page_text = _clean_text(soup.get_text(" ", strip=True))
+    recognized_normal = any(marker in page_text for marker in NORMAL_STATUS_MARKERS)
+    service_info_only = not blocks and any(marker in page_text for marker in SERVICE_INFO_MARKERS)
+    if not alerts and not issues and not recognized_normal and not service_info_only:
+        reason = "missing_emInfo" if not blocks else "alerts_empty"
+        issues.append({"reason": reason})
+
+    return alerts, level_by_alert, issues, recognized_normal or service_info_only
+
+
+def parse_meitetsu_status_snapshot(html: str) -> tuple[list[str], dict[str, str]]:
+    alerts, level_by_alert, _issues, _recognized_empty = _parse_meitetsu_status_diagnostics(html)
     return alerts, level_by_alert
 
 
@@ -126,6 +176,7 @@ def get_meitetsu_status_snapshot() -> tuple[list[str], str, datetime | None, dic
         allow_redirects=True,
     )
     response.raise_for_status()
+    response.encoding = "utf-8"
 
     updated_at = None
     last_modified = response.headers.get("Last-Modified")
@@ -135,8 +186,35 @@ def get_meitetsu_status_snapshot() -> tuple[list[str], str, datetime | None, dic
         except (TypeError, ValueError):
             pass
 
-    html = response.content.decode("utf-8", errors="replace")
-    alerts, level_by_alert = parse_meitetsu_status_snapshot(html)
+    html = response.text
+    try:
+        alerts, level_by_alert, issues, _recognized_empty = _parse_meitetsu_status_diagnostics(html)
+    except Exception as exc:
+        save_railway_debug_dump(
+            source="meitetsu",
+            request_url=URL,
+            final_url=response.url,
+            status_code=response.status_code,
+            reason="parser_exception",
+            html=html,
+            details={"error": f"{type(exc).__name__}: {exc}"},
+        )
+        raise
+
+    if issues:
+        primary = issues[0]
+        details: dict[str, Any] = {"issues": issues}
+        if primary.get("level"):
+            details["level"] = primary["level"]
+        save_railway_debug_dump(
+            source="meitetsu",
+            request_url=URL,
+            final_url=response.url,
+            status_code=response.status_code,
+            reason=str(primary["reason"]),
+            html=html,
+            details=details,
+        )
     return alerts, response.url, updated_at, level_by_alert
 
 
