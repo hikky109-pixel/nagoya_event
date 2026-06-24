@@ -35,6 +35,12 @@ SERVICE_INFO_MARKERS = (
     "情報提供時間",
 )
 DETAIL_LABELS = ("区間", "路線", "理由", "備考")
+REMARK_IGNORE_PATTERNS = (
+    "列車走行位置",
+    "特別車両券の払いもどし",
+    "特別車両券の取扱い",
+    "お知らせした時刻よりも列車の到着が遅くなることがあります",
+)
 
 
 def _clean_text(value: Any) -> str:
@@ -66,6 +72,12 @@ def _detail_rows(block: Tag) -> dict[str, list[str]]:
         if label not in DETAIL_LABELS:
             continue
         values = _cell_values(cell)
+        if label == "備考":
+            values = [
+                value
+                for value in values
+                if not any(pattern in value for pattern in REMARK_IGNORE_PATTERNS)
+            ]
         if values:
             details[label] = values
     return details
