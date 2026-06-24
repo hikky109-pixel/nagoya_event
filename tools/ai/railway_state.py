@@ -14,15 +14,45 @@ RAILWAY_COOLDOWN_SECONDS = {
     "warning": 15 * 60,
     "critical": 5 * 60,
 }
+RAILWAY_INCIDENT_IGNORE_PATTERNS: tuple[str, ...] = ()
 
 
-def clean_alerts(alerts: list[str]) -> list[str]:
+def clean_alerts(
+    alerts: list[str],
+    ignore_patterns: tuple[str, ...] = RAILWAY_INCIDENT_IGNORE_PATTERNS,
+) -> list[str]:
     cleaned: list[str] = []
     for alert in alerts:
         text = " ".join(str(alert or "").split())
+        if any(pattern in text for pattern in ignore_patterns):
+            continue
         if text and text not in cleaned:
             cleaned.append(text)
     return cleaned
+
+
+def split_alert(alert: str) -> tuple[str, str]:
+    text = " ".join(str(alert or "").split())
+    for separator in (":", "："):
+        if separator in text:
+            line, incident = text.split(separator, 1)
+            return line.strip(), incident.strip()
+    return text, text
+
+
+def incidents_by_line(
+    alerts: list[str],
+    ignore_patterns: tuple[str, ...] = RAILWAY_INCIDENT_IGNORE_PATTERNS,
+) -> dict[str, list[str]]:
+    incidents: dict[str, list[str]] = {}
+    for alert in clean_alerts(alerts, ignore_patterns):
+        line, incident = split_alert(alert)
+        if not line or not incident:
+            continue
+        incidents.setdefault(line, [])
+        if incident not in incidents[line]:
+            incidents[line].append(incident)
+    return incidents
 
 
 def load_railway_state(path: Path) -> tuple[bool, list[str]]:
@@ -52,9 +82,11 @@ def save_railway_state(path: Path, alerts: list[str], updated_at: datetime | str
         updated_at_text = str(updated_at)
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned_alerts = clean_alerts(alerts)
     state: dict[str, Any] = {
         "updated_at": updated_at_text,
-        "alerts": clean_alerts(alerts),
+        "alerts": cleaned_alerts,
+        "incidents": incidents_by_line(cleaned_alerts),
     }
     with path.open("w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
@@ -134,11 +166,25 @@ def railway_notify_allowed(
     return True, 0
 
 
-def diff_alerts(previous: list[str], current: list[str]) -> tuple[list[str], list[str]]:
-    previous_clean = clean_alerts(previous)
-    current_clean = clean_alerts(current)
-    previous_set = set(previous_clean)
-    current_set = set(current_clean)
-    added = [alert for alert in current_clean if alert not in previous_set]
-    removed = [alert for alert in previous_clean if alert not in current_set]
+def diff_alerts(
+    previous: list[str],
+    current: list[str],
+    ignore_patterns: tuple[str, ...] = RAILWAY_INCIDENT_IGNORE_PATTERNS,
+) -> tuple[list[str], list[str]]:
+    previous_clean = clean_alerts(previous, ignore_patterns)
+    current_clean = clean_alerts(current, ignore_patterns)
+    previous_incidents = incidents_by_line(previous_clean, ignore_patterns)
+    current_incidents = incidents_by_line(current_clean, ignore_patterns)
+
+    added = []
+    for alert in current_clean:
+        line, incident = split_alert(alert)
+        if incident not in previous_incidents.get(line, []):
+            added.append(alert)
+
+    removed = []
+    for alert in previous_clean:
+        line, incident = split_alert(alert)
+        if incident not in current_incidents.get(line, []):
+            removed.append(alert)
     return added, removed

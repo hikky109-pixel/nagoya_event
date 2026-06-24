@@ -300,6 +300,8 @@ def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
         lines = [
             f"{railway_severity_emoji(severity)} {title}",
             "",
+            "現在確認中の事象",
+            "",
             "\n".join(body_lines),
             "",
             railway_severity_ending(severity),
@@ -312,37 +314,25 @@ def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
 
 def build_railway_change_comment(
     added_alerts: list[str],
-    removed_alerts: list[str],
     current_alerts: list[str],
 ) -> str:
-    if current_alerts:
-        blocks: list[str] = []
-        if added_alerts:
-            for title, url_label, url, messages in grouped_railway_alerts(added_alerts):
-                severity = detect_railway_severity(messages)
-                lines = [f"{railway_severity_emoji(severity)} {title}", "", "次の情報が更新されました。"]
-                lines.extend(f"・{message}" for message in messages)
-                lines.extend(["", railway_severity_ending(severity)])
-                if url_label and url:
-                    lines.extend(["", f"🔗 {url_label}", url])
-                blocks.append("\n".join(lines))
-        if removed_alerts:
-            for title, url_label, url, messages in grouped_railway_alerts(removed_alerts):
-                severity = detect_railway_severity(messages)
-                lines = [f"{railway_severity_emoji(severity)} {title}", "", "次の情報は解消しました。"]
-                lines.extend(f"・{message}" for message in messages)
-                lines.extend(["", railway_severity_ending(severity)])
-                if url_label and url:
-                    lines.extend(["", f"🔗 {url_label}", url])
-                blocks.append("\n".join(lines))
-        return "\n\n".join(blocks).strip()
-
-    blocks = []
-    for title, url_label, url, _messages in grouped_railway_alerts(removed_alerts):
+    added_group_keys = {
+        (title, url_label, url)
+        for title, url_label, url, _messages in grouped_railway_alerts(added_alerts)
+    }
+    blocks: list[str] = []
+    for title, url_label, url, messages in grouped_railway_alerts(current_alerts):
+        if (title, url_label, url) not in added_group_keys:
+            continue
+        severity = detect_railway_severity(messages)
         lines = [
-            f"✅ {title}",
-            "運行情報は解消しました。",
+            f"{railway_severity_emoji(severity)} {title}",
+            "",
+            "現在確認中の事象",
+            "",
         ]
+        lines.extend(f"・{message}" for message in messages)
+        lines.extend(["", railway_severity_ending(severity)])
         if url_label and url:
             lines.extend(["", f"🔗 {url_label}", url])
         blocks.append("\n".join(lines))
@@ -358,14 +348,16 @@ def build_railway_state_comment(
     if not state_exists and current_alerts:
         return build_railway_beta_comment(current_alerts), "initial", current_alerts, []
     if previous_alerts and not current_alerts:
-        return build_railway_change_comment([], previous_alerts, current_alerts), "recovered", [], previous_alerts
-    if added_alerts or removed_alerts:
+        return "", "recovered", [], previous_alerts
+    if added_alerts:
         return (
-            build_railway_change_comment(added_alerts, removed_alerts, current_alerts),
+            build_railway_change_comment(added_alerts, current_alerts),
             "changed",
             added_alerts,
             removed_alerts,
         )
+    if removed_alerts:
+        return "", "changed", [], removed_alerts
     return "", "unchanged", [], []
 
 
@@ -609,7 +601,7 @@ def main() -> int:
             log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
             return 0
 
-        if comment or change_type == "unchanged":
+        if comment or change_type in ("changed", "unchanged"):
             notification_severity = detect_railway_severity(railway_beta_alerts or removed_alerts)
             notify_allowed, cooldown_remaining = railway_notify_allowed(
                 last_notify,
@@ -656,6 +648,8 @@ def main() -> int:
             write_comment_result(result, comment)
             if comment:
                 log(f"railway_beta_comment: {change_type}")
+            elif change_type == "changed":
+                log("railway_beta_comment: removed_silent")
             else:
                 log("railway_beta_comment: no change")
             log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
