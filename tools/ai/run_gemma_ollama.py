@@ -82,9 +82,9 @@ RAILWAY_BETA_FORBIDDEN_OUTPUTS = (
     "発生。",
     "状況把握",
     "引き続き注視",
+    "名古屋方面の移動・乗換に影響する可能性があります。",
+    "名古屋方面の移動に大きな影響が予想されます。",
 )
-RAILWAY_BETA_REQUIRED_ENDING = "名古屋方面の移動・乗換に影響する可能性があります。"
-RAILWAY_BETA_CRITICAL_ENDING = "名古屋方面の移動に大きな影響が予想されます。"
 RAILWAY_SEVERITY_EMOJIS = {
     "info": "🔵",
     "warning": "🟡",
@@ -284,12 +284,6 @@ def railway_severity_emoji(severity: str) -> str:
     return RAILWAY_SEVERITY_EMOJIS.get(severity, RAILWAY_SEVERITY_EMOJIS["info"])
 
 
-def railway_severity_ending(severity: str) -> str:
-    if severity == "critical":
-        return RAILWAY_BETA_CRITICAL_ENDING
-    return RAILWAY_BETA_REQUIRED_ENDING
-
-
 def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
     blocks: list[str] = []
     for title, url_label, url, messages in grouped_railway_alerts(railway_beta_alerts):
@@ -303,8 +297,6 @@ def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
             "現在確認中の事象",
             "",
             "\n".join(body_lines),
-            "",
-            railway_severity_ending(severity),
         ]
         if url_label and url:
             lines.extend(["", f"🔗 {url_label}", url])
@@ -332,7 +324,6 @@ def build_railway_change_comment(
             "",
         ]
         lines.extend(f"・{message}" for message in messages)
-        lines.extend(["", railway_severity_ending(severity)])
         if url_label and url:
             lines.extend(["", f"🔗 {url_label}", url])
         blocks.append("\n".join(lines))
@@ -383,11 +374,12 @@ def build_railway_beta_block(alerts: list[str]) -> str:
 - 交通情報ベータが同じ路線で複数ある場合は、ページ掲載順を維持して「・」の箇条書きにしてください。
 - 行動指示は禁止です。
 - 書く内容は、取得できた事実のみです。
-- 最後の行は必ず「名古屋方面の移動・乗換に影響する可能性があります。」で終えてください。
 - 表現例:
-🚋 JR東海道線
-尾張一宮～木曽川駅間で列車遅延。
-名古屋方面の移動・乗換に影響する可能性があります。
+🔵 東海道線
+
+現在確認中の事象
+
+・尾張一宮～木曽川駅間で列車遅延
 """
 
 
@@ -441,9 +433,9 @@ def build_prompt(
 - 「おはようございます」「本日も」「状況を確認しました」「報告ありがとうございます」「〇〇さん」「引き続き」「慎重に進めましょう」「判断しましょう」は使わない
 - 「支障をきたす」「確認されました」「情報収集」「影響範囲」「モニタリング」「継続します」「発生。」「状況把握」「引き続き注視」は使わない
 - 上司・部下っぽい報告文にしない
-- 鉄道遅延は、事実と名古屋方面の移動・乗換への影響可能性だけを短く伝える
-- 交通情報ベータがある場合は公共交通情報として書き、挨拶なし・前置きなし・箇条書きなし・3行以内にする
-- 交通情報ベータがある場合、最後は必ず「名古屋方面の移動・乗換に影響する可能性があります。」で終える
+- 鉄道遅延は、取得した事実だけを短く伝える
+- 交通情報ベータがある場合は公共交通情報として書き、挨拶なし・前置きなしで事象を箇条書きにする
+- 交通情報ベータに解説、推測、注意喚起を付けない
 - ツッコミは最大1回
 - スギケツバットは毎回出さない
 - 交通情報ベータがある場合だけ、交通情報にも短く触れる
@@ -492,19 +484,9 @@ def is_empty_status_comment(comment: str) -> bool:
 
 def validate_railway_beta_comment(comment: str) -> tuple[bool, list[str]]:
     errors: list[str] = []
-    lines = [line.strip() for line in comment.splitlines() if line.strip()]
-    content_lines = []
-    for line in lines:
-        if line.startswith("🔗 ") or line.startswith("http://") or line.startswith("https://"):
-            continue
-        content_lines.append(line)
     for forbidden in RAILWAY_BETA_FORBIDDEN_OUTPUTS:
         if forbidden in comment:
             errors.append(forbidden)
-    if comment.startswith("✅ "):
-        return (not errors, errors)
-    if content_lines and content_lines[-1] not in (RAILWAY_BETA_REQUIRED_ENDING, RAILWAY_BETA_CRITICAL_ENDING):
-        errors.append("missing_required_ending")
     return (not errors, errors)
 
 
