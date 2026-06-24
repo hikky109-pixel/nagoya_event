@@ -21,6 +21,7 @@ try:
     from railway_history import record_railway_history_change
     from railway_status_normalizer import get_all_railway_alerts_snapshot
     from railway_severity import detect_railway_severity
+    from weather_severity import detect_weather_severity, is_minor_weather
     from railway_state import (
         diff_alerts,
         load_railway_last_notify,
@@ -35,6 +36,7 @@ except ModuleNotFoundError:
     from tools.ai.railway_history import record_railway_history_change
     from tools.ai.railway_status_normalizer import get_all_railway_alerts_snapshot
     from tools.ai.railway_severity import detect_railway_severity
+    from tools.ai.weather_severity import detect_weather_severity, is_minor_weather
     from tools.ai.railway_state import (
         diff_alerts,
         load_railway_last_notify,
@@ -136,12 +138,6 @@ COMMENT_MONITORING_MARKERS = (
     "監視",
     "注視",
     "見守",
-)
-MINOR_WEATHER_MARKERS = (
-    "雨は1時間以内に弱まる",
-    "雨は1時間以内に弱まる/止む",
-    "雨が弱まる可能性",
-    "雨需要ピークアウト",
 )
 RAILWAY_INFO_URLS = {
     "JR東海道新幹線": "https://traininfo.jr-central.co.jp/shinkansen/sp/ja/index.html",
@@ -689,6 +685,43 @@ weather_beta_alerts:
 """
 
 
+def public_weather_message(alert: str) -> str:
+    text = " ".join(str(alert or "").split())
+    replacements = {
+        "名古屋中心部で1時間以内に雨開始予測": "名古屋中心部で1時間以内に雨が降り始める可能性があります。",
+        "名古屋中心部で1時間以内に雨が強まる可能性": "名古屋中心部で1時間以内に雨が強まる可能性があります。",
+        "名古屋中心部で1時間以内に雷の可能性": "名古屋中心部で1時間以内に雷の可能性があります。",
+    }
+    if text in replacements:
+        return replacements[text]
+    if text and text[-1] not in "。！？":
+        return text + "。"
+    return text
+
+
+def build_weather_beta_comment(alerts: list[str], severity: str | None = None) -> str:
+    weather_severity = severity or detect_weather_severity(alerts)
+    emoji = {
+        "weather_info": "☔",
+        "weather_alert": "⛈️",
+        "weather_critical": "🚨",
+    }.get(weather_severity, "☔")
+
+    messages: list[str] = []
+    for alert in alerts:
+        text = " ".join(str(alert or "").split())
+        if not text or "需要" in text or "ピークアウト" in text:
+            continue
+        message = public_weather_message(text)
+        if message and message not in messages:
+            messages.append(message)
+    if not messages:
+        return ""
+    lines = [f"{emoji} {messages[0]}"]
+    lines.extend(f"・{message}" for message in messages[1:3])
+    return "\n".join(lines)
+
+
 def build_prompt(
     report: str,
     profile: dict[str, Any],
@@ -775,10 +808,7 @@ def is_minor_weather_only(
 ) -> bool:
     if railway_beta_alerts or not weather_beta_alerts:
         return False
-    return all(
-        any(marker in alert for marker in MINOR_WEATHER_MARKERS)
-        for alert in weather_beta_alerts
-    )
+    return is_minor_weather(weather_beta_alerts)
 
 
 def is_empty_status_comment(comment: str, forbidden_phrases: list[str] | None = None) -> bool:
@@ -936,6 +966,7 @@ def main() -> int:
         display_railway_alert(alert) for alert in railway_beta_alerts
     ]
     weather_beta_alerts = load_weather_beta_alerts(now_jst)
+    weather_severity = detect_weather_severity(weather_beta_alerts)
     if not railway_beta_is_active:
         log("railway_beta_alerts: skipped overnight")
     elif railway_beta_alerts:
@@ -993,6 +1024,7 @@ def main() -> int:
                 "railway_notify_allowed": False,
                 "severity": railway_severity,
                 "weather_beta_alerts": weather_beta_alerts,
+                "weather_severity": weather_severity,
                 "done": False,
                 "ollama_skipped": True,
             }
@@ -1055,6 +1087,7 @@ def main() -> int:
                 "railway_notify_cooldown_remaining_seconds": cooldown_remaining if not notify_allowed else 0,
                 "severity": notification_severity,
                 "weather_beta_alerts": weather_beta_alerts,
+                "weather_severity": weather_severity,
                 "done": bool(comment),
                 "ollama_skipped": True,
             }
@@ -1085,6 +1118,7 @@ def main() -> int:
             "railway_beta_levels": railway_level_by_alert,
             "severity": railway_severity,
             "weather_beta_alerts": weather_beta_alerts,
+            "weather_severity": weather_severity,
             "done": False,
             "ollama_skipped": True,
             "silent_reason": "quiet_hours",
@@ -1106,12 +1140,36 @@ def main() -> int:
             "railway_beta_levels": railway_level_by_alert,
             "severity": railway_severity,
             "weather_beta_alerts": weather_beta_alerts,
+            "weather_severity": weather_severity,
             "done": False,
             "ollama_skipped": True,
             "silent_reason": "minor_weather_only",
         }
         write_comment_result(result, "")
         log("gemma_comment: skipped minor_weather_only")
+        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        return 0
+
+    if weather_beta_alerts and not railway_beta_alerts:
+        comment = build_weather_beta_comment(weather_beta_alerts, weather_severity)
+        result = {
+            "generated_at": now_iso(),
+            "model": "python:weather_beta",
+            "comment": comment,
+            "railway_beta_alerts": railway_beta_alerts,
+            "railway_beta_display_alerts": railway_beta_display_alerts,
+            "railway_beta_source_urls": railway_source_url_by_alert,
+            "railway_beta_levels": railway_level_by_alert,
+            "severity": railway_severity,
+            "weather_beta_alerts": weather_beta_alerts,
+            "weather_severity": weather_severity,
+            "weather_beta_notification": bool(comment),
+            "done": bool(comment),
+            "ollama_skipped": True,
+        }
+        write_comment_result(result, comment)
+        log(f"weather_beta_comment: {weather_severity}")
         log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
@@ -1127,6 +1185,7 @@ def main() -> int:
             "railway_beta_levels": railway_level_by_alert,
             "severity": railway_severity,
             "weather_beta_alerts": weather_beta_alerts,
+            "weather_severity": weather_severity,
             "done": False,
             "ollama_skipped": True,
             "silent_reason": "no_actionable_info",
@@ -1164,6 +1223,7 @@ def main() -> int:
         "railway_beta_levels": railway_level_by_alert,
         "severity": railway_severity,
         "weather_beta_alerts": weather_beta_alerts,
+        "weather_severity": weather_severity,
         "done": bool(response.get("done")) and bool(comment),
     }
 
