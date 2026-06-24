@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -207,24 +208,34 @@ def is_railway_beta_active(now: datetime | None = None) -> bool:
 
 
 def load_railway_beta_alerts(now: datetime | None = None) -> list[str]:
-    alerts, _updated_at_by_alert = load_railway_beta_snapshot(now)
+    alerts, _updated_at_by_alert, _source_url_by_alert = load_railway_beta_snapshot(now)
     return alerts
 
 
-def load_railway_beta_snapshot(now: datetime | None = None) -> tuple[list[str], dict[str, datetime]]:
+def load_railway_beta_snapshot(
+    now: datetime | None = None,
+) -> tuple[list[str], dict[str, datetime], dict[str, str]]:
     if not is_railway_beta_active(now):
-        return [], {}
+        return [], {}, {}
 
     try:
-        alerts, updated_at_by_alert = get_all_railway_alerts_snapshot()
+        alerts, updated_at_by_alert, source_url_by_alert = get_all_railway_alerts_snapshot()
         public_alerts = public_railway_alerts(alerts)
-        return public_alerts, {
-            alert: updated_at
-            for alert, updated_at in updated_at_by_alert.items()
-            if alert in public_alerts
-        }
+        return (
+            public_alerts,
+            {
+                alert: updated_at
+                for alert, updated_at in updated_at_by_alert.items()
+                if alert in public_alerts
+            },
+            {
+                alert: source_url
+                for alert, source_url in source_url_by_alert.items()
+                if alert in public_alerts
+            },
+        )
     except Exception:
-        return [], {}
+        return [], {}, {}
 
 
 def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
@@ -234,7 +245,7 @@ def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
         return []
 
 
-def railway_info_source(alert: str) -> tuple[str, str, str]:
+def railway_info_source(alert: str, source_url: str = "") -> tuple[str, str, str]:
     if "東海道新幹線" in alert:
         return "JR東海道新幹線", "JR東海道新幹線", RAILWAY_INFO_URLS["JR東海道新幹線"]
     if "JR東海在来線" in alert:
@@ -245,6 +256,11 @@ def railway_info_source(alert: str) -> tuple[str, str, str]:
             url_label = "JR東海在来線 " + display.splitlines()[0]
             return title, url_label, url
         return "JR東海在来線", "JR東海在来線", RAILWAY_INFO_URLS["JR東海在来線"]
+    meitetsu_match = re.match(r"名鉄\s+([^:：]+)[:：]", alert)
+    if meitetsu_match:
+        line = " ".join(meitetsu_match.group(1).split())
+        title = f"名鉄{line}"
+        return title, title, source_url or RAILWAY_INFO_URLS["名鉄"]
     for label in (
         "名鉄",
         "名古屋市営地下鉄",
@@ -254,7 +270,7 @@ def railway_info_source(alert: str) -> tuple[str, str, str]:
         "城北線",
     ):
         if label in alert:
-            return label, label, RAILWAY_INFO_URLS[label]
+            return label, label, source_url or RAILWAY_INFO_URLS[label]
     return "鉄道運行情報", "", ""
 
 
@@ -265,7 +281,11 @@ def official_alert_body(alert: str) -> str:
     return " ".join(alert.split())
 
 
-def grouped_railway_alerts(alerts: list[str]) -> list[tuple[str, str, str, list[str]]]:
+def grouped_railway_alerts(
+    alerts: list[str],
+    source_url_by_alert: dict[str, str] | None = None,
+) -> list[tuple[str, str, str, list[str]]]:
+    source_url_by_alert = source_url_by_alert or {}
     groups: list[tuple[str, str, str, list[str]]] = []
     group_index: dict[tuple[str, str, str], int] = {}
 
@@ -274,7 +294,7 @@ def grouped_railway_alerts(alerts: list[str]) -> list[tuple[str, str, str, list[
         if not text:
             continue
 
-        title, url_label, url = railway_info_source(text)
+        title, url_label, url = railway_info_source(text, source_url_by_alert.get(text, ""))
         body = official_alert_body(text)
         if not body:
             continue
@@ -314,28 +334,26 @@ def railway_alert_timestamp(
     return selected.astimezone(JST)
 
 
-def railway_group_alerts(title: str, url_label: str, url: str, alerts: list[str]) -> list[str]:
-    return [
-        alert
-        for alert in alerts
-        if railway_info_source(alert) == (title, url_label, url)
-    ]
-
-
 def build_railway_beta_comment(
     railway_beta_alerts: list[str],
     checked_at: datetime | None = None,
     updated_at_by_alert: dict[str, datetime] | None = None,
+    source_url_by_alert: dict[str, str] | None = None,
 ) -> str:
     checked_at = checked_at or datetime.now(JST)
     updated_at_by_alert = updated_at_by_alert or {}
+    source_url_by_alert = source_url_by_alert or {}
     blocks: list[str] = []
-    for title, url_label, url, messages in grouped_railway_alerts(railway_beta_alerts):
+    for title, url_label, url, messages in grouped_railway_alerts(railway_beta_alerts, source_url_by_alert):
         if not messages:
             continue
         severity = detect_railway_severity(messages)
         timestamp = railway_alert_timestamp(
-            railway_group_alerts(title, url_label, url, railway_beta_alerts),
+            [
+                alert
+                for alert in railway_beta_alerts
+                if railway_info_source(alert, source_url_by_alert.get(alert, "")) == (title, url_label, url)
+            ],
             updated_at_by_alert,
             checked_at,
         )
@@ -357,20 +375,26 @@ def build_railway_change_comment(
     current_alerts: list[str],
     checked_at: datetime | None = None,
     updated_at_by_alert: dict[str, datetime] | None = None,
+    source_url_by_alert: dict[str, str] | None = None,
 ) -> str:
     checked_at = checked_at or datetime.now(JST)
     updated_at_by_alert = updated_at_by_alert or {}
+    source_url_by_alert = source_url_by_alert or {}
     added_group_keys = {
         (title, url_label, url)
-        for title, url_label, url, _messages in grouped_railway_alerts(added_alerts)
+        for title, url_label, url, _messages in grouped_railway_alerts(added_alerts, source_url_by_alert)
     }
     blocks: list[str] = []
-    for title, url_label, url, messages in grouped_railway_alerts(current_alerts):
+    for title, url_label, url, messages in grouped_railway_alerts(current_alerts, source_url_by_alert):
         if (title, url_label, url) not in added_group_keys:
             continue
         severity = detect_railway_severity(messages)
         timestamp = railway_alert_timestamp(
-            railway_group_alerts(title, url_label, url, current_alerts),
+            [
+                alert
+                for alert in current_alerts
+                if railway_info_source(alert, source_url_by_alert.get(alert, "")) == (title, url_label, url)
+            ],
             updated_at_by_alert,
             checked_at,
         )
@@ -392,11 +416,17 @@ def build_railway_state_comment(
     current_alerts: list[str],
     checked_at: datetime | None = None,
     updated_at_by_alert: dict[str, datetime] | None = None,
+    source_url_by_alert: dict[str, str] | None = None,
 ) -> tuple[str, str, list[str], list[str]]:
     added_alerts, removed_alerts = diff_alerts(previous_alerts, current_alerts)
     if not state_exists and current_alerts:
         return (
-            build_railway_beta_comment(current_alerts, checked_at, updated_at_by_alert),
+            build_railway_beta_comment(
+                current_alerts,
+                checked_at,
+                updated_at_by_alert,
+                source_url_by_alert,
+            ),
             "initial",
             current_alerts,
             [],
@@ -405,7 +435,13 @@ def build_railway_state_comment(
         return "", "recovered", [], previous_alerts
     if added_alerts:
         return (
-            build_railway_change_comment(added_alerts, current_alerts, checked_at, updated_at_by_alert),
+            build_railway_change_comment(
+                added_alerts,
+                current_alerts,
+                checked_at,
+                updated_at_by_alert,
+                source_url_by_alert,
+            ),
             "changed",
             added_alerts,
             removed_alerts,
@@ -592,7 +628,9 @@ def main() -> int:
     profile = load_profile(PROFILE_PATH)
     now_jst = datetime.now(JST)
     railway_beta_is_active = is_railway_beta_active(now_jst)
-    railway_beta_alerts, railway_updated_at_by_alert = load_railway_beta_snapshot(now_jst)
+    railway_beta_alerts, railway_updated_at_by_alert, railway_source_url_by_alert = load_railway_beta_snapshot(
+        now_jst
+    )
     weather_beta_alerts = load_weather_beta_alerts(now_jst)
     if not railway_beta_is_active:
         log("railway_beta_alerts: skipped overnight")
@@ -616,6 +654,7 @@ def main() -> int:
             railway_beta_alerts,
             now_jst,
             railway_updated_at_by_alert,
+            railway_source_url_by_alert,
         )
         record_railway_history_change(
             RAILWAY_HISTORY_PATH,
@@ -633,6 +672,7 @@ def main() -> int:
                 "railway_beta_previous_alerts": previous_railway_alerts,
                 "railway_beta_added_alerts": added_alerts,
                 "railway_beta_removed_alerts": removed_alerts,
+                "railway_beta_source_urls": railway_source_url_by_alert,
                 "railway_beta_change_type": "recovered_silent",
                 "railway_beta_notification": False,
                 "railway_notify_allowed": False,
@@ -682,6 +722,7 @@ def main() -> int:
                 "railway_beta_previous_alerts": previous_railway_alerts,
                 "railway_beta_added_alerts": added_alerts,
                 "railway_beta_removed_alerts": removed_alerts,
+                "railway_beta_source_urls": railway_source_url_by_alert,
                 "railway_beta_change_type": change_type,
                 "railway_beta_notification": bool(comment),
                 "railway_notify_allowed": bool(comment) and notify_allowed,
@@ -710,6 +751,7 @@ def main() -> int:
             "model": "python:silent_empty",
             "comment": "",
             "railway_beta_alerts": railway_beta_alerts,
+            "railway_beta_source_urls": railway_source_url_by_alert,
             "severity": railway_severity,
             "weather_beta_alerts": weather_beta_alerts,
             "done": False,
@@ -743,6 +785,7 @@ def main() -> int:
         "model": MODEL,
         "comment": comment,
         "railway_beta_alerts": railway_beta_alerts,
+        "railway_beta_source_urls": railway_source_url_by_alert,
         "severity": railway_severity,
         "weather_beta_alerts": weather_beta_alerts,
         "done": bool(response.get("done")) and bool(comment),

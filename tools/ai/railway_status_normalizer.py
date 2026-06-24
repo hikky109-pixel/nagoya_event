@@ -19,19 +19,10 @@ from get_johoku_status import get_johoku_status  # noqa: E402
 from get_jrc_zairai_status import get_jrc_zairai_status, get_jrc_zairai_status_snapshot  # noqa: E402
 from get_kintetsu_status import get_kintetsu_status  # noqa: E402
 from get_linimo_status import get_linimo_status  # noqa: E402
-from get_meitetsu_status import get_meitetsu_status  # noqa: E402
+from get_meitetsu_status import get_meitetsu_status, get_meitetsu_status_snapshot  # noqa: E402
 from get_nagoya_subway_status import get_nagoya_subway_status  # noqa: E402
 from get_yutorito_status import get_yutorito_status  # noqa: E402
 from jrc_shinkansen_status import get_jrc_shinkansen_status  # noqa: E402
-
-
-NORMAL_HINTS = (
-    "平常",
-    "通常",
-    "遅れはございません",
-    "運行に関する情報はありません",
-    "支障はありません",
-)
 
 
 def _clean_text(value: Any) -> str:
@@ -107,12 +98,18 @@ def normalize_linimo_status() -> list[str]:
 
 
 def normalize_meitetsu_status() -> list[str]:
-    text = _clean_text(get_meitetsu_status())
-    if not text:
+    result = get_meitetsu_status()
+    if not isinstance(result, list):
         return []
-    if any(hint in text for hint in NORMAL_HINTS):
-        return []
-    return [f"名鉄: {text}"]
+    return [_clean_text(alert) for alert in result if _clean_text(alert)]
+
+
+def normalize_meitetsu_status_snapshot() -> tuple[list[str], dict[str, datetime], dict[str, str]]:
+    result, source_url, updated_at = get_meitetsu_status_snapshot()
+    alerts = [_clean_text(alert) for alert in result if _clean_text(alert)]
+    updated_at_by_alert = {alert: updated_at for alert in alerts} if updated_at else {}
+    source_url_by_alert = {alert: source_url for alert in alerts} if source_url else {}
+    return alerts, updated_at_by_alert, source_url_by_alert
 
 
 def normalize_nagoya_subway_status() -> list[str]:
@@ -180,13 +177,14 @@ def normalize_jrc_shinkansen_status_snapshot() -> tuple[list[str], dict[str, dat
 
 
 def get_all_railway_alerts() -> list[str]:
-    alerts, _updated_at_by_alert = get_all_railway_alerts_snapshot()
+    alerts, _updated_at_by_alert, _source_url_by_alert = get_all_railway_alerts_snapshot()
     return alerts
 
 
-def get_all_railway_alerts_snapshot() -> tuple[list[str], dict[str, datetime]]:
+def get_all_railway_alerts_snapshot() -> tuple[list[str], dict[str, datetime], dict[str, str]]:
     alerts: list[str] = []
     updated_at_by_alert: dict[str, datetime] = {}
+    source_url_by_alert: dict[str, str] = {}
     checks_before_jrc: list[tuple[str, Callable[[], list[str]]]] = [
         ("あおなみ線", normalize_aonami_status),
         ("城北線", normalize_johoku_status),
@@ -194,7 +192,6 @@ def get_all_railway_alerts_snapshot() -> tuple[list[str], dict[str, datetime]]:
     checks_after_jrc: list[tuple[str, Callable[[], list[str]]]] = [
         ("近鉄", normalize_kintetsu_status),
         ("リニモ", normalize_linimo_status),
-        ("名鉄", normalize_meitetsu_status),
         ("名古屋市営地下鉄", normalize_nagoya_subway_status),
         ("ゆとりーとライン", normalize_yutorito_status),
     ]
@@ -214,13 +211,23 @@ def get_all_railway_alerts_snapshot() -> tuple[list[str], dict[str, datetime]]:
         alerts.extend(_safe(label, getter))
 
     try:
+        meitetsu_alerts, meitetsu_updated_at, meitetsu_source_urls = normalize_meitetsu_status_snapshot()
+    except Exception as exc:
+        meitetsu_alerts = [f"名鉄: 取得失敗: {exc}"]
+        meitetsu_updated_at = {}
+        meitetsu_source_urls = {}
+    alerts.extend(meitetsu_alerts)
+    updated_at_by_alert.update(meitetsu_updated_at)
+    source_url_by_alert.update(meitetsu_source_urls)
+
+    try:
         shinkansen_alerts, shinkansen_updated_at = normalize_jrc_shinkansen_status_snapshot()
     except Exception as exc:
         shinkansen_alerts = [f"東海道新幹線: 取得失敗: {exc}"]
         shinkansen_updated_at = {}
     alerts.extend(shinkansen_alerts)
     updated_at_by_alert.update(shinkansen_updated_at)
-    return alerts, updated_at_by_alert
+    return alerts, updated_at_by_alert, source_url_by_alert
 
 
 if __name__ == "__main__":
