@@ -18,7 +18,7 @@ try:
     from jrc_zairai_targets import jrc_target_line_display, jrc_target_line_url
     from log_utils import log
     from railway_history import record_railway_history_change
-    from railway_status_normalizer import get_all_railway_alerts
+    from railway_status_normalizer import get_all_railway_alerts_snapshot
     from railway_severity import detect_railway_severity
     from railway_state import (
         diff_alerts,
@@ -32,7 +32,7 @@ except ModuleNotFoundError:
     from tools.ai.jrc_zairai_targets import jrc_target_line_display, jrc_target_line_url
     from tools.ai.log_utils import log
     from tools.ai.railway_history import record_railway_history_change
-    from tools.ai.railway_status_normalizer import get_all_railway_alerts
+    from tools.ai.railway_status_normalizer import get_all_railway_alerts_snapshot
     from tools.ai.railway_severity import detect_railway_severity
     from tools.ai.railway_state import (
         diff_alerts,
@@ -207,13 +207,24 @@ def is_railway_beta_active(now: datetime | None = None) -> bool:
 
 
 def load_railway_beta_alerts(now: datetime | None = None) -> list[str]:
+    alerts, _updated_at_by_alert = load_railway_beta_snapshot(now)
+    return alerts
+
+
+def load_railway_beta_snapshot(now: datetime | None = None) -> tuple[list[str], dict[str, datetime]]:
     if not is_railway_beta_active(now):
-        return []
+        return [], {}
 
     try:
-        return public_railway_alerts(get_all_railway_alerts())
+        alerts, updated_at_by_alert = get_all_railway_alerts_snapshot()
+        public_alerts = public_railway_alerts(alerts)
+        return public_alerts, {
+            alert: updated_at
+            for alert, updated_at in updated_at_by_alert.items()
+            if alert in public_alerts
+        }
     except Exception:
-        return []
+        return [], {}
 
 
 def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
@@ -284,17 +295,54 @@ def railway_severity_emoji(severity: str) -> str:
     return RAILWAY_SEVERITY_EMOJIS.get(severity, RAILWAY_SEVERITY_EMOJIS["info"])
 
 
-def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
+def railway_alert_timestamp(
+    alerts: list[str],
+    updated_at_by_alert: dict[str, datetime],
+    fallback: datetime,
+) -> datetime:
+    timestamps: list[datetime] = []
+    for alert in alerts:
+        updated_at = updated_at_by_alert.get(alert)
+        if not isinstance(updated_at, datetime):
+            continue
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=JST)
+        timestamps.append(updated_at.astimezone(JST))
+    selected = max(timestamps) if timestamps else fallback
+    if selected.tzinfo is None:
+        selected = selected.replace(tzinfo=JST)
+    return selected.astimezone(JST)
+
+
+def railway_group_alerts(title: str, url_label: str, url: str, alerts: list[str]) -> list[str]:
+    return [
+        alert
+        for alert in alerts
+        if railway_info_source(alert) == (title, url_label, url)
+    ]
+
+
+def build_railway_beta_comment(
+    railway_beta_alerts: list[str],
+    checked_at: datetime | None = None,
+    updated_at_by_alert: dict[str, datetime] | None = None,
+) -> str:
+    checked_at = checked_at or datetime.now(JST)
+    updated_at_by_alert = updated_at_by_alert or {}
     blocks: list[str] = []
     for title, url_label, url, messages in grouped_railway_alerts(railway_beta_alerts):
         if not messages:
             continue
         severity = detect_railway_severity(messages)
+        timestamp = railway_alert_timestamp(
+            railway_group_alerts(title, url_label, url, railway_beta_alerts),
+            updated_at_by_alert,
+            checked_at,
+        )
         body_lines = [f"・{message}" for message in messages]
         lines = [
             f"{railway_severity_emoji(severity)} {title}",
-            "",
-            "現在確認中の事象",
+            f"（{timestamp:%H:%M}現在）",
             "",
             "\n".join(body_lines),
         ]
@@ -307,7 +355,11 @@ def build_railway_beta_comment(railway_beta_alerts: list[str]) -> str:
 def build_railway_change_comment(
     added_alerts: list[str],
     current_alerts: list[str],
+    checked_at: datetime | None = None,
+    updated_at_by_alert: dict[str, datetime] | None = None,
 ) -> str:
+    checked_at = checked_at or datetime.now(JST)
+    updated_at_by_alert = updated_at_by_alert or {}
     added_group_keys = {
         (title, url_label, url)
         for title, url_label, url, _messages in grouped_railway_alerts(added_alerts)
@@ -317,10 +369,14 @@ def build_railway_change_comment(
         if (title, url_label, url) not in added_group_keys:
             continue
         severity = detect_railway_severity(messages)
+        timestamp = railway_alert_timestamp(
+            railway_group_alerts(title, url_label, url, current_alerts),
+            updated_at_by_alert,
+            checked_at,
+        )
         lines = [
             f"{railway_severity_emoji(severity)} {title}",
-            "",
-            "現在確認中の事象",
+            f"（{timestamp:%H:%M}現在）",
             "",
         ]
         lines.extend(f"・{message}" for message in messages)
@@ -334,15 +390,22 @@ def build_railway_state_comment(
     state_exists: bool,
     previous_alerts: list[str],
     current_alerts: list[str],
+    checked_at: datetime | None = None,
+    updated_at_by_alert: dict[str, datetime] | None = None,
 ) -> tuple[str, str, list[str], list[str]]:
     added_alerts, removed_alerts = diff_alerts(previous_alerts, current_alerts)
     if not state_exists and current_alerts:
-        return build_railway_beta_comment(current_alerts), "initial", current_alerts, []
+        return (
+            build_railway_beta_comment(current_alerts, checked_at, updated_at_by_alert),
+            "initial",
+            current_alerts,
+            [],
+        )
     if previous_alerts and not current_alerts:
         return "", "recovered", [], previous_alerts
     if added_alerts:
         return (
-            build_railway_change_comment(added_alerts, current_alerts),
+            build_railway_change_comment(added_alerts, current_alerts, checked_at, updated_at_by_alert),
             "changed",
             added_alerts,
             removed_alerts,
@@ -377,7 +440,7 @@ def build_railway_beta_block(alerts: list[str]) -> str:
 - 表現例:
 🔵 東海道線
 
-現在確認中の事象
+（08:25現在）
 
 ・尾張一宮～木曽川駅間で列車遅延
 """
@@ -529,7 +592,7 @@ def main() -> int:
     profile = load_profile(PROFILE_PATH)
     now_jst = datetime.now(JST)
     railway_beta_is_active = is_railway_beta_active(now_jst)
-    railway_beta_alerts = load_railway_beta_alerts(now_jst)
+    railway_beta_alerts, railway_updated_at_by_alert = load_railway_beta_snapshot(now_jst)
     weather_beta_alerts = load_weather_beta_alerts(now_jst)
     if not railway_beta_is_active:
         log("railway_beta_alerts: skipped overnight")
@@ -551,6 +614,8 @@ def main() -> int:
             state_exists,
             previous_railway_alerts,
             railway_beta_alerts,
+            now_jst,
+            railway_updated_at_by_alert,
         )
         record_railway_history_change(
             RAILWAY_HISTORY_PATH,

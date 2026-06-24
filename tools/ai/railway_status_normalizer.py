@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -15,7 +16,7 @@ if str(CURRENT_DIR) not in sys.path:
 
 from get_aonami_status import get_aonami_status  # noqa: E402
 from get_johoku_status import get_johoku_status  # noqa: E402
-from get_jrc_zairai_status import get_jrc_zairai_status  # noqa: E402
+from get_jrc_zairai_status import get_jrc_zairai_status, get_jrc_zairai_status_snapshot  # noqa: E402
 from get_kintetsu_status import get_kintetsu_status  # noqa: E402
 from get_linimo_status import get_linimo_status  # noqa: E402
 from get_meitetsu_status import get_meitetsu_status  # noqa: E402
@@ -61,8 +62,7 @@ def normalize_johoku_status() -> list[str]:
     return _prefixed("城北線", get_johoku_status())
 
 
-def normalize_jrc_zairai_status() -> list[str]:
-    result = get_jrc_zairai_status()
+def _normalize_jrc_zairai_result(result: Any) -> list[str]:
     if result is None:
         return []
     if isinstance(result, str):
@@ -84,6 +84,18 @@ def normalize_jrc_zairai_status() -> list[str]:
         if text:
             alerts.append(f"JR東海在来線 {line_name}: {text}")
     return alerts
+
+
+def normalize_jrc_zairai_status() -> list[str]:
+    return _normalize_jrc_zairai_result(get_jrc_zairai_status())
+
+
+def normalize_jrc_zairai_status_snapshot() -> tuple[list[str], dict[str, datetime]]:
+    result, updated_at = get_jrc_zairai_status_snapshot()
+    alerts = _normalize_jrc_zairai_result(result)
+    if updated_at is None:
+        return alerts, {}
+    return alerts, {alert: updated_at for alert in alerts}
 
 
 def normalize_kintetsu_status() -> list[str]:
@@ -126,8 +138,7 @@ def normalize_yutorito_status() -> list[str]:
     return _prefixed("ゆとりーとライン", get_yutorito_status())
 
 
-def normalize_jrc_shinkansen_status() -> list[str]:
-    result = get_jrc_shinkansen_status()
+def _normalize_jrc_shinkansen_result(result: Any) -> list[str]:
     if not isinstance(result, dict):
         return []
     if result.get("status") == "normal":
@@ -144,22 +155,72 @@ def normalize_jrc_shinkansen_status() -> list[str]:
     return [f"東海道新幹線: {message}"]
 
 
+def normalize_jrc_shinkansen_status() -> list[str]:
+    return _normalize_jrc_shinkansen_result(get_jrc_shinkansen_status())
+
+
+def normalize_jrc_shinkansen_status_snapshot() -> tuple[list[str], dict[str, datetime]]:
+    result = get_jrc_shinkansen_status()
+    alerts = _normalize_jrc_shinkansen_result(result)
+    if not alerts or not isinstance(result, dict):
+        return alerts, {}
+
+    raw_updated_at = result.get("updated_at")
+    updated_at = None
+    if isinstance(raw_updated_at, (int, float)):
+        updated_at = datetime.fromtimestamp(raw_updated_at, timezone.utc)
+    elif isinstance(raw_updated_at, str):
+        try:
+            updated_at = datetime.fromisoformat(raw_updated_at)
+        except ValueError:
+            pass
+    if updated_at is None:
+        return alerts, {}
+    return alerts, {alert: updated_at for alert in alerts}
+
+
 def get_all_railway_alerts() -> list[str]:
+    alerts, _updated_at_by_alert = get_all_railway_alerts_snapshot()
+    return alerts
+
+
+def get_all_railway_alerts_snapshot() -> tuple[list[str], dict[str, datetime]]:
     alerts: list[str] = []
-    checks: list[tuple[str, Callable[[], list[str]]]] = [
+    updated_at_by_alert: dict[str, datetime] = {}
+    checks_before_jrc: list[tuple[str, Callable[[], list[str]]]] = [
         ("あおなみ線", normalize_aonami_status),
         ("城北線", normalize_johoku_status),
-        ("JR東海在来線", normalize_jrc_zairai_status),
+    ]
+    checks_after_jrc: list[tuple[str, Callable[[], list[str]]]] = [
         ("近鉄", normalize_kintetsu_status),
         ("リニモ", normalize_linimo_status),
         ("名鉄", normalize_meitetsu_status),
         ("名古屋市営地下鉄", normalize_nagoya_subway_status),
         ("ゆとりーとライン", normalize_yutorito_status),
-        ("東海道新幹線", normalize_jrc_shinkansen_status),
     ]
-    for label, getter in checks:
+
+    for label, getter in checks_before_jrc:
         alerts.extend(_safe(label, getter))
-    return alerts
+
+    try:
+        jrc_alerts, jrc_updated_at = normalize_jrc_zairai_status_snapshot()
+    except Exception as exc:
+        jrc_alerts = [f"JR東海在来線: 取得失敗: {exc}"]
+        jrc_updated_at = {}
+    alerts.extend(jrc_alerts)
+    updated_at_by_alert.update(jrc_updated_at)
+
+    for label, getter in checks_after_jrc:
+        alerts.extend(_safe(label, getter))
+
+    try:
+        shinkansen_alerts, shinkansen_updated_at = normalize_jrc_shinkansen_status_snapshot()
+    except Exception as exc:
+        shinkansen_alerts = [f"東海道新幹線: 取得失敗: {exc}"]
+        shinkansen_updated_at = {}
+    alerts.extend(shinkansen_alerts)
+    updated_at_by_alert.update(shinkansen_updated_at)
+    return alerts, updated_at_by_alert
 
 
 if __name__ == "__main__":

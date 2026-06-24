@@ -1,5 +1,7 @@
 import json
 import urllib.request
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 try:
@@ -17,17 +19,27 @@ def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
-def get_jrc_zairai_status(line_name=None):
+def _fetch_status_data() -> tuple[dict[str, Any], datetime | None]:
     req = urllib.request.Request(
         URL,
         headers={"User-Agent": "Mozilla/5.0"}
     )
 
-    data = json.loads(
-        urllib.request.urlopen(req, timeout=15)
-        .read()
-        .decode("utf-8-sig")
-    )
+    with urllib.request.urlopen(req, timeout=15) as response:
+        data = json.loads(response.read().decode("utf-8-sig"))
+        last_modified = response.headers.get("Last-Modified")
+
+    updated_at = None
+    if last_modified:
+        try:
+            updated_at = parsedate_to_datetime(last_modified)
+        except (TypeError, ValueError):
+            pass
+    return data, updated_at
+
+
+def get_jrc_zairai_status_snapshot(line_name=None):
+    data, updated_at = _fetch_status_data()
 
     result = {}
 
@@ -66,8 +78,13 @@ def get_jrc_zairai_status(line_name=None):
             messages.append(message)
 
     if line_name is not None:
-        return result.get(line_name)
+        return result.get(line_name), updated_at
 
+    return result, updated_at
+
+
+def get_jrc_zairai_status(line_name=None):
+    result, _updated_at = get_jrc_zairai_status_snapshot(line_name)
     return result
 
 
