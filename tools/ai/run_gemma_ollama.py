@@ -113,6 +113,7 @@ COMMENT_SIGNAL_KEYWORDS = (
     "道路交通案件",
 )
 COMMENT_NO_SIGNAL_MARKERS = (
+    "新規情報なし",
     "特記事項なし",
     "特記事項はありません",
     "本日も安定稼働",
@@ -125,6 +126,22 @@ COMMENT_NO_SIGNAL_MARKERS = (
     "モニタリング",
     "現時点で特別な影響",
     "影響は確認されていません",
+)
+COMMENT_ZERO_EVENT_PATTERNS = (
+    r"イベント\s*(?:は|が|[:：])?\s*0\s*件",
+    r"イベント\s*(?:は|が)?\s*ゼロ",
+    r"イベントは発生していません",
+)
+COMMENT_MONITORING_MARKERS = (
+    "監視",
+    "注視",
+    "見守",
+)
+MINOR_WEATHER_MARKERS = (
+    "雨は1時間以内に弱まる",
+    "雨は1時間以内に弱まる/止む",
+    "雨が弱まる可能性",
+    "雨需要ピークアウト",
 )
 RAILWAY_INFO_URLS = {
     "JR東海道新幹線": "https://traininfo.jr-central.co.jp/shinkansen/sp/ja/index.html",
@@ -181,7 +198,37 @@ def gemma_style_phrases(style: dict[str, Any]) -> list[str]:
 def build_gemma_style_block(style: dict[str, Any]) -> str:
     if not style:
         return ""
-    return "【Gemma出力スタイル】\n" + json.dumps(style, ensure_ascii=False, indent=2)
+
+    tone = style.get("tone") if isinstance(style.get("tone"), dict) else {}
+    rules = style.get("rules") if isinstance(style.get("rules"), list) else []
+    forbidden = gemma_style_phrases(style)
+    good_examples = style.get("good_style_examples")
+    bad_examples = style.get("bad_style_examples")
+    max_sentences = int(tone.get("max_sentences") or 3)
+    emoji_limit = int(tone.get("emoji_limit") or 2)
+
+    lines = [
+        "【Gemma課長 出力規定】",
+        "・事実のみ。推測禁止。",
+        "・情報が無ければ空文字。",
+        "・不要な挨拶、締め文、ビジネス報告書風の表現は禁止。",
+        f"・最大{max_sentences}文。絵文字は最大{emoji_limit}個。",
+    ]
+    lines.extend(f"・{rule}" for rule in rules)
+    if forbidden:
+        lines.extend(["", "【禁止句】"])
+        lines.extend(f"・{phrase}" for phrase in forbidden)
+    if isinstance(good_examples, list) and good_examples:
+        lines.extend(["", "【良い例】"])
+        for example in good_examples:
+            if isinstance(example, dict):
+                lines.append(f"入力: {example.get('input', '')}")
+                lines.append(f"出力: {example.get('output', '')}")
+    if isinstance(bad_examples, list) and bad_examples:
+        lines.extend(["", "【悪い例】"])
+        lines.extend(f"・{example}" for example in bad_examples)
+    lines.extend(["", "以下のデータを評価してください:"])
+    return "\n".join(lines)
 
 
 def is_gemma_quiet_hours(now: datetime | None = None) -> bool:
@@ -200,31 +247,85 @@ def allow_gemma_during_quiet_hours(
 
 
 def load_simple_yaml(path: Path) -> dict[str, Any]:
-    data: dict[str, Any] = {}
-    current_list: str | None = None
+    raw_lines = path.read_text(encoding="utf-8").splitlines()
+    lines = [
+        (len(line) - len(line.lstrip(" ")), line.strip())
+        for line in raw_lines
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
 
-    with path.open(encoding="utf-8") as f:
-        for raw_line in f:
-            stripped = raw_line.strip()
-            if not stripped or stripped.startswith("#"):
+    def scalar(value: str) -> Any:
+        text = value.strip()
+        if not text:
+            return ""
+        if text in ("true", "false"):
+            return text == "true"
+        if text in ("null", "~"):
+            return None
+        if re.fullmatch(r"-?\d+", text):
+            return int(text)
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+            if text[0] == '"':
+                return json.loads(text)
+            return text[1:-1].replace("''", "'")
+        return text
+
+    def parse_block(index: int, indent: int) -> tuple[Any, int]:
+        if index >= len(lines) or lines[index][0] < indent:
+            return {}, index
+        is_list = lines[index][0] == indent and lines[index][1].startswith("- ")
+        container: Any = [] if is_list else {}
+
+        while index < len(lines):
+            line_indent, text = lines[index]
+            if line_indent < indent:
+                break
+            if line_indent > indent:
+                raise ValueError(f"Unexpected indentation in {path.relative_to(ROOT)}: {text}")
+
+            if is_list:
+                if not text.startswith("- "):
+                    break
+                item_text = text[2:].strip()
+                if not item_text:
+                    item, index = parse_block(index + 1, indent + 2)
+                    container.append(item)
+                    continue
+                if ":" in item_text:
+                    key, value = item_text.split(":", 1)
+                    item = {key.strip(): scalar(value)}
+                    index += 1
+                    while index < len(lines) and lines[index][0] == indent + 2:
+                        child_text = lines[index][1]
+                        if ":" not in child_text:
+                            raise ValueError(f"Unsupported YAML line in {path.relative_to(ROOT)}: {child_text}")
+                        child_key, child_value = child_text.split(":", 1)
+                        item[child_key.strip()] = scalar(child_value)
+                        index += 1
+                    container.append(item)
+                    continue
+                container.append(scalar(item_text))
+                index += 1
                 continue
-            if stripped.startswith("- "):
-                if current_list is None:
-                    raise ValueError(f"List item without a key in {path.relative_to(ROOT)}.")
-                data[current_list].append(stripped[2:])
-                continue
-            if ":" not in stripped:
-                raise ValueError(f"Unsupported YAML line in {path.relative_to(ROOT)}: {stripped}")
-            key, value = stripped.split(":", 1)
+
+            if text.startswith("- ") or ":" not in text:
+                raise ValueError(f"Unsupported YAML line in {path.relative_to(ROOT)}: {text}")
+            key, value = text.split(":", 1)
             key = key.strip()
             value = value.strip()
+            index += 1
             if value:
-                data[key] = value
-                current_list = None
+                container[key] = scalar(value)
+            elif index < len(lines) and lines[index][0] > indent:
+                container[key], index = parse_block(index, lines[index][0])
             else:
-                data[key] = []
-                current_list = key
-    return data
+                container[key] = {}
+        return container, index
+
+    parsed, index = parse_block(0, lines[0][0] if lines else 0)
+    if index != len(lines) or not isinstance(parsed, dict):
+        raise ValueError(f"{path.relative_to(ROOT)} is not a YAML mapping.")
+    return parsed
 
 
 def public_railway_alerts(alerts: list[str]) -> list[str]:
@@ -668,12 +769,113 @@ def should_generate_comment(report: str, railway_beta_alerts: list[str], weather
     return any(keyword in signal_text for keyword in COMMENT_SIGNAL_KEYWORDS)
 
 
+def is_minor_weather_only(
+    railway_beta_alerts: list[str],
+    weather_beta_alerts: list[str],
+) -> bool:
+    if railway_beta_alerts or not weather_beta_alerts:
+        return False
+    return all(
+        any(marker in alert for marker in MINOR_WEATHER_MARKERS)
+        for alert in weather_beta_alerts
+    )
+
+
 def is_empty_status_comment(comment: str, forbidden_phrases: list[str] | None = None) -> bool:
     text = " ".join(str(comment or "").split())
     if not text:
         return True
     markers = [*COMMENT_NO_SIGNAL_MARKERS, *(forbidden_phrases or [])]
     return any(marker in text for marker in markers)
+
+
+def sentence_count(comment: str) -> int:
+    raw = str(comment or "")
+    if not raw.strip():
+        return 0
+    punctuation_sentences = [
+        part.strip()
+        for part in re.split(r"[。！？!?]+", " ".join(raw.split()))
+        if part.strip()
+    ]
+    nonempty_lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    return max(len(punctuation_sentences), len(nonempty_lines))
+
+
+def emoji_count(comment: str) -> int:
+    return len(re.findall(r"[\U0001F000-\U0001FAFF\u2600-\u27BF]", comment))
+
+
+def report_event_counts(report: str) -> set[int]:
+    return {
+        int(value)
+        for value in re.findall(r"イベント[^\n\d]{0,12}(\d+)\s*件", str(report or ""))
+    }
+
+
+def comment_event_counts(comment: str) -> set[int]:
+    return {
+        int(value)
+        for value in re.findall(r"イベント[^\n\d]{0,12}(\d+)\s*件", str(comment or ""))
+    }
+
+
+def gemma_style_guard_reasons(
+    comment: str,
+    style: dict[str, Any],
+    report: str,
+) -> list[str]:
+    text = " ".join(str(comment or "").split())
+    if not text:
+        return []
+
+    reasons: list[str] = []
+    forbidden = gemma_style_phrases(style)
+    matched_forbidden = [phrase for phrase in forbidden if phrase in text]
+    if matched_forbidden:
+        reasons.append(f"forbidden_phrase:{matched_forbidden[0]}")
+
+    if any(re.search(pattern, text) for pattern in COMMENT_ZERO_EVENT_PATTERNS):
+        reasons.append("event_count_zero")
+    if any(marker in text for marker in COMMENT_NO_SIGNAL_MARKERS):
+        reasons.append("empty_status_comment")
+
+    factual_terms = (
+        "事故",
+        "遅延",
+        "運休",
+        "運転",
+        "通行",
+        "規制",
+        "雨",
+        "雷",
+        "雪",
+        "イベント",
+        "混雑",
+        "需要",
+    )
+    if any(marker in text for marker in COMMENT_MONITORING_MARKERS) and not any(
+        term in text for term in factual_terms
+    ):
+        reasons.append("monitoring_only")
+
+    claimed_counts = comment_event_counts(text)
+    known_counts = report_event_counts(report)
+    if claimed_counts and not claimed_counts.issubset(known_counts):
+        reasons.append("unsupported_event_count")
+
+    tone = style.get("tone") if isinstance(style.get("tone"), dict) else {}
+    max_sentences = int(tone.get("max_sentences") or 3)
+    if sentence_count(text) > max_sentences:
+        reasons.append(f"too_many_sentences:{sentence_count(text)}")
+    if bool(tone.get("allow_emoji", True)):
+        emoji_limit = int(tone.get("emoji_limit") or 2)
+        if emoji_count(text) > emoji_limit:
+            reasons.append(f"too_many_emoji:{emoji_count(text)}")
+    elif emoji_count(text):
+        reasons.append("emoji_not_allowed")
+
+    return list(dict.fromkeys(reasons))
 
 
 def validate_railway_beta_comment(comment: str) -> tuple[bool, list[str]]:
@@ -722,7 +924,6 @@ def main() -> int:
     report = REPORT_PATH.read_text(encoding="utf-8")
     profile = load_profile(PROFILE_PATH)
     style = load_gemma_style()
-    style_forbidden_phrases = gemma_style_phrases(style)
     now_jst = datetime.now(JST)
     railway_beta_is_active = is_railway_beta_active(now_jst)
     (
@@ -894,6 +1095,27 @@ def main() -> int:
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
 
+    if is_minor_weather_only(railway_beta_alerts, weather_beta_alerts):
+        result = {
+            "generated_at": now_iso(),
+            "model": "python:silent_minor_weather",
+            "comment": "",
+            "railway_beta_alerts": railway_beta_alerts,
+            "railway_beta_display_alerts": railway_beta_display_alerts,
+            "railway_beta_source_urls": railway_source_url_by_alert,
+            "railway_beta_levels": railway_level_by_alert,
+            "severity": railway_severity,
+            "weather_beta_alerts": weather_beta_alerts,
+            "done": False,
+            "ollama_skipped": True,
+            "silent_reason": "minor_weather_only",
+        }
+        write_comment_result(result, "")
+        log("gemma_comment: skipped minor_weather_only")
+        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        return 0
+
     if not should_generate_comment(report, railway_beta_alerts, weather_beta_alerts):
         result = {
             "generated_at": now_iso(),
@@ -923,8 +1145,9 @@ def main() -> int:
         return 0
 
     comment = str(response.get("response", "")).strip()
-    if is_empty_status_comment(comment, style_forbidden_phrases):
-        log("gemma_comment_guard: empty_status_comment")
+    style_guard_reasons = gemma_style_guard_reasons(comment, style, report)
+    if style_guard_reasons:
+        log(f"gemma_style_guard_suppressed: {', '.join(style_guard_reasons)}")
         comment = ""
     if railway_beta_alerts:
         ok, errors = validate_railway_beta_comment(comment)
