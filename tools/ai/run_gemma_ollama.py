@@ -53,6 +53,7 @@ except ModuleNotFoundError:
 AI_DIR = ROOT / "data" / "ai"
 REPORT_PATH = AI_DIR / "gemma_report.txt"
 PROFILE_PATH = AI_DIR / "gemma_profile.yml"
+STYLE_PATH = ROOT / "config" / "gemma_style.yml"
 TEXT_OUTPUT_PATH = AI_DIR / "gemma_comment.txt"
 JSON_OUTPUT_PATH = AI_DIR / "gemma_comment.json"
 RAILWAY_STATE_PATH = AI_DIR / "railway_beta_state.json"
@@ -136,6 +137,8 @@ RAILWAY_INFO_URLS = {
     "城北線": "https://tkj-i.co.jp/status/",
 }
 JST = timezone(timedelta(hours=9), "JST")
+QUIET_HOURS_START = time(1, 0)
+QUIET_HOURS_END = time(5, 0)
 
 
 def now_iso() -> str:
@@ -155,6 +158,45 @@ def load_profile(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"{path.relative_to(ROOT)} is not a YAML mapping.")
     return data
+
+
+def load_gemma_style(path: Path = STYLE_PATH) -> dict[str, Any]:
+    try:
+        return load_profile(path)
+    except Exception:
+        return {}
+
+
+def gemma_style_phrases(style: dict[str, Any]) -> list[str]:
+    phrases = style.get("forbidden_phrases")
+    if not isinstance(phrases, list):
+        return []
+    return [
+        " ".join(str(phrase or "").split())
+        for phrase in phrases
+        if " ".join(str(phrase or "").split())
+    ]
+
+
+def build_gemma_style_block(style: dict[str, Any]) -> str:
+    if not style:
+        return ""
+    return "【Gemma出力スタイル】\n" + json.dumps(style, ensure_ascii=False, indent=2)
+
+
+def is_gemma_quiet_hours(now: datetime | None = None) -> bool:
+    current = now or datetime.now(JST)
+    if current.tzinfo is not None:
+        current = current.astimezone(JST)
+    return QUIET_HOURS_START <= current.time() < QUIET_HOURS_END
+
+
+def allow_gemma_during_quiet_hours(
+    railway_beta_alerts: list[str],
+    weather_beta_alerts: list[str],
+) -> bool:
+    # Future critical weather or infrastructure overrides belong here.
+    return False
 
 
 def load_simple_yaml(path: Path) -> dict[str, Any]:
@@ -257,10 +299,10 @@ def railway_info_source(alert: str, source_url: str = "") -> tuple[str, str, str
         display = jrc_target_line_display(alert)
         url = jrc_target_line_url(alert)
         if display and url:
-            title = display
-            url_label = "JR東海在来線 " + display.splitlines()[0]
+            title = f"JR {display}"
+            url_label = "JR " + display.splitlines()[0]
             return title, url_label, url
-        return "JR東海在来線", "JR東海在来線", RAILWAY_INFO_URLS["JR東海在来線"]
+        return "JR 在来線", "JR 在来線", RAILWAY_INFO_URLS["JR東海在来線"]
     meitetsu_match = re.match(r"名鉄\s+([^:：]+)[:：]", alert)
     if meitetsu_match:
         line = " ".join(meitetsu_match.group(1).split())
@@ -286,13 +328,22 @@ def official_alert_body(alert: str) -> str:
     return " ".join(alert.split())
 
 
+def display_railway_alert(alert: str) -> str:
+    text = " ".join(str(alert or "").split())
+    if text.startswith("JR東海在来線 "):
+        return "JR " + text.removeprefix("JR東海在来線 ")
+    if text.startswith("JR東海在来線:") or text.startswith("JR東海在来線："):
+        return "JR 在来線" + text[len("JR東海在来線"):]
+    return text
+
+
 def grouped_railway_alerts(
     alerts: list[str],
     source_url_by_alert: dict[str, str] | None = None,
-) -> list[tuple[str, str, str, list[str]]]:
+) -> list[dict[str, Any]]:
     source_url_by_alert = source_url_by_alert or {}
-    groups: list[tuple[str, str, str, list[str]]] = []
-    group_index: dict[tuple[str, str, str], int] = {}
+    groups: list[dict[str, Any]] = []
+    group_index: dict[tuple[Any, ...], int] = {}
 
     for alert in alerts:
         text = " ".join(str(alert or "").split())
@@ -304,16 +355,51 @@ def grouped_railway_alerts(
         if not body:
             continue
 
-        key = (title, url_label, url)
+        meitetsu_match = re.match(r"名鉄\s+([^:：]+)[:：]", text)
+        target_line = " ".join(meitetsu_match.group(1).split()) if meitetsu_match else ""
+        if target_line:
+            title = "名鉄"
+            url_label = "名鉄"
+            key = ("meitetsu", url, body)
+        else:
+            key = (title, url_label, url)
+
         if key not in group_index:
             group_index[key] = len(groups)
-            groups.append((title, url_label, url, []))
+            groups.append(
+                {
+                    "title": title,
+                    "url_label": url_label,
+                    "url": url,
+                    "messages": [],
+                    "target_lines": [],
+                    "alerts": [],
+                    "identity": key,
+                }
+            )
 
-        messages = groups[group_index[key]][3]
+        group = groups[group_index[key]]
+        messages = group["messages"]
         if body not in messages:
             messages.append(body)
+        if target_line and target_line not in group["target_lines"]:
+            group["target_lines"].append(target_line)
+        group["alerts"].append(text)
 
     return groups
+
+
+def railway_group_body_lines(group: dict[str, Any]) -> list[str]:
+    target_lines = group.get("target_lines") or []
+    messages = group.get("messages") or []
+    if target_lines:
+        lines = ["対象路線:"]
+        lines.extend(f"・{line}" for line in target_lines)
+        lines.append("")
+        for message in messages:
+            lines.extend(f"・{part}" for part in message.split(" / ") if part)
+        return lines
+    return [f"・{message}" for message in messages]
 
 
 def railway_severity_emoji(severity: str) -> str:
@@ -349,26 +435,25 @@ def build_railway_beta_comment(
     updated_at_by_alert = updated_at_by_alert or {}
     source_url_by_alert = source_url_by_alert or {}
     blocks: list[str] = []
-    for title, url_label, url, messages in grouped_railway_alerts(railway_beta_alerts, source_url_by_alert):
+    for group in grouped_railway_alerts(railway_beta_alerts, source_url_by_alert):
+        title = group["title"]
+        url_label = group["url_label"]
+        url = group["url"]
+        messages = group["messages"]
         if not messages:
             continue
         severity = detect_railway_severity(messages)
         timestamp = railway_alert_timestamp(
-            [
-                alert
-                for alert in railway_beta_alerts
-                if railway_info_source(alert, source_url_by_alert.get(alert, "")) == (title, url_label, url)
-            ],
+            group["alerts"],
             updated_at_by_alert,
             checked_at,
         )
-        body_lines = [f"・{message}" for message in messages]
         lines = [
             f"{railway_severity_emoji(severity)} {title}",
             f"（{timestamp:%H:%M}現在）",
             "",
-            "\n".join(body_lines),
         ]
+        lines.extend(railway_group_body_lines(group))
         if url_label and url:
             lines.extend(["", f"🔗 {url_label}", url])
         blocks.append("\n".join(lines))
@@ -386,20 +471,20 @@ def build_railway_change_comment(
     updated_at_by_alert = updated_at_by_alert or {}
     source_url_by_alert = source_url_by_alert or {}
     added_group_keys = {
-        (title, url_label, url)
-        for title, url_label, url, _messages in grouped_railway_alerts(added_alerts, source_url_by_alert)
+        group["identity"]
+        for group in grouped_railway_alerts(added_alerts, source_url_by_alert)
     }
     blocks: list[str] = []
-    for title, url_label, url, messages in grouped_railway_alerts(current_alerts, source_url_by_alert):
-        if (title, url_label, url) not in added_group_keys:
+    for group in grouped_railway_alerts(current_alerts, source_url_by_alert):
+        if group["identity"] not in added_group_keys:
             continue
+        title = group["title"]
+        url_label = group["url_label"]
+        url = group["url"]
+        messages = group["messages"]
         severity = detect_railway_severity(messages)
         timestamp = railway_alert_timestamp(
-            [
-                alert
-                for alert in current_alerts
-                if railway_info_source(alert, source_url_by_alert.get(alert, "")) == (title, url_label, url)
-            ],
+            group["alerts"],
             updated_at_by_alert,
             checked_at,
         )
@@ -408,7 +493,7 @@ def build_railway_change_comment(
             f"（{timestamp:%H:%M}現在）",
             "",
         ]
-        lines.extend(f"・{message}" for message in messages)
+        lines.extend(railway_group_body_lines(group))
         if url_label and url:
             lines.extend(["", f"🔗 {url_label}", url])
         blocks.append("\n".join(lines))
@@ -479,7 +564,7 @@ def build_railway_beta_block(alerts: list[str]) -> str:
 - 行動指示は禁止です。
 - 書く内容は、取得できた事実のみです。
 - 表現例:
-🔵 東海道線
+🔵 JR 東海道線
 
 （08:25現在）
 
@@ -508,6 +593,7 @@ def build_prompt(
     profile: dict[str, Any],
     railway_beta_alerts: list[str] | None = None,
     weather_beta_alerts: list[str] | None = None,
+    style: dict[str, Any] | None = None,
 ) -> str:
     profile_json = json.dumps(profile, ensure_ascii=False, indent=2)
     railway_alerts = railway_beta_alerts or []
@@ -519,7 +605,10 @@ def build_prompt(
         if railway_alerts
         else ""
     )
-    return f"""あなたはジェンマ課長です。
+    style_block = build_gemma_style_block(style or {})
+    return f"""{style_block}
+
+あなたはジェンマ課長です。
 
 以下のプロフィールと日報をもとに、短いコメントだけを作ってください。
 
@@ -579,11 +668,12 @@ def should_generate_comment(report: str, railway_beta_alerts: list[str], weather
     return any(keyword in signal_text for keyword in COMMENT_SIGNAL_KEYWORDS)
 
 
-def is_empty_status_comment(comment: str) -> bool:
+def is_empty_status_comment(comment: str, forbidden_phrases: list[str] | None = None) -> bool:
     text = " ".join(str(comment or "").split())
     if not text:
         return True
-    return any(marker in text for marker in COMMENT_NO_SIGNAL_MARKERS)
+    markers = [*COMMENT_NO_SIGNAL_MARKERS, *(forbidden_phrases or [])]
+    return any(marker in text for marker in markers)
 
 
 def validate_railway_beta_comment(comment: str) -> tuple[bool, list[str]]:
@@ -631,6 +721,8 @@ def call_ollama(prompt: str) -> dict[str, Any] | None:
 def main() -> int:
     report = REPORT_PATH.read_text(encoding="utf-8")
     profile = load_profile(PROFILE_PATH)
+    style = load_gemma_style()
+    style_forbidden_phrases = gemma_style_phrases(style)
     now_jst = datetime.now(JST)
     railway_beta_is_active = is_railway_beta_active(now_jst)
     (
@@ -639,6 +731,9 @@ def main() -> int:
         railway_source_url_by_alert,
         railway_level_by_alert,
     ) = load_railway_beta_snapshot(now_jst)
+    railway_beta_display_alerts = [
+        display_railway_alert(alert) for alert in railway_beta_alerts
+    ]
     weather_beta_alerts = load_weather_beta_alerts(now_jst)
     if not railway_beta_is_active:
         log("railway_beta_alerts: skipped overnight")
@@ -677,9 +772,19 @@ def main() -> int:
                 "model": "python:railway_beta_state_diff",
                 "comment": "",
                 "railway_beta_alerts": railway_beta_alerts,
+                "railway_beta_display_alerts": railway_beta_display_alerts,
                 "railway_beta_previous_alerts": previous_railway_alerts,
+                "railway_beta_previous_display_alerts": [
+                    display_railway_alert(alert) for alert in previous_railway_alerts
+                ],
                 "railway_beta_added_alerts": added_alerts,
+                "railway_beta_added_display_alerts": [
+                    display_railway_alert(alert) for alert in added_alerts
+                ],
                 "railway_beta_removed_alerts": removed_alerts,
+                "railway_beta_removed_display_alerts": [
+                    display_railway_alert(alert) for alert in removed_alerts
+                ],
                 "railway_beta_source_urls": railway_source_url_by_alert,
                 "railway_beta_levels": railway_level_by_alert,
                 "railway_beta_change_type": "recovered_silent",
@@ -728,9 +833,19 @@ def main() -> int:
                 "model": "python:railway_beta_state_diff",
                 "comment": comment,
                 "railway_beta_alerts": railway_beta_alerts,
+                "railway_beta_display_alerts": railway_beta_display_alerts,
                 "railway_beta_previous_alerts": previous_railway_alerts,
+                "railway_beta_previous_display_alerts": [
+                    display_railway_alert(alert) for alert in previous_railway_alerts
+                ],
                 "railway_beta_added_alerts": added_alerts,
+                "railway_beta_added_display_alerts": [
+                    display_railway_alert(alert) for alert in added_alerts
+                ],
                 "railway_beta_removed_alerts": removed_alerts,
+                "railway_beta_removed_display_alerts": [
+                    display_railway_alert(alert) for alert in removed_alerts
+                ],
                 "railway_beta_source_urls": railway_source_url_by_alert,
                 "railway_beta_levels": railway_level_by_alert,
                 "railway_beta_change_type": change_type,
@@ -755,12 +870,37 @@ def main() -> int:
             log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
             return 0
 
+    if is_gemma_quiet_hours(now_jst) and not allow_gemma_during_quiet_hours(
+        railway_beta_alerts,
+        weather_beta_alerts,
+    ):
+        result = {
+            "generated_at": now_iso(),
+            "model": "python:silent_quiet_hours",
+            "comment": "",
+            "railway_beta_alerts": railway_beta_alerts,
+            "railway_beta_display_alerts": railway_beta_display_alerts,
+            "railway_beta_source_urls": railway_source_url_by_alert,
+            "railway_beta_levels": railway_level_by_alert,
+            "severity": railway_severity,
+            "weather_beta_alerts": weather_beta_alerts,
+            "done": False,
+            "ollama_skipped": True,
+            "silent_reason": "quiet_hours",
+        }
+        write_comment_result(result, "")
+        log("gemma_comment: skipped quiet_hours")
+        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        return 0
+
     if not should_generate_comment(report, railway_beta_alerts, weather_beta_alerts):
         result = {
             "generated_at": now_iso(),
             "model": "python:silent_empty",
             "comment": "",
             "railway_beta_alerts": railway_beta_alerts,
+            "railway_beta_display_alerts": railway_beta_display_alerts,
             "railway_beta_source_urls": railway_source_url_by_alert,
             "railway_beta_levels": railway_level_by_alert,
             "severity": railway_severity,
@@ -775,7 +915,7 @@ def main() -> int:
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
 
-    prompt = build_prompt(report, profile, railway_beta_alerts, weather_beta_alerts)
+    prompt = build_prompt(report, profile, railway_beta_alerts, weather_beta_alerts, style)
     response = call_ollama(prompt)
 
     if response is None:
@@ -783,7 +923,7 @@ def main() -> int:
         return 0
 
     comment = str(response.get("response", "")).strip()
-    if is_empty_status_comment(comment):
+    if is_empty_status_comment(comment, style_forbidden_phrases):
         log("gemma_comment_guard: empty_status_comment")
         comment = ""
     if railway_beta_alerts:
@@ -796,6 +936,7 @@ def main() -> int:
         "model": MODEL,
         "comment": comment,
         "railway_beta_alerts": railway_beta_alerts,
+        "railway_beta_display_alerts": railway_beta_display_alerts,
         "railway_beta_source_urls": railway_source_url_by_alert,
         "railway_beta_levels": railway_level_by_alert,
         "severity": railway_severity,

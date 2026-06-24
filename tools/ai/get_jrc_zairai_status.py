@@ -6,8 +6,10 @@ from typing import Any
 
 try:
     from jrc_zairai_targets import jrc_target_line_key
+    from railway_debug_dump import save_railway_debug_dump
 except ModuleNotFoundError:
     from tools.ai.jrc_zairai_targets import jrc_target_line_key
+    from tools.ai.railway_debug_dump import save_railway_debug_dump
 
 URL = (
     "https://traininfo.jr-central.co.jp/"
@@ -26,8 +28,34 @@ def _fetch_status_data() -> tuple[dict[str, Any], datetime | None]:
     )
 
     with urllib.request.urlopen(req, timeout=15) as response:
-        data = json.loads(response.read().decode("utf-8-sig"))
+        raw_text = response.read().decode("utf-8-sig")
         last_modified = response.headers.get("Last-Modified")
+        final_url = response.geturl()
+        status_code = response.status
+
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        save_railway_debug_dump(
+            source="jr_central",
+            request_url=URL,
+            final_url=final_url,
+            status_code=status_code,
+            reason="parser_exception",
+            html=raw_text,
+            details={"error": f"{type(exc).__name__}: {exc}"},
+        )
+        raise
+    if not isinstance(data, dict) or "events" not in data or "message_info" not in data:
+        save_railway_debug_dump(
+            source="jr_central",
+            request_url=URL,
+            final_url=final_url,
+            status_code=status_code,
+            reason="unexpected_json_structure",
+            html=raw_text,
+            details={"top_level_keys": list(data) if isinstance(data, dict) else []},
+        )
 
     updated_at = None
     if last_modified:

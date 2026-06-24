@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-import json
+import html as html_lib
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,11 @@ from get_meitetsu_status import get_meitetsu_status, get_meitetsu_status_snapsho
 from get_nagoya_subway_status import get_nagoya_subway_status  # noqa: E402
 from get_yutorito_status import get_yutorito_status  # noqa: E402
 from jrc_shinkansen_status import get_jrc_shinkansen_status  # noqa: E402
+
+try:
+    from railway_debug_dump import save_railway_debug_dump  # noqa: E402
+except ModuleNotFoundError:
+    from tools.ai.railway_debug_dump import save_railway_debug_dump  # noqa: E402
 
 
 def _clean_text(value: Any) -> str:
@@ -141,6 +147,28 @@ def normalize_yutorito_status() -> list[str]:
     return _prefixed("ゆとりーとライン", get_yutorito_status())
 
 
+SHINKANSEN_PAGE_URL = "https://traininfo.jr-central.co.jp/shinkansen/var/train_info/ti01_ja.json"
+SHINKANSEN_JSON_FRAGMENT_PATTERNS = (
+    re.compile(r"\[\s*\{.*?\}\s*\]", re.DOTALL),
+    re.compile(
+        r"\{[^{}]*(?:cause|station|direction|status|remark)[^{}]*\}",
+        re.DOTALL,
+    ),
+)
+
+
+def clean_shinkansen_message(value: Any) -> tuple[str, bool]:
+    raw = str(value or "")
+    cleaned = re.sub(r"<br\s*/?>", "\n", raw, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = html_lib.unescape(cleaned)
+    fragment_found = False
+    for pattern in SHINKANSEN_JSON_FRAGMENT_PATTERNS:
+        cleaned, count = pattern.subn(" ", cleaned)
+        fragment_found = fragment_found or count > 0
+    return _clean_text(cleaned), fragment_found
+
+
 def _normalize_jrc_shinkansen_result(result: Any) -> list[str]:
     if not isinstance(result, dict):
         return []
@@ -149,12 +177,8 @@ def _normalize_jrc_shinkansen_result(result: Any) -> list[str]:
     if result.get("status") == "service_stop":
         return ["東海道新幹線: 運行情報提供停止"]
 
-    message = _clean_text(result.get("message")) or "異常情報あり"
-    details = result.get("details")
-    if details:
-        detail_text = _clean_text(json.dumps(details, ensure_ascii=False))
-        if detail_text:
-            message = f"{message} / {detail_text}"
+    message, _fragment_found = clean_shinkansen_message(result.get("message"))
+    message = message or "異常情報あり"
     return [f"東海道新幹線: {message}"]
 
 
@@ -167,6 +191,23 @@ def normalize_jrc_shinkansen_status_snapshot() -> tuple[list[str], dict[str, dat
     alerts = _normalize_jrc_shinkansen_result(result)
     if not alerts or not isinstance(result, dict):
         return alerts, {}
+
+    raw_message = str(result.get("message") or "")
+    _cleaned_message, fragment_found = clean_shinkansen_message(raw_message)
+    raw_details = result.get("details")
+    if fragment_found or raw_details:
+        save_railway_debug_dump(
+            source="shinkansen",
+            request_url=SHINKANSEN_PAGE_URL,
+            final_url=SHINKANSEN_PAGE_URL,
+            status_code=200,
+            reason="json_fragment_detected",
+            html=raw_message,
+            details={
+                "raw_message": raw_message,
+                "raw_details": raw_details,
+            },
+        )
 
     raw_updated_at = result.get("updated_at")
     updated_at = None

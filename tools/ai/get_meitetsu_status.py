@@ -27,6 +27,7 @@ NORMAL_STATUS_MARKERS = (
     "平常運転",
     "平常通り",
     "通常運転",
+    "遅れはございません",
     "運行に関する情報はありません",
 )
 SERVICE_INFO_MARKERS = (

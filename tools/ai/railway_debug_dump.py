@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -40,10 +41,14 @@ def prune_railway_debug_dumps(
         key=lambda path: (path.stat().st_mtime_ns, path.name),
         reverse=True,
     )
+    pruned = 0
     for json_path in json_files[max(keep, 0):]:
         html_path = json_path.with_suffix(".html")
         json_path.unlink(missing_ok=True)
         html_path.unlink(missing_ok=True)
+        pruned += 1
+    if pruned:
+        log(f"railway_debug_dump_pruned: {directory} {pruned}")
 
 
 def save_railway_debug_dump(
@@ -55,13 +60,16 @@ def save_railway_debug_dump(
     reason: str,
     html: str,
     details: dict[str, Any] | None = None,
-    directory: Path = DEFAULT_DEBUG_DIR,
+    directory: Path | None = None,
     now: datetime | None = None,
 ) -> tuple[Path, Path]:
     saved_at = now or datetime.now(JST)
     if saved_at.tzinfo is None:
         saved_at = saved_at.replace(tzinfo=JST)
 
+    if directory is None:
+        source_directory = re.sub(r"[^A-Za-z0-9_.-]+", "_", source).strip("._") or "unknown"
+        directory = DEFAULT_DEBUG_DIR / source_directory
     directory.mkdir(parents=True, exist_ok=True)
     base = _next_dump_base(directory, saved_at)
     html_path = base.with_suffix(".html")
