@@ -75,11 +75,26 @@ def load_railway_state(path: Path) -> tuple[bool, list[str]]:
     return True, clean_alerts(alerts)
 
 
+def load_railway_state_metadata(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        "morning_reposted_date": str(data.get("morning_reposted_date") or ""),
+    }
+
+
 def save_railway_state(
     path: Path,
     alerts: list[str],
     updated_at: datetime | str,
     level_by_alert: dict[str, str] | None = None,
+    morning_reposted_date: str = "",
 ) -> None:
     if isinstance(updated_at, datetime):
         updated_at_text = updated_at.isoformat(timespec="seconds")
@@ -97,10 +112,46 @@ def save_railway_state(
             for alert in cleaned_alerts
             if level_by_alert and level_by_alert.get(alert)
         },
+        "morning_reposted_date": str(morning_reposted_date or ""),
     }
     with path.open("w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+
+def morning_carryover_repost_allowed(
+    *,
+    previous_alerts: list[str],
+    current_alerts: list[str],
+    now: datetime,
+    morning_reposted_date: str,
+    last_notify: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    local_now = now.astimezone(now.tzinfo) if now.tzinfo else now
+    today = local_now.date().isoformat()
+    if not (5 <= local_now.hour < 6):
+        return False, "outside_morning_window"
+    if morning_reposted_date == today:
+        return False, "already_reposted_today"
+    previous_clean = clean_alerts(previous_alerts)
+    current_clean = clean_alerts(current_alerts)
+    if not current_clean:
+        return False, "no_current_abnormal_alerts"
+    if not set(previous_clean).intersection(current_clean):
+        return False, "no_continuing_incident"
+
+    last_sent_at = (last_notify or {}).get("last_sent_at")
+    if isinstance(last_sent_at, datetime):
+        if last_sent_at.tzinfo is None:
+            last_sent_at = last_sent_at.replace(tzinfo=timezone.utc)
+        last_sent_local = last_sent_at.astimezone(local_now.tzinfo)
+        if (
+            last_sent_local.date() == local_now.date()
+            and last_sent_local.hour >= 5
+            and (local_now - last_sent_local).total_seconds() < 60 * 15
+        ):
+            return False, "recent_normal_notification"
+    return True, "continuing_abnormal_after_quiet_hours"
 
 
 def parse_datetime(value: Any) -> datetime | None:

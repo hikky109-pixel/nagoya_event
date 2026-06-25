@@ -23,10 +23,23 @@ CRITICAL_KEYWORDS = (
     "再開見込みなし",
     "再開見込み未定",
 )
+AONAMI_CRITICAL_KEYWORDS = (
+    "強風",
+    "台風",
+    "運転見合わせ",
+    "運転を見合わせ",
+    "運休",
+)
 
 
 def detect_railway_severity(alerts: list[str]) -> str:
     texts = [" ".join(str(alert or "").split()) for alert in alerts]
+    if any(
+        "あおなみ線" in text and keyword in text
+        for text in texts
+        for keyword in AONAMI_CRITICAL_KEYWORDS
+    ):
+        return "critical"
     if any(keyword in text for text in texts for keyword in CRITICAL_KEYWORDS):
         return "critical"
     if any(keyword in text for text in texts for keyword in WARNING_KEYWORDS):

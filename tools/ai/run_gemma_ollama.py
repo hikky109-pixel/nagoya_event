@@ -35,6 +35,8 @@ try:
         diff_alerts,
         load_railway_last_notify,
         load_railway_state,
+        load_railway_state_metadata,
+        morning_carryover_repost_allowed,
         railway_notify_allowed,
         save_railway_last_notify,
         save_railway_state,
@@ -59,6 +61,8 @@ except ModuleNotFoundError:
         diff_alerts,
         load_railway_last_notify,
         load_railway_state,
+        load_railway_state_metadata,
+        morning_carryover_repost_allowed,
         railway_notify_allowed,
         save_railway_last_notify,
         save_railway_state,
@@ -86,6 +90,7 @@ RAILWAY_BETA_EXCLUDE_MARKERS = (
     "取得失敗",
     "運行情報提供停止",
 )
+AONAMI_DEMAND_REASON = "金城ふ頭方面は代替交通が少ない"
 RAILWAY_BETA_FORBIDDEN_OUTPUTS = (
     "おはようございます",
     "本日も",
@@ -515,7 +520,14 @@ def railway_group_body_lines(group: dict[str, Any]) -> list[str]:
         for message in messages:
             lines.extend(f"・{part}" for part in message.split(" / ") if part)
         return lines
-    return [f"・{message}" for message in messages]
+    lines = [f"・{message}" for message in messages]
+    if group.get("title") == "あおなみ線" and any(
+        keyword in message
+        for message in messages
+        for keyword in ("強風", "台風", "運転見合わせ", "運転を見合わせ", "運休")
+    ):
+        lines.extend(["", f"需要補正: {AONAMI_DEMAND_REASON}"])
+    return lines
 
 
 def railway_severity_emoji(severity: str) -> str:
@@ -1028,13 +1040,16 @@ def main() -> int:
         railway_severity = detect_railway_severity([])
     else:
         state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
+        state_metadata = load_railway_state_metadata(RAILWAY_STATE_PATH)
+        morning_reposted_date = str(
+            state_metadata.get("morning_reposted_date") or ""
+        )
         last_notify = load_railway_last_notify(RAILWAY_LAST_NOTIFY_PATH)
         previous_zairai_events = load_structured_filter_state(
             RAILWAY_ZAIRAI_FILTER_STATE_PATH
         )
         current_zairai_events = get_last_jrc_zairai_structured_events()
         railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
-        save_railway_state(RAILWAY_STATE_PATH, railway_beta_alerts, now_jst, railway_level_by_alert)
         comment, change_type, added_alerts, removed_alerts = build_railway_state_comment(
             state_exists,
             previous_railway_alerts,
@@ -1044,6 +1059,42 @@ def main() -> int:
             railway_source_url_by_alert,
             previous_zairai_events,
             current_zairai_events,
+        )
+        carryover_allowed, carryover_reason = morning_carryover_repost_allowed(
+            previous_alerts=previous_railway_alerts,
+            current_alerts=railway_beta_alerts,
+            now=now_jst,
+            morning_reposted_date=morning_reposted_date,
+            last_notify=last_notify,
+        )
+        if change_type == "unchanged" and not comment and carryover_allowed:
+            comment = build_railway_beta_comment(
+                railway_beta_alerts,
+                now_jst,
+                railway_updated_at_by_alert,
+                railway_source_url_by_alert,
+            )
+            change_type = "carryover_morning_repost"
+            added_alerts = railway_beta_alerts
+            removed_alerts = []
+            morning_reposted_date = now_jst.date().isoformat()
+            log(
+                "morning_carryover_repost: true "
+                f"reason={carryover_reason}"
+            )
+        else:
+            if change_type != "unchanged":
+                carryover_reason = "regular_change_takes_priority"
+            log(
+                "morning_carryover_repost: false "
+                f"reason={carryover_reason}"
+            )
+        save_railway_state(
+            RAILWAY_STATE_PATH,
+            railway_beta_alerts,
+            now_jst,
+            railway_level_by_alert,
+            morning_reposted_date,
         )
         save_structured_filter_state(
             RAILWAY_ZAIRAI_FILTER_STATE_PATH,
@@ -1119,6 +1170,15 @@ def main() -> int:
                     "recovery" if change_type == "recovered" else notification_severity,
                     now_jst,
                 )
+                if 5 <= now_jst.hour < 6:
+                    morning_reposted_date = now_jst.date().isoformat()
+                    save_railway_state(
+                        RAILWAY_STATE_PATH,
+                        railway_beta_alerts,
+                        now_jst,
+                        railway_level_by_alert,
+                        morning_reposted_date,
+                    )
             result = {
                 "generated_at": now_iso(),
                 "model": "python:railway_beta_state_diff",
@@ -1140,6 +1200,12 @@ def main() -> int:
                 "railway_beta_source_urls": railway_source_url_by_alert,
                 "railway_beta_levels": railway_level_by_alert,
                 "railway_beta_change_type": change_type,
+                "railway_beta_change_reason": (
+                    carryover_reason
+                    if change_type == "carryover_morning_repost"
+                    else ""
+                ),
+                "morning_reposted_date": morning_reposted_date,
                 "railway_beta_notification": bool(comment),
                 "railway_notify_allowed": bool(comment) and notify_allowed,
                 "railway_notify_cooldown_remaining_seconds": cooldown_remaining if not notify_allowed else 0,
