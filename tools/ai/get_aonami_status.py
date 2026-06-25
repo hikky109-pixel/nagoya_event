@@ -30,8 +30,24 @@ STATE_PATH = ROOT / "data" / "ai" / "aonami_status_state.json"
 DEBUG_PATH = ROOT / "data" / "debug" / "railway" / "aonami_latest.json"
 NORMAL_MARKERS = ("平常通り運行", "平常に運行", "平常運転")
 CRITICAL_MARKERS = ("強風", "台風", "運転見合わせ", "運転を見合わせ", "運休")
+ACTUAL_CRITICAL_MARKERS = (
+    "運転を見合わせています",
+    "運転見合わせを行っています",
+    "運休しています",
+    "運休となっています",
+)
 DELAY_MARKERS = ("遅れ", "遅延")
-CAUTION_MARKERS = ("恐れがあります", "可能性があります", "見込まれます")
+CAUTION_MARKERS = (
+    "台風",
+    "強風",
+    "運転見合わせ",
+    "運転を見合わせ",
+    "遅れ",
+    "遅延",
+    "運休",
+    "恐れ",
+    "可能性",
+)
 DETAIL_URL_PATTERN = re.compile(r"^https://www\.aonamiline\.co\.jp/railinfo/\d+/?$")
 DEMAND_REASON = "金城ふ頭方面は代替交通が少ない"
 
@@ -66,6 +82,8 @@ def _classification(title: str, body: str) -> tuple[bool, str, str]:
     text = f"{title} {body}"
     normal = any(marker in title for marker in NORMAL_MARKERS)
     caution_only = normal and any(marker in text for marker in CAUTION_MARKERS)
+    if any(marker in text for marker in ACTUAL_CRITICAL_MARKERS):
+        return False, "critical", DEMAND_REASON
     if normal:
         return True, "info", "normal_caution" if caution_only else "normal"
     if any(marker in text for marker in CRITICAL_MARKERS):
@@ -73,6 +91,10 @@ def _classification(title: str, body: str) -> tuple[bool, str, str]:
     if any(marker in text for marker in DELAY_MARKERS):
         return False, "info", "delay"
     return False, "info", "notice"
+
+
+def _is_alert_candidate(record: dict[str, Any]) -> bool:
+    return not record["is_normal"] or record["severity_reason"] == "normal_caution"
 
 
 def parse_aonami_feed(
@@ -112,11 +134,20 @@ def parse_aonami_feed(
                     f"url={detail_url} error={type(exc).__name__}"
                 )
 
-        is_normal, level, reason = _classification(detail_title, detail_body)
+        is_normal, level, reason = _classification(
+            f"{feed_title} {detail_title}",
+            f"{feed_body} {detail_body}",
+        )
         body_hash = hashlib.sha256(detail_body.encode("utf-8")).hexdigest()
         message = detail_title
         if detail_body and detail_body not in detail_title:
             message = f"{detail_title} {detail_body}".strip()
+        if reason == "normal_caution":
+            caution_parts: list[str] = []
+            for part in (feed_title, feed_body, detail_title, detail_body):
+                if part and not any(part in existing for existing in caution_parts):
+                    caution_parts.append(part)
+            message = " ".join(caution_parts)
         records.append(
             {
                 "title": feed_title,
@@ -129,6 +160,7 @@ def parse_aonami_feed(
                 "detail_status_code": detail_status_code,
                 "message": message,
                 "is_normal": is_normal,
+                "alert_candidate": not is_normal or reason == "normal_caution",
                 "level": level,
                 "severity_reason": reason,
             }
@@ -174,7 +206,7 @@ def get_aonami_status_snapshot(
             )
 
     selected = [
-        record for record in records if not abnormal_only or not record["is_normal"]
+        record for record in records if not abnormal_only or _is_alert_candidate(record)
     ]
     messages = [str(record["message"]) for record in selected if record["message"]]
     source_urls = {
