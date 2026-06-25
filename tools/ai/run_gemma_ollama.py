@@ -557,6 +557,21 @@ def railway_alert_timestamp(
     return selected.astimezone(JST)
 
 
+def format_railway_current_time(timestamp: datetime, today: datetime) -> str:
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=JST)
+    if today.tzinfo is None:
+        today = today.replace(tzinfo=JST)
+    timestamp_jst = timestamp.astimezone(JST)
+    today_jst = today.astimezone(JST)
+    if timestamp_jst.date() == today_jst.date():
+        return f"（{timestamp_jst:%H:%M}現在）"
+    return (
+        f"（{timestamp_jst.month}月{timestamp_jst.day}日 "
+        f"{timestamp_jst:%H:%M}現在）"
+    )
+
+
 def build_railway_beta_comment(
     railway_beta_alerts: list[str],
     checked_at: datetime | None = None,
@@ -582,7 +597,7 @@ def build_railway_beta_comment(
         )
         lines = [
             f"{railway_severity_emoji(severity)} {title}",
-            f"（{timestamp:%H:%M}現在）",
+            format_railway_current_time(timestamp, checked_at),
             "",
         ]
         lines.extend(railway_group_body_lines(group))
@@ -622,7 +637,7 @@ def build_railway_change_comment(
         )
         lines = [
             f"{railway_severity_emoji(severity)} {title}",
-            f"（{timestamp:%H:%M}現在）",
+            format_railway_current_time(timestamp, checked_at),
             "",
         ]
         lines.extend(railway_group_body_lines(group))
