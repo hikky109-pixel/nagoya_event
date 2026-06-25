@@ -17,7 +17,10 @@ if str(CURRENT_DIR) not in sys.path:
 
 from get_aonami_status import get_aonami_status  # noqa: E402
 from get_johoku_status import get_johoku_status  # noqa: E402
-from get_jrc_zairai_status import get_jrc_zairai_status, get_jrc_zairai_status_snapshot  # noqa: E402
+from get_jrc_zairai_status import (  # noqa: E402
+    get_jrc_zairai_status,
+    get_jrc_zairai_status_details_snapshot,
+)
 from get_kintetsu_status import get_kintetsu_status  # noqa: E402
 from get_linimo_status import get_linimo_status  # noqa: E402
 from get_meitetsu_status import get_meitetsu_status, get_meitetsu_status_snapshot  # noqa: E402
@@ -87,12 +90,22 @@ def normalize_jrc_zairai_status() -> list[str]:
     return _normalize_jrc_zairai_result(get_jrc_zairai_status())
 
 
+_LAST_JRC_ZAIRAI_STRUCTURED_EVENTS: list[dict[str, Any]] = []
+
+
 def normalize_jrc_zairai_status_snapshot() -> tuple[list[str], dict[str, datetime]]:
-    result, updated_at = get_jrc_zairai_status_snapshot()
+    global _LAST_JRC_ZAIRAI_STRUCTURED_EVENTS
+    _LAST_JRC_ZAIRAI_STRUCTURED_EVENTS = []
+    result, updated_at, structured_events = get_jrc_zairai_status_details_snapshot()
+    _LAST_JRC_ZAIRAI_STRUCTURED_EVENTS = structured_events
     alerts = _normalize_jrc_zairai_result(result)
     if updated_at is None:
         return alerts, {}
     return alerts, {alert: updated_at for alert in alerts}
+
+
+def get_last_jrc_zairai_structured_events() -> list[dict[str, Any]]:
+    return [dict(event) for event in _LAST_JRC_ZAIRAI_STRUCTURED_EVENTS]
 
 
 def normalize_kintetsu_status() -> list[str]:

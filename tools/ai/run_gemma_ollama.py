@@ -17,9 +17,18 @@ sys.path.insert(0, str(ROOT))
 
 try:
     from jrc_zairai_targets import jrc_target_line_display, jrc_target_line_url
+    from get_jrc_shinkansen_plan_notice import get_jrc_shinkansen_plan_notice
     from log_utils import log
+    from railway_filters import (
+        filter_added_railway_alerts,
+        load_structured_filter_state,
+        save_structured_filter_state,
+    )
     from railway_history import record_railway_history_change
-    from railway_status_normalizer import get_all_railway_alerts_snapshot
+    from railway_status_normalizer import (
+        get_all_railway_alerts_snapshot,
+        get_last_jrc_zairai_structured_events,
+    )
     from railway_severity import detect_railway_severity
     from weather_severity import detect_weather_severity, is_minor_weather
     from railway_state import (
@@ -32,9 +41,18 @@ try:
     )
 except ModuleNotFoundError:
     from tools.ai.jrc_zairai_targets import jrc_target_line_display, jrc_target_line_url
+    from tools.ai.get_jrc_shinkansen_plan_notice import get_jrc_shinkansen_plan_notice
     from tools.ai.log_utils import log
+    from tools.ai.railway_filters import (
+        filter_added_railway_alerts,
+        load_structured_filter_state,
+        save_structured_filter_state,
+    )
     from tools.ai.railway_history import record_railway_history_change
-    from tools.ai.railway_status_normalizer import get_all_railway_alerts_snapshot
+    from tools.ai.railway_status_normalizer import (
+        get_all_railway_alerts_snapshot,
+        get_last_jrc_zairai_structured_events,
+    )
     from tools.ai.railway_severity import detect_railway_severity
     from tools.ai.weather_severity import detect_weather_severity, is_minor_weather
     from tools.ai.railway_state import (
@@ -61,6 +79,7 @@ JSON_OUTPUT_PATH = AI_DIR / "gemma_comment.json"
 RAILWAY_STATE_PATH = AI_DIR / "railway_beta_state.json"
 RAILWAY_LAST_NOTIFY_PATH = AI_DIR / "railway_beta_last_notify.json"
 RAILWAY_HISTORY_PATH = AI_DIR / "railway_history.yml"
+RAILWAY_ZAIRAI_FILTER_STATE_PATH = AI_DIR / "railway_zairai_filter_state.json"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 RAILWAY_BETA_EXCLUDE_MARKERS = (
@@ -604,20 +623,43 @@ def build_railway_state_comment(
     checked_at: datetime | None = None,
     updated_at_by_alert: dict[str, datetime] | None = None,
     source_url_by_alert: dict[str, str] | None = None,
+    previous_zairai_events: list[dict[str, Any]] | None = None,
+    current_zairai_events: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str, list[str], list[str]]:
-    added_alerts, removed_alerts = diff_alerts(previous_alerts, current_alerts)
-    if not state_exists and current_alerts:
+    raw_added_alerts, removed_alerts = diff_alerts(previous_alerts, current_alerts)
+    candidates = current_alerts if not state_exists else raw_added_alerts
+    added_alerts, filter_decisions = filter_added_railway_alerts(
+        candidates,
+        previous_alerts,
+        previous_zairai_events,
+        current_zairai_events,
+    )
+    for decision in filter_decisions:
+        source = decision["source"]
+        if source not in ("shinkansen", "zairai"):
+            continue
+        prefix = (
+            "railway_shinkansen_filter_reason"
+            if source == "shinkansen"
+            else "railway_zairai_change_reason"
+        )
+        action = "notify" if decision["notify"] else "suppress"
+        log(f"{prefix}: {action} reason={decision['reason']}")
+
+    if not state_exists and added_alerts:
         return (
             build_railway_beta_comment(
-                current_alerts,
+                added_alerts,
                 checked_at,
                 updated_at_by_alert,
                 source_url_by_alert,
             ),
             "initial",
-            current_alerts,
+            added_alerts,
             [],
         )
+    if not state_exists and current_alerts:
+        return "", "changed", [], []
     if previous_alerts and not current_alerts:
         return "", "recovered", [], previous_alerts
     if added_alerts:
@@ -635,6 +677,8 @@ def build_railway_state_comment(
         )
     if removed_alerts:
         return "", "changed", [], removed_alerts
+    if raw_added_alerts:
+        return "", "changed", [], []
     return "", "unchanged", [], []
 
 
@@ -955,6 +999,10 @@ def main() -> int:
     profile = load_profile(PROFILE_PATH)
     style = load_gemma_style()
     now_jst = datetime.now(JST)
+    try:
+        get_jrc_shinkansen_plan_notice(now=now_jst)
+    except Exception as exc:
+        log(f"shinkansen_plan_notice_error: {type(exc).__name__}: {exc}")
     railway_beta_is_active = is_railway_beta_active(now_jst)
     (
         railway_beta_alerts,
@@ -981,6 +1029,10 @@ def main() -> int:
     else:
         state_exists, previous_railway_alerts = load_railway_state(RAILWAY_STATE_PATH)
         last_notify = load_railway_last_notify(RAILWAY_LAST_NOTIFY_PATH)
+        previous_zairai_events = load_structured_filter_state(
+            RAILWAY_ZAIRAI_FILTER_STATE_PATH
+        )
+        current_zairai_events = get_last_jrc_zairai_structured_events()
         railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
         save_railway_state(RAILWAY_STATE_PATH, railway_beta_alerts, now_jst, railway_level_by_alert)
         comment, change_type, added_alerts, removed_alerts = build_railway_state_comment(
@@ -990,6 +1042,12 @@ def main() -> int:
             now_jst,
             railway_updated_at_by_alert,
             railway_source_url_by_alert,
+            previous_zairai_events,
+            current_zairai_events,
+        )
+        save_structured_filter_state(
+            RAILWAY_ZAIRAI_FILTER_STATE_PATH,
+            current_zairai_events,
         )
         record_railway_history_change(
             RAILWAY_HISTORY_PATH,

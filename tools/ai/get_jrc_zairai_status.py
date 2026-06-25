@@ -21,6 +21,68 @@ def _clean_text(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
+def _localized_value(
+    values: Any,
+    *,
+    field: str = "name",
+    language: str = "ja",
+) -> str:
+    if not isinstance(values, list):
+        return ""
+    for item in values:
+        if isinstance(item, dict) and item.get("lang") == language:
+            return _clean_text(item.get(field))
+    return ""
+
+
+def _incident_key(event: dict[str, Any]) -> str:
+    parts = (
+        _localized_value(event.get("imp_line")),
+        _localized_value(event.get("cause")),
+        _localized_value(event.get("imp_sec_from")),
+        _localized_value(event.get("imp_sec_to")),
+        _localized_value(event.get("direction")),
+        _clean_text(event.get("accident_time")),
+    )
+    return "\x1f".join(parts)
+
+
+def _structured_event(
+    event: dict[str, Any],
+    message_info: dict[str, Any],
+    trans_info: list[Any],
+    operation_no: str,
+) -> dict[str, Any]:
+    line = _localized_value(event.get("imp_line"))
+    message = _localized_value(message_info.get("delivery_msg"), field="message")
+    matching_trans_info = [
+        item
+        for item in trans_info
+        if isinstance(item, dict) and str(item.get("eid") or "") == str(event.get("no") or "")
+    ]
+    alert = f"JR東海在来線 {line}: {message}" if line and message else ""
+    return {
+        "operation_no": operation_no,
+        "event_no": _clean_text(event.get("no")),
+        "incident_key": _incident_key(event),
+        "line": line,
+        "status_id": _clean_text(event.get("status_id")),
+        "status": _localized_value(event.get("status")),
+        "cause": _localized_value(event.get("cause")),
+        "section_from": _localized_value(event.get("imp_sec_from")),
+        "section_to": _localized_value(event.get("imp_sec_to")),
+        "direction": _localized_value(event.get("direction")),
+        "accident_time": _clean_text(event.get("accident_time")),
+        "prospect_time": _clean_text(event.get("prospect_time")),
+        "resume_time": _clean_text(event.get("resume_time")),
+        "recover_message": _clean_text(event.get("recover_message")),
+        "has_supplement_info": bool(event.get("supplement_info")),
+        "trans_info_started": bool(matching_trans_info),
+        "message": message,
+        "alert": alert,
+    }
+
+
 def _fetch_status_data() -> tuple[dict[str, Any], datetime | None]:
     req = urllib.request.Request(
         URL,
@@ -66,37 +128,35 @@ def _fetch_status_data() -> tuple[dict[str, Any], datetime | None]:
     return data, updated_at
 
 
-def get_jrc_zairai_status_snapshot(line_name=None):
+def get_jrc_zairai_status_details_snapshot(line_name=None):
     data, updated_at = _fetch_status_data()
 
     result = {}
+    structured_events: list[dict[str, Any]] = []
 
     events = data.get("events") or []
     message_infos = data.get("message_info") or []
+    trans_info = data.get("trans_info") or []
+    operation_no = _clean_text(data.get("ono"))
 
-    for event, message_info in zip(events, message_infos):
-        current_line_name = next(
-            (
-                x["name"]
-                for x in event.get("imp_line", []) or []
-                if x["lang"] == "ja"
-            ),
-            None,
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            continue
+        message_info = (
+            message_infos[index]
+            if index < len(message_infos) and isinstance(message_infos[index], dict)
+            else {}
         )
+        current_line_name = _localized_value(event.get("imp_line"))
 
         if not current_line_name:
             continue
         if jrc_target_line_key(current_line_name) is None:
             continue
 
-        message = _clean_text(next(
-            (
-                x["message"]
-                for x in message_info.get("delivery_msg", []) or []
-                if x["lang"] == "ja"
-            ),
-            "",
-        ))
+        structured = _structured_event(event, message_info, trans_info, operation_no)
+        structured_events.append(structured)
+        message = structured["message"]
 
         if not message:
             continue
@@ -106,8 +166,16 @@ def get_jrc_zairai_status_snapshot(line_name=None):
             messages.append(message)
 
     if line_name is not None:
-        return result.get(line_name), updated_at
+        filtered_events = [
+            event for event in structured_events if event.get("line") == line_name
+        ]
+        return result.get(line_name), updated_at, filtered_events
 
+    return result, updated_at, structured_events
+
+
+def get_jrc_zairai_status_snapshot(line_name=None):
+    result, updated_at, _structured_events = get_jrc_zairai_status_details_snapshot(line_name)
     return result, updated_at
 
 
