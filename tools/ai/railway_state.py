@@ -89,12 +89,46 @@ def load_railway_state_metadata(path: Path) -> dict[str, Any]:
     }
 
 
+def load_railway_incident_first_seen(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    raw_first_seen = data.get("incident_first_seen_at")
+    if not isinstance(raw_first_seen, dict):
+        return {}
+    first_seen: dict[str, str] = {}
+    for alert, first_seen_at in raw_first_seen.items():
+        cleaned = clean_alerts([str(alert)])
+        if cleaned and parse_datetime(first_seen_at) is not None:
+            first_seen[cleaned[0]] = str(first_seen_at)
+    return first_seen
+
+
+def update_railway_incident_first_seen(
+    current_alerts: list[str],
+    existing_first_seen: dict[str, str],
+    now: datetime,
+) -> dict[str, str]:
+    now_text = now.isoformat(timespec="seconds")
+    updated: dict[str, str] = {}
+    for alert in clean_alerts(current_alerts):
+        existing = existing_first_seen.get(alert)
+        updated[alert] = existing if parse_datetime(existing) is not None else now_text
+    return updated
+
+
 def save_railway_state(
     path: Path,
     alerts: list[str],
     updated_at: datetime | str,
     level_by_alert: dict[str, str] | None = None,
     morning_reposted_date: str = "",
+    incident_first_seen_at: dict[str, str] | None = None,
 ) -> None:
     if isinstance(updated_at, datetime):
         updated_at_text = updated_at.isoformat(timespec="seconds")
@@ -113,32 +147,43 @@ def save_railway_state(
             if level_by_alert and level_by_alert.get(alert)
         },
         "morning_reposted_date": str(morning_reposted_date or ""),
+        "incident_first_seen_at": {
+            alert: str(incident_first_seen_at[alert])
+            for alert in cleaned_alerts
+            if incident_first_seen_at
+            and parse_datetime(incident_first_seen_at.get(alert)) is not None
+        },
     }
     with path.open("w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
         f.write("\n")
 
 
-def morning_carryover_repost_allowed(
+def morning_carryover_repost_candidates(
     *,
     previous_alerts: list[str],
     current_alerts: list[str],
     now: datetime,
     morning_reposted_date: str,
+    incident_first_seen_at: dict[str, str] | None = None,
     last_notify: dict[str, Any] | None = None,
-) -> tuple[bool, str]:
+) -> tuple[list[str], str]:
     local_now = now.astimezone(now.tzinfo) if now.tzinfo else now
     today = local_now.date().isoformat()
     if not (5 <= local_now.hour < 6):
-        return False, "outside_morning_window"
+        return [], "outside_morning_window"
     if morning_reposted_date == today:
-        return False, "already_reposted_today"
+        return [], "already_reposted_today"
     previous_clean = clean_alerts(previous_alerts)
     current_clean = clean_alerts(current_alerts)
     if not current_clean:
-        return False, "no_current_abnormal_alerts"
-    if not set(previous_clean).intersection(current_clean):
-        return False, "no_continuing_incident"
+        return [], "no_current_abnormal_alerts"
+    previous_set = set(previous_clean)
+    continuing_alerts = [
+        alert for alert in current_clean if alert in previous_set
+    ]
+    if not continuing_alerts:
+        return [], "no_continuing_incident"
 
     last_sent_at = (last_notify or {}).get("last_sent_at")
     if isinstance(last_sent_at, datetime):
@@ -150,8 +195,40 @@ def morning_carryover_repost_allowed(
             and last_sent_local.hour >= 5
             and (local_now - last_sent_local).total_seconds() < 60 * 15
         ):
-            return False, "recent_normal_notification"
-    return True, "continuing_abnormal_after_quiet_hours"
+            return [], "recent_normal_notification"
+
+    quiet_hours_end = local_now.replace(hour=5, minute=0, second=0, microsecond=0)
+    eligible_alerts: list[str] = []
+    for alert in continuing_alerts:
+        first_seen = parse_datetime((incident_first_seen_at or {}).get(alert))
+        if first_seen is None:
+            continue
+        first_seen_local = first_seen.astimezone(local_now.tzinfo)
+        if first_seen_local < quiet_hours_end:
+            eligible_alerts.append(alert)
+    if not eligible_alerts:
+        return [], "incident_started_after_quiet_hours"
+    return eligible_alerts, "continuing_from_before_quiet_hours"
+
+
+def morning_carryover_repost_allowed(
+    *,
+    previous_alerts: list[str],
+    current_alerts: list[str],
+    now: datetime,
+    morning_reposted_date: str,
+    incident_first_seen_at: dict[str, str] | None = None,
+    last_notify: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    candidates, reason = morning_carryover_repost_candidates(
+        previous_alerts=previous_alerts,
+        current_alerts=current_alerts,
+        now=now,
+        morning_reposted_date=morning_reposted_date,
+        incident_first_seen_at=incident_first_seen_at,
+        last_notify=last_notify,
+    )
+    return bool(candidates), reason
 
 
 def parse_datetime(value: Any) -> datetime | None:

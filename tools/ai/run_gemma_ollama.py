@@ -33,13 +33,15 @@ try:
     from weather_severity import detect_weather_severity, is_minor_weather
     from railway_state import (
         diff_alerts,
+        load_railway_incident_first_seen,
         load_railway_last_notify,
         load_railway_state,
         load_railway_state_metadata,
-        morning_carryover_repost_allowed,
+        morning_carryover_repost_candidates,
         railway_notify_allowed,
         save_railway_last_notify,
         save_railway_state,
+        update_railway_incident_first_seen,
     )
 except ModuleNotFoundError:
     from tools.ai.jrc_zairai_targets import jrc_target_line_display, jrc_target_line_url
@@ -59,13 +61,15 @@ except ModuleNotFoundError:
     from tools.ai.weather_severity import detect_weather_severity, is_minor_weather
     from tools.ai.railway_state import (
         diff_alerts,
+        load_railway_incident_first_seen,
         load_railway_last_notify,
         load_railway_state,
         load_railway_state_metadata,
-        morning_carryover_repost_allowed,
+        morning_carryover_repost_candidates,
         railway_notify_allowed,
         save_railway_last_notify,
         save_railway_state,
+        update_railway_incident_first_seen,
     )
 
 try:
@@ -1044,6 +1048,14 @@ def main() -> int:
         morning_reposted_date = str(
             state_metadata.get("morning_reposted_date") or ""
         )
+        existing_incident_first_seen = load_railway_incident_first_seen(
+            RAILWAY_STATE_PATH
+        )
+        incident_first_seen_at = update_railway_incident_first_seen(
+            railway_beta_alerts,
+            existing_incident_first_seen,
+            now_jst,
+        )
         last_notify = load_railway_last_notify(RAILWAY_LAST_NOTIFY_PATH)
         previous_zairai_events = load_structured_filter_state(
             RAILWAY_ZAIRAI_FILTER_STATE_PATH
@@ -1060,22 +1072,23 @@ def main() -> int:
             previous_zairai_events,
             current_zairai_events,
         )
-        carryover_allowed, carryover_reason = morning_carryover_repost_allowed(
+        carryover_alerts, carryover_reason = morning_carryover_repost_candidates(
             previous_alerts=previous_railway_alerts,
             current_alerts=railway_beta_alerts,
             now=now_jst,
             morning_reposted_date=morning_reposted_date,
+            incident_first_seen_at=incident_first_seen_at,
             last_notify=last_notify,
         )
-        if change_type == "unchanged" and not comment and carryover_allowed:
+        if change_type == "unchanged" and not comment and carryover_alerts:
             comment = build_railway_beta_comment(
-                railway_beta_alerts,
+                carryover_alerts,
                 now_jst,
                 railway_updated_at_by_alert,
                 railway_source_url_by_alert,
             )
             change_type = "carryover_morning_repost"
-            added_alerts = railway_beta_alerts
+            added_alerts = carryover_alerts
             removed_alerts = []
             morning_reposted_date = now_jst.date().isoformat()
             log(
@@ -1095,6 +1108,7 @@ def main() -> int:
             now_jst,
             railway_level_by_alert,
             morning_reposted_date,
+            incident_first_seen_at,
         )
         save_structured_filter_state(
             RAILWAY_ZAIRAI_FILTER_STATE_PATH,
@@ -1178,6 +1192,7 @@ def main() -> int:
                         now_jst,
                         railway_level_by_alert,
                         morning_reposted_date,
+                        incident_first_seen_at,
                     )
             result = {
                 "generated_at": now_iso(),
