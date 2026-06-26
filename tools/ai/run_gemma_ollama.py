@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sys
 import urllib.error
@@ -32,6 +33,8 @@ try:
     from railway_severity import detect_railway_severity
     from weather_severity import detect_weather_severity, is_minor_weather
     from railway_state import (
+        critical_transport_alerts,
+        critical_transport_overnight_monitoring_active,
         diff_alerts,
         load_railway_incident_first_seen,
         load_railway_last_notify,
@@ -60,6 +63,8 @@ except ModuleNotFoundError:
     from tools.ai.railway_severity import detect_railway_severity
     from tools.ai.weather_severity import detect_weather_severity, is_minor_weather
     from tools.ai.railway_state import (
+        critical_transport_alerts,
+        critical_transport_overnight_monitoring_active,
         diff_alerts,
         load_railway_incident_first_seen,
         load_railway_last_notify,
@@ -73,9 +78,9 @@ except ModuleNotFoundError:
     )
 
 try:
-    from tools.weather.weather_normalizer import get_all_weather_alerts
+    from tools.weather.weather_normalizer import get_all_weather_alerts, get_all_weather_snapshot
 except ModuleNotFoundError:
-    from weather_normalizer import get_all_weather_alerts
+    from weather_normalizer import get_all_weather_alerts, get_all_weather_snapshot
 
 
 AI_DIR = ROOT / "data" / "ai"
@@ -86,6 +91,8 @@ TEXT_OUTPUT_PATH = AI_DIR / "gemma_comment.txt"
 JSON_OUTPUT_PATH = AI_DIR / "gemma_comment.json"
 RAILWAY_STATE_PATH = AI_DIR / "railway_beta_state.json"
 RAILWAY_LAST_NOTIFY_PATH = AI_DIR / "railway_beta_last_notify.json"
+WEATHER_STATE_PATH = AI_DIR / "weather_state.json"
+WEATHER_DEBUG_DIR = ROOT / "data" / "debug" / "weather"
 RAILWAY_HISTORY_PATH = AI_DIR / "railway_history.yml"
 RAILWAY_ZAIRAI_FILTER_STATE_PATH = AI_DIR / "railway_zairai_filter_state.json"
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -364,6 +371,20 @@ def public_railway_alerts(alerts: list[str]) -> list[str]:
     return public_alerts
 
 
+def monitoring_public_railway_alerts(alerts: list[str], now: datetime | None = None) -> list[str]:
+    public_alerts = public_railway_alerts(alerts)
+    current = now or datetime.now(JST)
+    if current.tzinfo is not None:
+        current = current.astimezone(JST)
+    if time(0, 0) <= current.time() < time(5, 0):
+        return [
+            alert
+            for alert in public_alerts
+            if not alert.startswith("東海道新幹線:")
+        ]
+    return public_alerts
+
+
 def is_railway_beta_active(now: datetime | None = None) -> bool:
     if now is None:
         now = datetime.now(JST)
@@ -374,6 +395,28 @@ def is_railway_beta_active(now: datetime | None = None) -> bool:
     return current_time >= time(5, 0) or current_time < time(1, 0)
 
 
+def is_railway_monitoring_active(
+    now: datetime | None = None,
+    state_path: Path = RAILWAY_STATE_PATH,
+) -> tuple[bool, str]:
+    current = now or datetime.now(JST)
+    if current.tzinfo is not None:
+        current = current.astimezone(JST)
+    if is_railway_beta_active(current):
+        if current.time() < time(5, 0) and current.time() >= time(0, 0):
+            return True, "normal_hours_before_0100"
+        return True, "normal_hours"
+    _state_exists, previous_alerts = load_railway_state(state_path)
+    metadata = load_railway_state_metadata(state_path)
+    return critical_transport_overnight_monitoring_active(
+        now=current,
+        previous_alerts=previous_alerts,
+        critical_transport_recovered_at=str(
+            metadata.get("critical_transport_recovered_at") or ""
+        ),
+    )
+
+
 def load_railway_beta_alerts(now: datetime | None = None) -> list[str]:
     alerts, _updated_at_by_alert, _source_url_by_alert, _level_by_alert = load_railway_beta_snapshot(now)
     return alerts
@@ -382,12 +425,13 @@ def load_railway_beta_alerts(now: datetime | None = None) -> list[str]:
 def load_railway_beta_snapshot(
     now: datetime | None = None,
 ) -> tuple[list[str], dict[str, datetime], dict[str, str], dict[str, str]]:
-    if not is_railway_beta_active(now):
+    active, _reason = is_railway_monitoring_active(now)
+    if not active:
         return [], {}, {}, {}
 
     try:
         alerts, updated_at_by_alert, source_url_by_alert, level_by_alert = get_all_railway_alerts_snapshot()
-        public_alerts = public_railway_alerts(alerts)
+        public_alerts = monitoring_public_railway_alerts(alerts, now)
         return (
             public_alerts,
             {
@@ -415,6 +459,171 @@ def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
         return get_all_weather_alerts(now)
     except Exception:
         return []
+
+
+def _json_hash(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _weather_history_path(debug_dir: Path, now: datetime) -> Path:
+    base = debug_dir / f"{now:%Y%m%d_%H%M%S}.json"
+    if not base.exists():
+        return base
+    for index in range(1, 100):
+        candidate = debug_dir / f"{now:%Y%m%d_%H%M%S}_{index}.json"
+        if not candidate.exists():
+            return candidate
+    return debug_dir / f"{now:%Y%m%d_%H%M%S}_{now.microsecond}.json"
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def save_weather_debug(
+    snapshot: dict[str, Any],
+    *,
+    now: datetime,
+    severity: str,
+    notify_allowed: bool,
+    suppress_reason: str,
+    debug_dir: Path = WEATHER_DEBUG_DIR,
+) -> dict[str, Any]:
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    normalized_alerts = snapshot.get("normalized_alerts")
+    if not isinstance(normalized_alerts, list):
+        normalized_alerts = []
+    raw_jma = snapshot.get("raw_jma", {})
+    raw_openmeteo = snapshot.get("raw_openmeteo", {})
+    result = {
+        "timestamp": now.astimezone(JST).isoformat(timespec="seconds"),
+        "source": snapshot.get("source", ["JMA", "Open-Meteo"]),
+        "raw": {
+            "JMA": raw_jma,
+            "Open-Meteo": raw_openmeteo,
+        },
+        "raw_jma": raw_jma,
+        "raw_openmeteo": raw_openmeteo,
+        "normalized": normalized_alerts,
+        "normalized_alerts": normalized_alerts,
+        "alerts": normalized_alerts,
+        "severity": severity,
+        "notify_allowed": bool(notify_allowed),
+        "suppress_reason": suppress_reason,
+        "suppressed_reason": suppress_reason,
+        "source_errors": snapshot.get("source_errors", []),
+    }
+    result["hash"] = _json_hash(
+        {
+            "raw_jma": raw_jma,
+            "raw_openmeteo": raw_openmeteo,
+            "normalized_alerts": normalized_alerts,
+        }
+    )
+    latest_path = debug_dir / "latest.json"
+    history_path = _weather_history_path(debug_dir, now.astimezone(JST))
+    payload = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
+    latest_path.write_text(payload + "\n", encoding="utf-8")
+    history_path.write_text(payload + "\n", encoding="utf-8")
+    log(
+        "weather_debug_saved: "
+        f"latest={_display_path(latest_path)} history={_display_path(history_path)}"
+    )
+    return result
+
+
+def record_weather_decision(
+    snapshot: dict[str, Any],
+    *,
+    now: datetime,
+    severity: str,
+    notify_allowed: bool,
+    suppress_reason: str,
+) -> dict[str, Any]:
+    log(f"weather_notify_allowed: {'true' if notify_allowed else 'false'}")
+    if not notify_allowed:
+        log(f"weather_notify_suppressed: reason={suppress_reason}")
+    return save_weather_debug(
+        snapshot,
+        now=now,
+        severity=severity,
+        notify_allowed=notify_allowed,
+        suppress_reason=suppress_reason,
+    )
+
+
+def load_weather_state(path: Path = WEATHER_STATE_PATH) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_weather_state(
+    alerts: list[str],
+    weather_hash: str,
+    now: datetime,
+    path: Path = WEATHER_STATE_PATH,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "updated_at": now.astimezone(JST).isoformat(timespec="seconds"),
+                "alerts": alerts,
+                "weather_hash": weather_hash,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def weather_change_type(previous_alerts: list[str], current_alerts: list[str]) -> str:
+    previous = [" ".join(str(alert or "").split()) for alert in previous_alerts if str(alert or "").strip()]
+    current = [" ".join(str(alert or "").split()) for alert in current_alerts if str(alert or "").strip()]
+    if current and current != previous:
+        return "changed"
+    if previous and not current:
+        return "removed_silent"
+    return "no change"
+
+
+def load_weather_beta_snapshot(now: datetime | None = None) -> dict[str, Any]:
+    current = now or datetime.now(JST)
+    if current.tzinfo is not None:
+        current = current.astimezone(JST)
+    try:
+        snapshot = get_all_weather_snapshot(current)
+    except Exception as exc:
+        log(f"weather_source_failed: source=all error={type(exc).__name__}")
+        snapshot = {
+            "source": ["JMA", "Open-Meteo"],
+            "raw_jma": {},
+            "raw_openmeteo": {},
+            "normalized_alerts": [],
+            "source_errors": [{"source": "all", "error": type(exc).__name__}],
+        }
+    alerts = snapshot.get("normalized_alerts")
+    if not isinstance(alerts, list):
+        alerts = []
+    snapshot["normalized_alerts"] = alerts
+    for error in snapshot.get("source_errors", []):
+        if isinstance(error, dict):
+            log(
+                "weather_source_failed: "
+                f"source={error.get('source', '')} error={error.get('error', '')}"
+            )
+    return snapshot
 
 
 def railway_alert_prefix(alert: str) -> str:
@@ -1044,7 +1253,7 @@ def main() -> int:
         get_jrc_shinkansen_plan_notice(now=now_jst)
     except Exception as exc:
         log(f"shinkansen_plan_notice_error: {type(exc).__name__}: {exc}")
-    railway_beta_is_active = is_railway_beta_active(now_jst)
+    railway_beta_is_active, railway_monitoring_reason = is_railway_monitoring_active(now_jst)
     (
         railway_beta_alerts,
         railway_updated_at_by_alert,
@@ -1054,15 +1263,35 @@ def main() -> int:
     railway_beta_display_alerts = [
         display_railway_alert(alert) for alert in railway_beta_alerts
     ]
-    weather_beta_alerts = load_weather_beta_alerts(now_jst)
+    weather_snapshot = load_weather_beta_snapshot(now_jst)
+    weather_beta_alerts = weather_snapshot.get("normalized_alerts")
+    if not isinstance(weather_beta_alerts, list):
+        weather_beta_alerts = []
     weather_severity = detect_weather_severity(weather_beta_alerts)
+    previous_weather_state = load_weather_state()
+    previous_weather_alerts = previous_weather_state.get("alerts")
+    if not isinstance(previous_weather_alerts, list):
+        previous_weather_alerts = []
+    weather_hash = _json_hash(
+        {
+            "raw_jma": weather_snapshot.get("raw_jma", {}),
+            "raw_openmeteo": weather_snapshot.get("raw_openmeteo", {}),
+            "normalized_alerts": weather_beta_alerts,
+        }
+    )
+    weather_change = weather_change_type(previous_weather_alerts, weather_beta_alerts)
+    save_weather_state(weather_beta_alerts, weather_hash, now_jst)
     if not railway_beta_is_active:
-        log("railway_beta_alerts: skipped overnight")
+        log(f"railway_beta_alerts: skipped overnight reason={railway_monitoring_reason}")
     elif railway_beta_alerts:
-        log(f"railway_beta_alerts: {len(railway_beta_alerts)}")
+        log(f"railway_beta_alerts: {len(railway_beta_alerts)} reason={railway_monitoring_reason}")
     else:
-        log("railway_beta_alerts: 0")
+        log(f"railway_beta_alerts: 0 reason={railway_monitoring_reason}")
     log(f"weather_beta_alerts: {len(weather_beta_alerts)}")
+    if weather_beta_alerts:
+        log(f"weather_alerts_detected: {len(weather_beta_alerts)}")
+    log(f"weather_hash: {weather_hash[:12]}")
+    log(f"weather_beta_comment: {weather_change}")
 
     if not railway_beta_is_active:
         log("railway_beta_comment: skipped overnight")
@@ -1072,6 +1301,9 @@ def main() -> int:
         state_metadata = load_railway_state_metadata(RAILWAY_STATE_PATH)
         morning_reposted_date = str(
             state_metadata.get("morning_reposted_date") or ""
+        )
+        critical_transport_recovered_at = str(
+            state_metadata.get("critical_transport_recovered_at") or ""
         )
         existing_incident_first_seen = load_railway_incident_first_seen(
             RAILWAY_STATE_PATH
@@ -1127,6 +1359,12 @@ def main() -> int:
                 "morning_carryover_repost: false "
                 f"reason={carryover_reason}"
             )
+        if critical_transport_alerts(railway_beta_alerts):
+            next_critical_transport_recovered_at = ""
+        elif critical_transport_alerts(previous_railway_alerts):
+            next_critical_transport_recovered_at = now_jst.isoformat(timespec="seconds")
+        else:
+            next_critical_transport_recovered_at = critical_transport_recovered_at
         save_railway_state(
             RAILWAY_STATE_PATH,
             railway_beta_alerts,
@@ -1134,6 +1372,7 @@ def main() -> int:
             railway_level_by_alert,
             morning_reposted_date,
             incident_first_seen_at,
+            critical_transport_recovered_at=next_critical_transport_recovered_at,
         )
         save_structured_filter_state(
             RAILWAY_ZAIRAI_FILTER_STATE_PATH,
@@ -1178,6 +1417,13 @@ def main() -> int:
             }
             write_comment_result(result, "")
             log("railway_beta_comment: recovered_silent")
+            record_weather_decision(
+                weather_snapshot,
+                now=now_jst,
+                severity=weather_severity,
+                notify_allowed=False,
+                suppress_reason="railway_recovered_silent",
+            )
             log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
             log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
             log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
@@ -1218,6 +1464,7 @@ def main() -> int:
                         railway_level_by_alert,
                         morning_reposted_date,
                         incident_first_seen_at,
+                        critical_transport_recovered_at=next_critical_transport_recovered_at,
                     )
             result = {
                 "generated_at": now_iso(),
@@ -1263,6 +1510,17 @@ def main() -> int:
                 log("railway_beta_comment: removed_silent")
             else:
                 log("railway_beta_comment: no change")
+            record_weather_decision(
+                weather_snapshot,
+                now=now_jst,
+                severity=weather_severity,
+                notify_allowed=False,
+                suppress_reason=(
+                    "railway_notification_takes_priority"
+                    if comment
+                    else "railway_state_diff_no_weather_notification"
+                ),
+            )
             log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
             log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
             log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
@@ -1289,6 +1547,13 @@ def main() -> int:
         }
         write_comment_result(result, "")
         log("gemma_comment: skipped quiet_hours")
+        record_weather_decision(
+            weather_snapshot,
+            now=now_jst,
+            severity=weather_severity,
+            notify_allowed=False,
+            suppress_reason="quiet_hours",
+        )
         log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
@@ -1311,6 +1576,13 @@ def main() -> int:
         }
         write_comment_result(result, "")
         log("gemma_comment: skipped minor_weather_only")
+        record_weather_decision(
+            weather_snapshot,
+            now=now_jst,
+            severity=weather_severity,
+            notify_allowed=False,
+            suppress_reason="minor_weather_only",
+        )
         log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
@@ -1333,7 +1605,14 @@ def main() -> int:
             "ollama_skipped": True,
         }
         write_comment_result(result, comment)
-        log(f"weather_beta_comment: {weather_severity}")
+        log(f"weather_beta_comment: {weather_change}")
+        record_weather_decision(
+            weather_snapshot,
+            now=now_jst,
+            severity=weather_severity,
+            notify_allowed=bool(comment),
+            suppress_reason="" if comment else "empty_weather_comment",
+        )
         log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
@@ -1356,6 +1635,13 @@ def main() -> int:
         }
         write_comment_result(result, "")
         log("gemma_comment: skipped no_actionable_info")
+        record_weather_decision(
+            weather_snapshot,
+            now=now_jst,
+            severity=weather_severity,
+            notify_allowed=False,
+            suppress_reason="no_actionable_info",
+        )
         log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
@@ -1393,6 +1679,13 @@ def main() -> int:
 
     write_comment_result(result, comment)
 
+    record_weather_decision(
+        weather_snapshot,
+        now=now_jst,
+        severity=weather_severity,
+        notify_allowed=bool(comment) and bool(weather_beta_alerts),
+        suppress_reason="" if comment and weather_beta_alerts else "gemma_comment_empty_or_no_weather_alerts",
+    )
     log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
     log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
     return 0

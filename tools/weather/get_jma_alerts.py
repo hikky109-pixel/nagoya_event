@@ -192,5 +192,41 @@ def get_jma_weather_alerts(now: datetime | None = None) -> list[str]:
     return list(dict.fromkeys(alerts))
 
 
+def get_jma_weather_snapshot(now: datetime | None = None) -> dict[str, Any]:
+    if now is None:
+        now = datetime.now(JST)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=JST)
+    else:
+        now = now.astimezone(JST)
+
+    raw: dict[str, Any] = {}
+    errors: list[dict[str, str]] = []
+
+    def fetch_source(name: str, url: str) -> Any:
+        try:
+            data = fetch_json(url)
+        except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            errors.append({"source": f"JMA:{name}", "error": type(exc).__name__})
+            return None
+        raw[name] = data
+        return data
+
+    warning = fetch_source("warning", JMA_WARNING_URL)
+    information = fetch_source("information", JMA_INFORMATION_URL)
+    typhoon = fetch_source("typhoon", JMA_TYPHOON_URL)
+
+    alerts: list[str] = []
+    alerts.extend(_nagoya_warning_alerts(warning, now))
+    alerts.extend(_severe_information_alerts(information, now))
+    alerts.extend(_typhoon_alerts(typhoon, now))
+    return {
+        "source": "JMA",
+        "raw": raw,
+        "alerts": list(dict.fromkeys(alerts)),
+        "errors": errors,
+    }
+
+
 if __name__ == "__main__":
     print(get_jma_weather_alerts())

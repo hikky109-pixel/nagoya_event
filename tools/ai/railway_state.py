@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,12 @@ RAILWAY_COOLDOWN_SECONDS = {
     "critical": 5 * 60,
 }
 RAILWAY_INCIDENT_IGNORE_PATTERNS: tuple[str, ...] = ()
+CRITICAL_TRANSPORT_PREFIXES = (
+    "JR東海在来線",
+    "名鉄",
+    "名古屋市営地下鉄",
+)
+CRITICAL_TRANSPORT_STABLE_SECONDS = 30 * 60
 
 
 def clean_alerts(
@@ -86,7 +92,52 @@ def load_railway_state_metadata(path: Path) -> dict[str, Any]:
         return {}
     return {
         "morning_reposted_date": str(data.get("morning_reposted_date") or ""),
+        "critical_transport_recovered_at": str(
+            data.get("critical_transport_recovered_at") or ""
+        ),
     }
+
+
+def is_critical_transport_alert(alert: str) -> bool:
+    line, _incident = split_alert(alert)
+    return any(
+        line == prefix or line.startswith(f"{prefix} ")
+        for prefix in CRITICAL_TRANSPORT_PREFIXES
+    )
+
+
+def critical_transport_alerts(alerts: list[str]) -> list[str]:
+    return [alert for alert in clean_alerts(alerts) if is_critical_transport_alert(alert)]
+
+
+def critical_transport_recovery_still_stable(
+    recovered_at: str,
+    now: datetime,
+) -> bool:
+    recovered = parse_datetime(recovered_at)
+    if recovered is None:
+        return False
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    recovered_local = recovered.astimezone(now.tzinfo)
+    return 0 <= (now - recovered_local).total_seconds() < CRITICAL_TRANSPORT_STABLE_SECONDS
+
+
+def critical_transport_overnight_monitoring_active(
+    *,
+    now: datetime,
+    previous_alerts: list[str],
+    critical_transport_recovered_at: str = "",
+) -> tuple[bool, str]:
+    current = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    current_time = current.timetz().replace(tzinfo=None)
+    if current_time >= time(5, 0) or current_time < time(1, 0):
+        return True, "normal_hours"
+    if critical_transport_alerts(previous_alerts):
+        return True, "critical_transport_incident_continuing"
+    if critical_transport_recovery_still_stable(critical_transport_recovered_at, current):
+        return True, "critical_transport_recovery_stabilizing"
+    return False, "overnight_no_critical_transport_incident"
 
 
 def load_railway_incident_first_seen(path: Path) -> dict[str, str]:
@@ -129,6 +180,7 @@ def save_railway_state(
     level_by_alert: dict[str, str] | None = None,
     morning_reposted_date: str = "",
     incident_first_seen_at: dict[str, str] | None = None,
+    critical_transport_recovered_at: str = "",
 ) -> None:
     if isinstance(updated_at, datetime):
         updated_at_text = updated_at.isoformat(timespec="seconds")
@@ -147,6 +199,7 @@ def save_railway_state(
             if level_by_alert and level_by_alert.get(alert)
         },
         "morning_reposted_date": str(morning_reposted_date or ""),
+        "critical_transport_recovered_at": str(critical_transport_recovered_at or ""),
         "incident_first_seen_at": {
             alert: str(incident_first_seen_at[alert])
             for alert in cleaned_alerts

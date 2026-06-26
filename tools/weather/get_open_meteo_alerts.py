@@ -142,5 +142,20 @@ def get_open_meteo_alerts(now: datetime | None = None) -> list[str]:
         return []
 
 
+def get_open_meteo_snapshot(now: datetime | None = None) -> dict[str, Any]:
+    try:
+        raw = fetch_open_meteo()
+        errors: list[dict[str, str]] = []
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raw = {}
+        errors = [{"source": "Open-Meteo", "error": type(exc).__name__}]
+    return {
+        "source": "Open-Meteo",
+        "raw": raw,
+        "alerts": build_open_meteo_alerts(raw, now) if raw else [],
+        "errors": errors,
+    }
+
+
 if __name__ == "__main__":
     print(get_open_meteo_alerts())
