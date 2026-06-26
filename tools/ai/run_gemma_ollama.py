@@ -417,10 +417,19 @@ def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
         return []
 
 
+def railway_alert_prefix(alert: str) -> str:
+    text = " ".join(str(alert or "").split())
+    for separator in (":", "："):
+        if separator in text:
+            return " ".join(text.split(separator, 1)[0].split())
+    return text
+
+
 def railway_info_source(alert: str, source_url: str = "") -> tuple[str, str, str]:
-    if "東海道新幹線" in alert:
+    prefix = railway_alert_prefix(alert)
+    if "東海道新幹線" in prefix:
         return "JR東海道新幹線", "JR東海道新幹線", RAILWAY_INFO_URLS["JR東海道新幹線"]
-    if "JR東海在来線" in alert:
+    if "JR東海在来線" in prefix:
         display = jrc_target_line_display(alert)
         url = jrc_target_line_url(alert)
         if display and url:
@@ -428,20 +437,21 @@ def railway_info_source(alert: str, source_url: str = "") -> tuple[str, str, str
             url_label = "JR " + display.splitlines()[0]
             return title, url_label, url
         return "JR 在来線", "JR 在来線", RAILWAY_INFO_URLS["JR東海在来線"]
-    meitetsu_match = re.match(r"名鉄\s+([^:：]+)[:：]", alert)
+    meitetsu_match = re.match(r"名鉄\s+(.+)", prefix)
     if meitetsu_match:
         line = " ".join(meitetsu_match.group(1).split())
         title = f"名鉄{line}"
         return title, title, source_url or RAILWAY_INFO_URLS["名鉄"]
+    if prefix.startswith("名古屋市営地下鉄"):
+        return prefix, "名古屋市営地下鉄", source_url or RAILWAY_INFO_URLS["名古屋市営地下鉄"]
     for label in (
         "名鉄",
-        "名古屋市営地下鉄",
         "近鉄",
         "あおなみ線",
         "リニモ",
         "城北線",
     ):
-        if label in alert:
+        if prefix == label or prefix.startswith(f"{label} "):
             return label, label, source_url or RAILWAY_INFO_URLS[label]
     return "鉄道運行情報", "", ""
 
