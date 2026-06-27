@@ -14,7 +14,7 @@ JR_CENTRAL_TARGET_LINES: dict[str, dict[str, Any]] = {
     },
     "中央線": {
         "match": ["中央線"],
-        "display": "中央線\n(名古屋～中津川)",
+        "display": "中央線",
         "url": "https://traininfo.jr-central.co.jp/zairaisen/train_information.html?line=10003&lang=ja",
     },
     "関西線": {

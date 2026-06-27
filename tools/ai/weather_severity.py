@@ -9,6 +9,7 @@ WEATHER_CRITICAL_KEYWORDS = (
     "線状降水帯",
     "記録的短時間大雨",
     "特別警報",
+    "豪雨予測",
 )
 WEATHER_ALERT_KEYWORDS = (
     "雷注意",
@@ -21,6 +22,8 @@ WEATHER_INFO_KEYWORDS = (
     "雨開始",
     "雨が降り始める",
     "雨が強まる可能性",
+    "小雨予測",
+    "雨終了予測",
 )
 WEATHER_MINOR_KEYWORDS = (
     "雨は1時間以内に弱まる",

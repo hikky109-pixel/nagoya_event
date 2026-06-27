@@ -18,6 +18,9 @@ NAGOYA_LONGITUDE = 136.8815
 REQUEST_TIMEOUT_SECONDS = 15
 RAIN_THRESHOLD_MM = 0.1
 PRECIP_TREND_THRESHOLD_MM = 0.1
+LIGHT_RAIN_NOTIFY_THRESHOLD_MM = 0.5
+HEAVY_RAIN_NOTIFY_THRESHOLD_MM = 10.0
+TORRENTIAL_RAIN_NOTIFY_THRESHOLD_MM = 30.0
 
 
 def open_meteo_url() -> str:
@@ -107,6 +110,16 @@ def build_open_meteo_alerts(data: dict[str, Any], now: datetime | None = None) -
     next_weather_code = int(_number_at(weather_codes, next_index))
 
     alerts: list[str] = []
+    if next_rain >= TORRENTIAL_RAIN_NOTIFY_THRESHOLD_MM:
+        alerts.append(f"名古屋中心部で1時間以内に豪雨予測（{next_rain:g}mm/h）")
+    elif next_rain >= HEAVY_RAIN_NOTIFY_THRESHOLD_MM:
+        alerts.append(f"名古屋中心部で1時間以内に強雨予測（{next_rain:g}mm/h）")
+    elif next_rain >= LIGHT_RAIN_NOTIFY_THRESHOLD_MM:
+        alerts.append(f"名古屋中心部で1時間以内に小雨予測（{next_rain:g}mm/h）")
+
+    if current_rain > 0 and next_rain <= 0:
+        alerts.append("名古屋中心部の雨終了予測（1時間以内に0mm/h）")
+
     if current_rain < RAIN_THRESHOLD_MM <= next_rain:
         alerts.extend(
             [

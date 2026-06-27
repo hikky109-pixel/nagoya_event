@@ -545,8 +545,15 @@ def record_weather_decision(
     suppress_reason: str,
 ) -> dict[str, Any]:
     log(f"weather_notify_allowed: {'true' if notify_allowed else 'false'}")
+    log(
+        "weather_notify_reason: "
+        f"{'notify' if notify_allowed else suppress_reason or 'suppressed'}"
+    )
     if not notify_allowed:
         log(f"weather_notify_suppressed: reason={suppress_reason}")
+    alerts = snapshot.get("normalized_alerts")
+    if isinstance(alerts, list) and any("雨終了予測" in str(alert) for alert in alerts):
+        log("weather_end_detected: true")
     return save_weather_debug(
         snapshot,
         now=now,
