@@ -5,10 +5,10 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 try:
-    from jrc_zairai_targets import jrc_target_line_key
+    from jrc_zairai_targets import jrc_line_id_from_display, jrc_target_line_key_by_id
     from railway_debug_dump import save_railway_debug_dump
 except ModuleNotFoundError:
-    from tools.ai.jrc_zairai_targets import jrc_target_line_key
+    from tools.ai.jrc_zairai_targets import jrc_line_id_from_display, jrc_target_line_key_by_id
     from tools.ai.railway_debug_dump import save_railway_debug_dump
 
 URL = (
@@ -19,93 +19,6 @@ URL = (
 # 2026-06-28確認時点では get_jrc_zairai_status_details_snapshot() は空で、
 # 実台風イベントまで落とさないようデフォルトは空にしておく。
 IGNORE_CAUSES: tuple[str, ...] = ()
-TOKAIDO_STATION_ORDER = (
-    "熱海",
-    "函南",
-    "三島",
-    "沼津",
-    "片浜",
-    "原",
-    "東田子の浦",
-    "吉原",
-    "富士",
-    "富士川",
-    "新蒲原",
-    "蒲原",
-    "由比",
-    "興津",
-    "清水",
-    "草薙",
-    "東静岡",
-    "静岡",
-    "安倍川",
-    "用宗",
-    "焼津",
-    "西焼津",
-    "藤枝",
-    "六合",
-    "島田",
-    "金谷",
-    "菊川",
-    "掛川",
-    "愛野",
-    "袋井",
-    "御厨",
-    "磐田",
-    "豊田町",
-    "天竜川",
-    "浜松",
-    "高塚",
-    "舞阪",
-    "弁天島",
-    "新居町",
-    "鷲津",
-    "新所原",
-    "二川",
-    "豊橋",
-    "西小坂井",
-    "愛知御津",
-    "三河大塚",
-    "三河三谷",
-    "蒲郡",
-    "三河塩津",
-    "三ケ根",
-    "幸田",
-    "相見",
-    "岡崎",
-    "西岡崎",
-    "安城",
-    "三河安城",
-    "東刈谷",
-    "野田新町",
-    "刈谷",
-    "逢妻",
-    "大府",
-    "共和",
-    "南大高",
-    "大高",
-    "笠寺",
-    "熱田",
-    "金山",
-    "尾頭橋",
-    "名古屋",
-    "枇杷島",
-    "清洲",
-    "稲沢",
-    "尾張一宮",
-    "木曽川",
-    "岐阜",
-    "西岐阜",
-    "穂積",
-    "大垣",
-    "垂井",
-    "関ケ原",
-    "柏原",
-    "近江長岡",
-    "醒ケ井",
-    "米原",
-)
-TOKAIDO_TARGET_START_STATION = "豊橋"
 
 
 def _clean_text(value: Any) -> str:
@@ -138,38 +51,8 @@ def _incident_key(event: dict[str, Any]) -> str:
     return "\x1f".join(parts)
 
 
-def _station_token(value: str) -> str:
-    return _clean_text(value).replace("駅", "")
-
-
 def _is_ignored_cause(cause: str) -> bool:
     return any(pattern and pattern in cause for pattern in IGNORE_CAUSES)
-
-
-def _is_target_jrc_section(line: str, section_from: str, section_to: str) -> bool:
-    if line != "東海道線":
-        return True
-    station_names = [
-        station
-        for station in (_station_token(section_from), _station_token(section_to))
-        if station
-    ]
-    if not station_names:
-        return True
-    station_order = {station: index for index, station in enumerate(TOKAIDO_STATION_ORDER)}
-    indices = [
-        station_order[station]
-        for station in station_names
-        if station in station_order
-    ]
-    if not indices:
-        return True
-    target_start_index = station_order[TOKAIDO_TARGET_START_STATION]
-    if len(indices) == 1:
-        return indices[0] >= target_start_index
-    # 熱海〜豊橋側だけで完結する東海道線情報は除外。
-    # 豊橋〜米原、または豊橋より西を含む区間は対象。
-    return max(indices) > target_start_index
 
 
 def _structured_event(
@@ -179,6 +62,7 @@ def _structured_event(
     operation_no: str,
 ) -> dict[str, Any]:
     line = _localized_value(event.get("imp_line"))
+    line_id = jrc_line_id_from_display(line)
     message = _localized_value(message_info.get("delivery_msg"), field="message")
     matching_trans_info = [
         item
@@ -190,6 +74,7 @@ def _structured_event(
         "operation_no": operation_no,
         "event_no": _clean_text(event.get("no")),
         "incident_key": _incident_key(event),
+        "line_id": line_id or "",
         "line": line,
         "status_id": _clean_text(event.get("status_id")),
         "status": _localized_value(event.get("status")),
@@ -276,17 +161,12 @@ def get_jrc_zairai_status_details_snapshot(line_name=None):
 
         if not current_line_name:
             continue
-        if jrc_target_line_key(current_line_name) is None:
+        line_id = jrc_line_id_from_display(current_line_name)
+        if jrc_target_line_key_by_id(line_id) is None:
             continue
 
         structured = _structured_event(event, message_info, trans_info, operation_no)
         if _is_ignored_cause(str(structured.get("cause") or "")):
-            continue
-        if not _is_target_jrc_section(
-            current_line_name,
-            str(structured.get("section_from") or ""),
-            str(structured.get("section_to") or ""),
-        ):
             continue
         structured_events.append(structured)
         message = structured["message"]

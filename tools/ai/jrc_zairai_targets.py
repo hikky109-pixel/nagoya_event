@@ -8,16 +8,22 @@ from typing import Any
 
 JR_CENTRAL_TARGET_LINES: dict[str, dict[str, Any]] = {
     "東海道線": {
+        "line_ids": ["10001"],
+        "internal_line_ids": ["050020"],
         "match": ["東海道線"],
         "display": "東海道線\n(豊橋～米原)",
         "url": "https://traininfo.jr-central.co.jp/zairaisen/train_information.html?line=10001&lang=ja",
     },
     "中央線": {
+        "line_ids": ["10003"],
+        "internal_line_ids": ["050030"],
         "match": ["中央線"],
         "display": "中央線",
         "url": "https://traininfo.jr-central.co.jp/zairaisen/train_information.html?line=10003&lang=ja",
     },
     "関西線": {
+        "line_ids": ["10006"],
+        "internal_line_ids": ["050040"],
         "match": ["関西線"],
         "display": "関西線",
         "url": "https://traininfo.jr-central.co.jp/zairaisen/train_information.html?line=10006&lang=ja",
@@ -25,10 +31,33 @@ JR_CENTRAL_TARGET_LINES: dict[str, dict[str, Any]] = {
 }
 
 
+JR_CENTRAL_LINE_DISPLAY_TO_ID: dict[str, str] = {
+    "東海道線(熱海～豊橋)": "10011",
+    "東海道線(豊橋～米原)": "10001",
+    "中央線": "10003",
+    "関西線": "10006",
+}
+
+
 def jrc_target_line_key(line_name: str) -> str | None:
     text = str(line_name or "")
     for key, meta in JR_CENTRAL_TARGET_LINES.items():
         if any(pattern in text for pattern in meta["match"]):
+            return key
+    return None
+
+
+def jrc_line_id_from_display(line_name: str) -> str | None:
+    text = " ".join(str(line_name or "").split())
+    return JR_CENTRAL_LINE_DISPLAY_TO_ID.get(text)
+
+
+def jrc_target_line_key_by_id(line_id: str | None) -> str | None:
+    text = str(line_id or "")
+    if not text:
+        return None
+    for key, meta in JR_CENTRAL_TARGET_LINES.items():
+        if text in meta["line_ids"] or text in meta["internal_line_ids"]:
             return key
     return None
 
