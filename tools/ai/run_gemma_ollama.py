@@ -1281,8 +1281,6 @@ def main() -> int:
         previous_weather_alerts = []
     weather_hash = _json_hash(
         {
-            "raw_jma": weather_snapshot.get("raw_jma", {}),
-            "raw_openmeteo": weather_snapshot.get("raw_openmeteo", {}),
             "normalized_alerts": weather_beta_alerts,
         }
     )
@@ -1436,7 +1434,7 @@ def main() -> int:
             log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
             return 0
 
-        if comment or change_type in ("changed", "unchanged"):
+        if comment or change_type == "changed":
             notification_severity = detect_railway_severity(railway_beta_alerts or removed_alerts)
             notify_allowed, cooldown_remaining = railway_notify_allowed(
                 last_notify,
@@ -1589,6 +1587,30 @@ def main() -> int:
             severity=weather_severity,
             notify_allowed=False,
             suppress_reason="minor_weather_only",
+        )
+        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+        return 0
+
+    if weather_beta_alerts and weather_change == "no change":
+        result = {
+            "generated_at": now_iso(),
+            "model": "python:weather_beta_no_change",
+            "comment": "",
+            "weather_beta_alerts": weather_beta_alerts,
+            "weather_severity": weather_severity,
+            "weather_beta_notification": False,
+            "done": False,
+            "ollama_skipped": True,
+        }
+        write_comment_result(result, "")
+        log("weather_beta_comment: no change")
+        record_weather_decision(
+            weather_snapshot,
+            now=now_jst,
+            severity=weather_severity,
+            notify_allowed=False,
+            suppress_reason="weather_no_change",
         )
         log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
