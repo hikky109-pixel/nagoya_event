@@ -982,6 +982,9 @@ def main() -> int:
             user_name = getattr(message.author, "display_name", str(message.author))
             history = chat_memory.load_history(channel_id)
             history_text = chat_memory.format_history(history, limit=get_chat_history_limit())
+            if not content.strip():
+                return
+
             command = content.split(maxsplit=1)[0]
             direct_addressed_to_me = is_mention_to_me(message, client)
             name_mention_detected = is_name_mention(content)

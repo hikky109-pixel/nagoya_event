@@ -1,0 +1,46 @@
+incident_id: 2026-06-26_typhoon7_fuji_eq
+
+summary:
+  title: 台風7号・富士周辺地震防災/停電影響 東海道新幹線深夜復旧
+  date: 2026-06-26
+  severity: S
+  frequency: rare
+  category: major_transport_incident
+
+heuristics:
+
+  - 地震防災解除≠運転再開
+  - 停電復旧後は設備点検時間が支配
+  - 深夜帯は回復運転が速い
+  - 新幹線需要ピークは復旧後
+  - 在来線需要ピークは停止中
+  - 名駅フィーバータイム約50分
+  - 運転再開+60〜75分で名古屋流入
+
+timeline:
+
+  - time: "01:17"
+    status: 運転再開
+
+  - time: "02:15"
+    status: 臨時のぞみ549
+
+  - time: "02:30"
+    status: 定期ひかり569
+
+  - time: "03:10"
+    status: 名駅沈静化
+
+demand_pattern:
+
+  shinkansen:
+    peak: 復旧後
+    note: 運転再開後に名古屋流入が増える
+
+  conventional_lines:
+    peak: 停止中
+    note: 代替・待機需要が停止中に膨らむ
+
+  nagoya_station:
+    fever_time_min: 50
+    inflow_after_restart_min: "60-75"

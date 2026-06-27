@@ -15,7 +15,7 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
-from get_aonami_status import get_aonami_status  # noqa: E402
+from get_aonami_status import get_aonami_status, get_aonami_status_snapshot  # noqa: E402
 from get_johoku_status import get_johoku_status  # noqa: E402
 from get_jrc_zairai_status import (  # noqa: E402
     get_jrc_zairai_status,
@@ -56,6 +56,31 @@ def _safe(label: str, getter: Callable[[], list[str]]) -> list[str]:
 
 def normalize_aonami_status() -> list[str]:
     return _prefixed("あおなみ線", get_aonami_status(abnormal_only=True))
+
+
+def normalize_aonami_status_snapshot(
+) -> tuple[list[str], dict[str, datetime], dict[str, str], dict[str, str]]:
+    messages, source_urls, updated_at, levels = get_aonami_status_snapshot(
+        abnormal_only=True
+    )
+    alerts = _prefixed("あおなみ線", messages)
+    message_by_alert = {
+        f"あおなみ線: {_clean_text(message)}": _clean_text(message)
+        for message in messages
+        if _clean_text(message)
+    }
+    updated_at_by_alert = {alert: updated_at for alert in alerts} if updated_at else {}
+    source_url_by_alert = {
+        alert: source_urls[message]
+        for alert, message in message_by_alert.items()
+        if source_urls.get(message)
+    }
+    level_by_alert = {
+        alert: levels[message]
+        for alert, message in message_by_alert.items()
+        if levels.get(message)
+    }
+    return alerts, updated_at_by_alert, source_url_by_alert, level_by_alert
 
 
 def normalize_johoku_status() -> list[str]:
@@ -248,7 +273,6 @@ def get_all_railway_alerts_snapshot(
     source_url_by_alert: dict[str, str] = {}
     level_by_alert: dict[str, str] = {}
     checks_before_jrc: list[tuple[str, Callable[[], list[str]]]] = [
-        ("あおなみ線", normalize_aonami_status),
         ("城北線", normalize_johoku_status),
     ]
     checks_after_jrc: list[tuple[str, Callable[[], list[str]]]] = [
@@ -260,6 +284,23 @@ def get_all_railway_alerts_snapshot(
 
     for label, getter in checks_before_jrc:
         alerts.extend(_safe(label, getter))
+
+    try:
+        (
+            aonami_alerts,
+            aonami_updated_at,
+            aonami_source_urls,
+            aonami_levels,
+        ) = normalize_aonami_status_snapshot()
+    except Exception as exc:
+        aonami_alerts = [f"あおなみ線: 取得失敗: {exc}"]
+        aonami_updated_at = {}
+        aonami_source_urls = {}
+        aonami_levels = {}
+    alerts.extend(aonami_alerts)
+    updated_at_by_alert.update(aonami_updated_at)
+    source_url_by_alert.update(aonami_source_urls)
+    level_by_alert.update(aonami_levels)
 
     try:
         jrc_alerts, jrc_updated_at = normalize_jrc_zairai_status_snapshot()
