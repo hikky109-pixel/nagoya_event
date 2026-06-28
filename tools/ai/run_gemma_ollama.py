@@ -21,7 +21,9 @@ try:
     from get_jrc_shinkansen_plan_notice import get_jrc_shinkansen_plan_notice
     from log_utils import log
     from railway_filters import (
+        classify_railway_pre_llm_notification,
         filter_added_railway_alerts,
+        has_major_railway_incident,
         load_structured_filter_state,
         save_structured_filter_state,
     )
@@ -51,7 +53,9 @@ except ModuleNotFoundError:
     from tools.ai.get_jrc_shinkansen_plan_notice import get_jrc_shinkansen_plan_notice
     from tools.ai.log_utils import log
     from tools.ai.railway_filters import (
+        classify_railway_pre_llm_notification,
         filter_added_railway_alerts,
+        has_major_railway_incident,
         load_structured_filter_state,
         save_structured_filter_state,
     )
@@ -123,6 +127,15 @@ RAILWAY_BETA_FORBIDDEN_OUTPUTS = (
     "引き続き注視",
     "名古屋方面の移動・乗換に影響する可能性があります。",
     "名古屋方面の移動に大きな影響が予想されます。",
+    "確認します",
+    "調査中です",
+    "少し時間ください",
+    "最新情報にご留意ください",
+    "交通情報ベータより取得",
+    "交通情報ベータに基づいています",
+    "公式サイトをご確認ください",
+    "詳細は未確認です",
+    "ジェンマ課長日報",
 )
 RAILWAY_SEVERITY_EMOJIS = {
     "info": "🔵",
@@ -464,6 +477,36 @@ def load_weather_beta_alerts(now: datetime | None = None) -> list[str]:
 def _json_hash(value: Any) -> str:
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def railway_official_hash(
+    alerts: list[str],
+    structured_events: list[dict[str, Any]] | None = None,
+) -> str:
+    event_payload = []
+    for event in structured_events or []:
+        event_payload.append(
+            {
+                "line_id": event.get("line_id", ""),
+                "line": event.get("line", ""),
+                "status_id": event.get("status_id", ""),
+                "cause": event.get("cause", ""),
+                "section_from": event.get("section_from", ""),
+                "section_to": event.get("section_to", ""),
+                "direction": event.get("direction", ""),
+                "accident_time": event.get("accident_time", ""),
+                "prospect_time": event.get("prospect_time", ""),
+                "resume_time": event.get("resume_time", ""),
+                "message": event.get("message", ""),
+                "recover_message": event.get("recover_message", ""),
+            }
+        )
+    return _json_hash(
+        {
+            "normalized_alerts": [" ".join(str(alert or "").split()) for alert in alerts],
+            "structured_events": event_payload,
+        }
+    )
 
 
 def _weather_history_path(debug_dir: Path, now: datetime) -> Path:
@@ -1323,7 +1366,148 @@ def main() -> int:
             RAILWAY_ZAIRAI_FILTER_STATE_PATH
         )
         current_zairai_events = get_last_jrc_zairai_structured_events()
+        railway_official_current_hash = railway_official_hash(
+            railway_beta_alerts,
+            current_zairai_events,
+        )
+        previous_railway_official_hash = str(
+            state_metadata.get("official_hash") or ""
+        )
+        previous_railway_impact = str(state_metadata.get("impact") or "")
+        railway_pre_notify_allowed, railway_pre_notify_reason = (
+            classify_railway_pre_llm_notification(
+                previous_alerts=previous_railway_alerts,
+                current_alerts=railway_beta_alerts,
+                previous_official_hash=previous_railway_official_hash,
+                current_official_hash=railway_official_current_hash,
+                previous_impact=previous_railway_impact,
+            )
+        )
+        current_railway_impact = (
+            "major"
+            if has_major_railway_incident(railway_beta_alerts)
+            else "low_impact"
+            if railway_beta_alerts
+            else ""
+        )
+        if critical_transport_alerts(railway_beta_alerts):
+            next_critical_transport_recovered_at = ""
+        elif critical_transport_alerts(previous_railway_alerts):
+            next_critical_transport_recovered_at = now_jst.isoformat(timespec="seconds")
+        else:
+            next_critical_transport_recovered_at = critical_transport_recovered_at
         railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
+
+        if railway_pre_notify_reason in ("no_official_change", "low_impact"):
+            save_railway_state(
+                RAILWAY_STATE_PATH,
+                railway_beta_alerts,
+                now_jst,
+                railway_level_by_alert,
+                morning_reposted_date,
+                incident_first_seen_at,
+                critical_transport_recovered_at=next_critical_transport_recovered_at,
+                official_hash=railway_official_current_hash,
+                impact=current_railway_impact,
+            )
+            save_structured_filter_state(
+                RAILWAY_ZAIRAI_FILTER_STATE_PATH,
+                current_zairai_events,
+            )
+            result = {
+                "generated_at": now_iso(),
+                "model": "python:railway_pre_llm_filter",
+                "comment": "",
+                "railway_beta_alerts": railway_beta_alerts,
+                "railway_beta_display_alerts": railway_beta_display_alerts,
+                "railway_beta_previous_alerts": previous_railway_alerts,
+                "railway_beta_previous_display_alerts": [
+                    display_railway_alert(alert) for alert in previous_railway_alerts
+                ],
+                "railway_beta_source_urls": railway_source_url_by_alert,
+                "railway_beta_levels": railway_level_by_alert,
+                "railway_beta_change_type": railway_pre_notify_reason,
+                "railway_beta_notification": False,
+                "railway_notify_allowed": False,
+                "railway_official_hash": railway_official_current_hash,
+                "severity": railway_severity,
+                "weather_beta_alerts": weather_beta_alerts,
+                "weather_severity": weather_severity,
+                "done": False,
+                "ollama_skipped": True,
+                "llm_skipped": True,
+                "silent_reason": railway_pre_notify_reason,
+            }
+            write_comment_result(result, "")
+            log(f"railway_notify_suppressed: {railway_pre_notify_reason}")
+            log(f"railway_llm_skipped: true reason={railway_pre_notify_reason}")
+            record_weather_decision(
+                weather_snapshot,
+                now=now_jst,
+                severity=weather_severity,
+                notify_allowed=False,
+                suppress_reason=f"railway_{railway_pre_notify_reason}",
+            )
+            log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+            return 0
+
+        if railway_pre_notify_reason == "recovered_silent":
+            save_railway_state(
+                RAILWAY_STATE_PATH,
+                railway_beta_alerts,
+                now_jst,
+                railway_level_by_alert,
+                morning_reposted_date,
+                incident_first_seen_at,
+                critical_transport_recovered_at=next_critical_transport_recovered_at,
+                official_hash=railway_official_current_hash,
+                impact=current_railway_impact,
+            )
+            save_structured_filter_state(
+                RAILWAY_ZAIRAI_FILTER_STATE_PATH,
+                current_zairai_events,
+            )
+            result = {
+                "generated_at": now_iso(),
+                "model": "python:railway_pre_llm_filter",
+                "comment": "",
+                "railway_beta_alerts": railway_beta_alerts,
+                "railway_beta_display_alerts": railway_beta_display_alerts,
+                "railway_beta_previous_alerts": previous_railway_alerts,
+                "railway_beta_previous_display_alerts": [
+                    display_railway_alert(alert) for alert in previous_railway_alerts
+                ],
+                "railway_beta_change_type": "recovered_silent",
+                "railway_beta_notification": False,
+                "railway_notify_allowed": False,
+                "railway_official_hash": railway_official_current_hash,
+                "severity": railway_severity,
+                "weather_beta_alerts": weather_beta_alerts,
+                "weather_severity": weather_severity,
+                "done": False,
+                "ollama_skipped": True,
+                "llm_skipped": True,
+                "silent_reason": "recovered_silent",
+            }
+            write_comment_result(result, "")
+            log("railway_beta_comment: recovered_silent")
+            record_weather_decision(
+                weather_snapshot,
+                now=now_jst,
+                severity=weather_severity,
+                notify_allowed=False,
+                suppress_reason="railway_recovered_silent",
+            )
+            log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+            return 0
+
+        if railway_pre_notify_reason == "major_incident":
+            log("railway_notify_allowed: major_incident")
+
         comment, change_type, added_alerts, removed_alerts = build_railway_state_comment(
             state_exists,
             previous_railway_alerts,
@@ -1364,12 +1548,6 @@ def main() -> int:
                 "morning_carryover_repost: false "
                 f"reason={carryover_reason}"
             )
-        if critical_transport_alerts(railway_beta_alerts):
-            next_critical_transport_recovered_at = ""
-        elif critical_transport_alerts(previous_railway_alerts):
-            next_critical_transport_recovered_at = now_jst.isoformat(timespec="seconds")
-        else:
-            next_critical_transport_recovered_at = critical_transport_recovered_at
         save_railway_state(
             RAILWAY_STATE_PATH,
             railway_beta_alerts,
@@ -1378,6 +1556,8 @@ def main() -> int:
             morning_reposted_date,
             incident_first_seen_at,
             critical_transport_recovered_at=next_critical_transport_recovered_at,
+            official_hash=railway_official_current_hash,
+            impact=current_railway_impact,
         )
         save_structured_filter_state(
             RAILWAY_ZAIRAI_FILTER_STATE_PATH,
@@ -1391,6 +1571,82 @@ def main() -> int:
             now_jst,
         )
         if change_type == "recovered":
+            if railway_pre_notify_reason == "major_recovered":
+                notification_severity = "recovery"
+                notify_allowed, cooldown_remaining = railway_notify_allowed(
+                    last_notify,
+                    notification_severity,
+                    now_jst,
+                    change_type,
+                )
+                comment = ""
+                if notify_allowed:
+                    comment = "🔵 鉄道運行情報\n\n前回の障害は平常運転に戻りました。"
+                    save_railway_last_notify(
+                        RAILWAY_LAST_NOTIFY_PATH,
+                        notification_severity,
+                        now_jst,
+                    )
+                    log("railway_notify_allowed: major_recovered")
+                else:
+                    log(
+                        "railway_notify_suppressed: cooldown "
+                        f"{notification_severity} {cooldown_remaining}s remaining"
+                    )
+                ok, errors = validate_railway_beta_comment(comment)
+                if not ok:
+                    log(f"railway_beta_comment_guard: {errors}")
+                    comment = ""
+                result = {
+                    "generated_at": now_iso(),
+                    "model": "python:railway_beta_state_diff",
+                    "comment": comment,
+                    "railway_beta_alerts": railway_beta_alerts,
+                    "railway_beta_display_alerts": railway_beta_display_alerts,
+                    "railway_beta_previous_alerts": previous_railway_alerts,
+                    "railway_beta_previous_display_alerts": [
+                        display_railway_alert(alert) for alert in previous_railway_alerts
+                    ],
+                    "railway_beta_added_alerts": added_alerts,
+                    "railway_beta_added_display_alerts": [
+                        display_railway_alert(alert) for alert in added_alerts
+                    ],
+                    "railway_beta_removed_alerts": removed_alerts,
+                    "railway_beta_removed_display_alerts": [
+                        display_railway_alert(alert) for alert in removed_alerts
+                    ],
+                    "railway_beta_source_urls": railway_source_url_by_alert,
+                    "railway_beta_levels": railway_level_by_alert,
+                    "railway_beta_change_type": "recovered",
+                    "railway_beta_notification": bool(comment),
+                    "railway_notify_allowed": bool(comment) and notify_allowed,
+                    "railway_notify_cooldown_remaining_seconds": (
+                        cooldown_remaining if not notify_allowed else 0
+                    ),
+                    "severity": notification_severity,
+                    "weather_beta_alerts": weather_beta_alerts,
+                    "weather_severity": weather_severity,
+                    "done": bool(comment),
+                    "ollama_skipped": True,
+                    "llm_skipped": True,
+                }
+                write_comment_result(result, comment)
+                record_weather_decision(
+                    weather_snapshot,
+                    now=now_jst,
+                    severity=weather_severity,
+                    notify_allowed=False,
+                    suppress_reason=(
+                        "railway_recovery_notification"
+                        if comment
+                        else "railway_recovery_no_notification"
+                    ),
+                )
+                log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+                log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+                log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+                return 0
+
             result = {
                 "generated_at": now_iso(),
                 "model": "python:railway_beta_state_diff",
@@ -1419,6 +1675,7 @@ def main() -> int:
                 "weather_severity": weather_severity,
                 "done": False,
                 "ollama_skipped": True,
+                "llm_skipped": True,
             }
             write_comment_result(result, "")
             log("railway_beta_comment: recovered_silent")
@@ -1470,6 +1727,8 @@ def main() -> int:
                         morning_reposted_date,
                         incident_first_seen_at,
                         critical_transport_recovered_at=next_critical_transport_recovered_at,
+                        official_hash=railway_official_current_hash,
+                        impact=current_railway_impact,
                     )
             result = {
                 "generated_at": now_iso(),
@@ -1687,11 +1946,10 @@ def main() -> int:
     if style_guard_reasons:
         log(f"gemma_style_guard_suppressed: {', '.join(style_guard_reasons)}")
         comment = ""
-    if railway_beta_alerts:
-        ok, errors = validate_railway_beta_comment(comment)
-        if not ok:
-            log(f"railway_beta_comment_guard: {errors}")
-            comment = ""
+    ok, errors = validate_railway_beta_comment(comment)
+    if not ok:
+        log(f"comment_guard: {errors}")
+        comment = ""
     result = {
         "generated_at": now_iso(),
         "model": MODEL,

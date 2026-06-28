@@ -95,6 +95,8 @@ def load_railway_state_metadata(path: Path) -> dict[str, Any]:
         "critical_transport_recovered_at": str(
             data.get("critical_transport_recovered_at") or ""
         ),
+        "official_hash": str(data.get("official_hash") or ""),
+        "impact": str(data.get("impact") or ""),
     }
 
 
@@ -181,6 +183,8 @@ def save_railway_state(
     morning_reposted_date: str = "",
     incident_first_seen_at: dict[str, str] | None = None,
     critical_transport_recovered_at: str = "",
+    official_hash: str = "",
+    impact: str = "",
 ) -> None:
     if isinstance(updated_at, datetime):
         updated_at_text = updated_at.isoformat(timespec="seconds")
@@ -200,6 +204,8 @@ def save_railway_state(
         },
         "morning_reposted_date": str(morning_reposted_date or ""),
         "critical_transport_recovered_at": str(critical_transport_recovered_at or ""),
+        "official_hash": str(official_hash or ""),
+        "impact": str(impact or ""),
         "incident_first_seen_at": {
             alert: str(incident_first_seen_at[alert])
             for alert in cleaned_alerts

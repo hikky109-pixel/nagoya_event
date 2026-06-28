@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from tools.ai.railway_filters import (  # noqa: E402
+    classify_railway_pre_llm_notification,
     classify_shinkansen_change,
     classify_zairai_change,
 )
@@ -137,3 +138,89 @@ def test_zairai_notifies_first_prospect_time() -> None:
         [previous],
         [current],
     ) == (True, "prospect_time_first")
+
+
+def test_railway_pre_llm_suppresses_animal_collision_only() -> None:
+    alerts = ["JR東海在来線 東海道線(豊橋～米原): 醒ケ井駅付近で動物衝突のため、遅れが発生しています。"]
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=[],
+        current_alerts=alerts,
+        current_official_hash="animal",
+    ) == (False, "low_impact")
+
+
+def test_railway_pre_llm_suppresses_turnback_delay_only() -> None:
+    alerts = ["JR東海在来線 東海道線(豊橋～米原): 折り返し列車の遅れのため、遅れが発生しています。"]
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=[],
+        current_alerts=alerts,
+        current_official_hash="turnback",
+    ) == (False, "low_impact")
+
+
+def test_railway_pre_llm_suppresses_animal_and_turnback_delay() -> None:
+    alerts = [
+        (
+            "JR東海在来線 東海道線(豊橋～米原): 醒ケ井駅付近で動物衝突、"
+            "折り返し列車の遅れにより、最大遅れ10分程度です。"
+        )
+    ]
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=[],
+        current_alerts=alerts,
+        current_official_hash="animal-turnback",
+    ) == (False, "low_impact")
+
+
+def test_railway_pre_llm_suppresses_same_alerts_continuing() -> None:
+    alerts = ["JR東海在来線 東海道線(豊橋～米原): 運転を見合わせています。"]
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=alerts,
+        current_alerts=alerts,
+        previous_official_hash="same",
+        current_official_hash="same",
+    ) == (False, "no_official_change")
+
+
+def test_railway_pre_llm_allows_suspension() -> None:
+    alerts = ["JR東海在来線 東海道線(豊橋～米原): 運転見合わせが発生しています。"]
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=[],
+        current_alerts=alerts,
+        current_official_hash="suspension",
+    ) == (True, "major_incident")
+
+
+def test_railway_pre_llm_allows_person_injury() -> None:
+    alerts = ["名鉄 名古屋本線: 人身事故のため、運転を見合わせています。"]
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=[],
+        current_alerts=alerts,
+        current_official_hash="person-injury",
+    ) == (True, "major_incident")
+
+
+def test_railway_pre_llm_silent_recovery_from_low_impact() -> None:
+    previous = ["JR東海在来線 東海道線(豊橋～米原): 動物衝突のため、最大遅れ10分程度です。"]
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=previous,
+        current_alerts=[],
+        previous_impact="low_impact",
+    ) == (False, "recovered_silent")
+
+
+def test_railway_pre_llm_allows_recovery_from_major() -> None:
+    previous = ["JR東海在来線 東海道線(豊橋～米原): 運転見合わせが発生しています。"]
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=previous,
+        current_alerts=[],
+        previous_impact="major",
+    ) == (True, "major_recovered")

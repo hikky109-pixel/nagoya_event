@@ -74,6 +74,32 @@ ZAIRAI_STATUS_RANK = {
     "0003": 3,
     "0004": 3,
 }
+LOW_IMPACT_MARKERS = (
+    "動物衝突",
+    "動物が列車に衝突",
+    "動物と衝突",
+    "折り返し列車の遅れ",
+    "車両点検",
+    "非常ボタン",
+    "踏切安全確認",
+    "踏切内で障害物",
+)
+MAJOR_INCIDENT_MARKERS = (
+    "運転見合わせ",
+    "運転を見合わせ",
+    "抑止",
+    "人身事故",
+    "長時間運休",
+    "重大障害",
+    "広範囲",
+    "孤立",
+    "代替困難",
+    "タクシー需要",
+)
+LIMITED_EXPRESS_LOW_IMPACT_NAMES = ("しなの", "しらさぎ")
+MAX_DELAY_PATTERN = re.compile(
+    r"(?:最大(?:遅れ)?|最大で|最大)\s*([0-9０-９]{1,3})\s*分(?:程度|ほど)?"
+)
 
 
 def _body(alert: str) -> str:
@@ -95,6 +121,66 @@ def _restart_minutes(text: str) -> int | None:
     hour = int(_to_ascii_digits(match.group(1)))
     minute = int(_to_ascii_digits(match.group(2)))
     return hour * 60 + minute
+
+
+def _max_delay_minutes(text: str) -> int | None:
+    normalized = _to_ascii_digits(text)
+    match = MAX_DELAY_PATTERN.search(normalized)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def has_major_railway_incident(alerts: list[str]) -> bool:
+    texts = [" ".join(str(alert or "").split()) for alert in alerts]
+    return any(marker in text for text in texts for marker in MAJOR_INCIDENT_MARKERS)
+
+
+def is_low_impact_railway_alert(alert: str) -> bool:
+    text = " ".join(str(alert or "").split())
+    if not text or has_major_railway_incident([text]):
+        return False
+    if any(marker in text for marker in LOW_IMPACT_MARKERS):
+        return True
+    if _max_delay_minutes(text) is not None and _max_delay_minutes(text) <= 10:
+        return True
+    if (
+        any(name in text for name in LIMITED_EXPRESS_LOW_IMPACT_NAMES)
+        and "遅れ" in text
+        and not any(marker in text for marker in ("運休", "見合わせ", "人身事故"))
+    ):
+        return True
+    return False
+
+
+def is_low_impact_railway_alerts(alerts: list[str]) -> bool:
+    cleaned = [" ".join(str(alert or "").split()) for alert in alerts if str(alert or "").strip()]
+    if not cleaned or has_major_railway_incident(cleaned):
+        return False
+    return all(is_low_impact_railway_alert(alert) for alert in cleaned)
+
+
+def classify_railway_pre_llm_notification(
+    *,
+    previous_alerts: list[str],
+    current_alerts: list[str],
+    previous_official_hash: str = "",
+    current_official_hash: str = "",
+    previous_impact: str = "",
+) -> tuple[bool, str]:
+    previous_clean = [" ".join(str(alert or "").split()) for alert in previous_alerts if str(alert or "").strip()]
+    current_clean = [" ".join(str(alert or "").split()) for alert in current_alerts if str(alert or "").strip()]
+    if current_clean and previous_official_hash and previous_official_hash == current_official_hash:
+        return False, "no_official_change"
+    if current_clean and not has_major_railway_incident(current_clean):
+        return False, "low_impact"
+    if current_clean and has_major_railway_incident(current_clean):
+        return True, "major_incident"
+    if previous_clean and not current_clean:
+        if previous_impact == "low_impact" or is_low_impact_railway_alerts(previous_clean):
+            return False, "recovered_silent"
+        return True, "major_recovered"
+    return False, "no_actionable_railway_alert"
 
 
 def parse_shinkansen_alert(alert: str) -> dict[str, Any]:
