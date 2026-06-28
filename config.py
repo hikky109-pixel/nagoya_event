@@ -1,5 +1,9 @@
 import os
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv():
+        return False
 
 load_dotenv()
 
@@ -133,3 +137,4 @@ GEMMA_HISTORY_SEARCH_MAX_ITEMS = _int_env("GEMMA_HISTORY_SEARCH_MAX_ITEMS", 12)
 GEMMA_ORACLE_MAX_ITEMS = _int_env("GEMMA_ORACLE_MAX_ITEMS", 3)
 GEMMA_TIME_DEBUG = _bool_env("GEMMA_TIME_DEBUG", True)
 GEMMA_SEARCH_HISTORY_OLLAMA_TIMEOUT = _int_env("GEMMA_SEARCH_HISTORY_OLLAMA_TIMEOUT", 35)
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b").strip() or "gemma3:4b"

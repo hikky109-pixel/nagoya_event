@@ -16,6 +16,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+import config  # noqa: E402
+
 try:
     from jrc_zairai_targets import jrc_target_line_display, jrc_target_line_url
     from get_jrc_shinkansen_plan_notice import get_jrc_shinkansen_plan_notice
@@ -100,7 +102,7 @@ WEATHER_DEBUG_DIR = ROOT / "data" / "debug" / "weather"
 RAILWAY_HISTORY_PATH = AI_DIR / "railway_history.yml"
 RAILWAY_ZAIRAI_FILTER_STATE_PATH = AI_DIR / "railway_zairai_filter_state.json"
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "gemma3:4b"
+MODEL = config.OLLAMA_MODEL
 RAILWAY_BETA_EXCLUDE_MARKERS = (
     "取得失敗",
     "運行情報提供停止",
@@ -1299,6 +1301,7 @@ def main() -> int:
     profile = load_profile(PROFILE_PATH)
     style = load_gemma_style()
     now_jst = datetime.now(JST)
+    log(f"ollama_model: {MODEL}")
     try:
         get_jrc_shinkansen_plan_notice(now=now_jst)
     except Exception as exc:
