@@ -182,7 +182,7 @@ async def repost_placeinfo_button(interaction: Any, discord: Any) -> None:
         if channel is None:
             await interaction.response.send_message(FAILURE_MESSAGE, ephemeral=True)
             return
-        await send_placeinfo_test_button(channel, discord)
+        sent = await send_placeinfo_test_button(channel, discord)
         original_message = getattr(interaction, "message", None)
         if original_message is not None:
             try:
@@ -190,6 +190,7 @@ async def repost_placeinfo_button(interaction: Any, discord: Any) -> None:
             except Exception:
                 print("placeinfo_repost_original_delete_failed", flush=True)
                 traceback.print_exc()
+        await delete_legacy_placeinfo_messages(channel, keep_message_id=str(getattr(sent, "id", "")))
         await interaction.response.send_message("📍 新しいPlaceInfoテストボタンを追加しました😇", ephemeral=True)
     except Exception:
         print("placeinfo_repost_failed", flush=True)
@@ -202,6 +203,29 @@ async def repost_placeinfo_button(interaction: Any, discord: Any) -> None:
 
 async def send_placeinfo_test_button(channel: Any, discord: Any) -> Any:
     return await channel.send(message_text(), view=create_placeinfo_test_view(discord))
+
+
+async def delete_legacy_placeinfo_messages(channel: Any, *, keep_message_id: str) -> None:
+    history = getattr(channel, "history", None)
+    if history is None:
+        return
+    try:
+        async for message in channel.history(limit=10):
+            if str(getattr(message, "id", "")) == keep_message_id:
+                continue
+            content = str(getattr(message, "content", "") or "").strip()
+            if not content.startswith("📍 Yahoo PlaceInfo テスト"):
+                continue
+            if content == message_text():
+                continue
+            try:
+                await message.delete()
+            except Exception:
+                print("placeinfo_legacy_message_delete_failed", flush=True)
+                traceback.print_exc()
+    except Exception:
+        print("placeinfo_legacy_cleanup_failed", flush=True)
+        traceback.print_exc()
 
 
 def gps_web_url() -> str:
