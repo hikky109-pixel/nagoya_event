@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gemma向け daily_context.json を生成する。"""
+"""名駅AI向け daily_context.json を生成する。"""
 
 from __future__ import annotations
 
@@ -21,6 +21,9 @@ WEATHER_PATH = AI_DIR / "weather_summary.json"
 RAILWAY_PATH = AI_DIR / "railway_summary.json"
 X_SUMMARY_PATH = AI_DIR / "x_summary.json"
 DRAGONS_PATH = AI_DIR / "dragons_log.yml"
+CRUISE_CSV_PATH = ROOT / "csv_events" / "cruise.csv"
+ASIA_CSV_PATH = ROOT / "csv_events" / "asia.csv"
+BUSY_LOG_PATH = DATA_DIR / "signals" / "meieki_busy_log.jsonl"
 OUTPUT_PATH = AI_DIR / "daily_context.json"
 
 
@@ -260,6 +263,33 @@ def read_incidents(yaml_module: Any | None, notes: list[str]) -> list[dict[str, 
     return incidents
 
 
+def read_busy_reports(notes: list[str], limit: int = 50) -> list[dict[str, Any]]:
+    if not BUSY_LOG_PATH.exists():
+        return []
+    try:
+        lines = BUSY_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        notes.append(f"Failed to read {BUSY_LOG_PATH.relative_to(ROOT)}: {exc}")
+        return []
+
+    reports: list[dict[str, Any]] = []
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            row: Any = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        if row.get("type") == "cancel":
+            continue
+        reports.append(row)
+        if len(reports) >= limit:
+            break
+    return list(reversed(reports))
+
+
 def build_context() -> dict[str, Any]:
     notes: list[str] = []
     yaml_module = try_import_yaml()
@@ -269,6 +299,10 @@ def build_context() -> dict[str, Any]:
         "generated_at": now_iso(),
         "events": events,
         "road_events": road_events,
+        "road": road_events,
+        "cruise": read_csv(CRUISE_CSV_PATH, notes),
+        "asia_games": read_csv(ASIA_CSV_PATH, notes),
+        "busy_reports": read_busy_reports(notes),
         "orbis": read_csv(ORBIS_PATH, notes),
         "incidents": read_incidents(yaml_module, notes),
         "weather": read_json(WEATHER_PATH, notes),
@@ -291,6 +325,9 @@ def main() -> int:
     print(f"wrote: {OUTPUT_PATH.relative_to(ROOT)}")
     print(f"events: {len(context['events'])}")
     print(f"road_events: {len(context['road_events'])}")
+    print(f"cruise: {len(context['cruise'])}")
+    print(f"asia_games: {len(context['asia_games'])}")
+    print(f"busy_reports: {len(context['busy_reports'])}")
     print(f"orbis: {len(context['orbis'])}")
     print(f"incidents: {len(context['incidents'])}")
     print(f"weather: {1 if context['weather'] else 0}")
