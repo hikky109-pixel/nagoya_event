@@ -8,11 +8,13 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +25,9 @@ from tools.location.get_yahoo_placeinfo import get_yahoo_placeinfo  # noqa: E402
 
 
 REQUEST_TIMEOUT_SECONDS = 10
+JST = ZoneInfo("Asia/Tokyo")
+PLACEINFO_DIR = ROOT / "data" / "location" / "placeinfo"
+METADATA_KEYS = ("source", "user_id", "report_type", "channel_id")
 
 
 GPS_HTML = """<!doctype html>
@@ -119,13 +124,17 @@ GPS_HTML = """<!doctype html>
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
       setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\nYahoo PlaceInfoを確認しています...`);
-      const response = await fetch(`/api/placeinfo?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
+      const params = new URLSearchParams(window.location.search);
+      params.set("lat", lat);
+      params.set("lon", lon);
+      const response = await fetch(`/api/placeinfo?${params.toString()}`);
       const data = await response.json();
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "placeinfo_failed");
       }
       const candidates = data.result.candidates || [];
-      setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件`);
+      const discordStatus = data.discord_posted ? "\\nDiscordへ送信しました😇" : "\\nDiscord送信は確認できませんでした";
+      setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
       renderCandidates(candidates);
     }
 
@@ -177,7 +186,7 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
     lon = float(result.get("lon") or 0)
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     lines = [
-        "📍 Yahoo PlaceInfo 結果",
+        "📍 現在地テスト結果",
         "",
         "座標:",
         f"{lat:.6f}, {lon:.6f}",
@@ -196,6 +205,38 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def first_query_value(query: dict[str, list[str]], key: str) -> str:
+    value = (query.get(key) or [""])[0]
+    return str(value or "").strip()
+
+
+def request_metadata(query: dict[str, list[str]]) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for key in METADATA_KEYS:
+        value = first_query_value(query, key)
+        if value:
+            metadata[key] = value[:120]
+    return metadata
+
+
+def save_discord_post_result(result: dict[str, Any], *, metadata: dict[str, str], posted: bool) -> str:
+    PLACEINFO_DIR.mkdir(parents=True, exist_ok=True)
+    saved_at = datetime.now(JST)
+    payload = {
+        "saved_at": saved_at.isoformat(timespec="seconds"),
+        "source": "GPSWebApp",
+        "discord_posted": posted,
+        "metadata": metadata,
+        "placeinfo_raw_path": result.get("raw_path", ""),
+        "lat": result.get("lat"),
+        "lon": result.get("lon"),
+        "candidates": result.get("candidates", []),
+    }
+    path = PLACEINFO_DIR / f"{saved_at:%Y%m%d_%H%M%S}_gps_discord.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return str(path.relative_to(ROOT))
+
+
 def post_discord_webhook(content: str) -> bool:
     webhook_url = (GEMMA_DISCORD_WEBHOOK or GEMMA_WEBHOOK_URL or "").strip()
     if not webhook_url:
@@ -212,7 +253,8 @@ def post_discord_webhook(content: str) -> bool:
     try:
         with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             return 200 <= int(response.status) < 300
-    except (OSError, urllib.error.URLError):
+    except (OSError, urllib.error.URLError) as exc:
+        print(f"gps_discord_webhook_post_failed={type(exc).__name__}", flush=True)
         return False
 
 
@@ -234,12 +276,13 @@ def post_discord_bot_message(content: str) -> bool:
     try:
         with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             return 200 <= int(response.status) < 300
-    except (OSError, urllib.error.URLError):
+    except (OSError, urllib.error.URLError) as exc:
+        print(f"gps_discord_bot_post_failed={type(exc).__name__}", flush=True)
         return False
 
 
 def post_discord_report(content: str) -> bool:
-    return post_discord_webhook(content) or post_discord_bot_message(content)
+    return post_discord_bot_message(content) or post_discord_webhook(content)
 
 
 class GPSRequestHandler(BaseHTTPRequestHandler):
@@ -283,9 +326,22 @@ class GPSRequestHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": "invalid_lat_lon"}, status=HTTPStatus.BAD_REQUEST)
             return
 
+        metadata = request_metadata(query)
         result = get_yahoo_placeinfo(lat, lon, area="gps")
+        if metadata:
+            result["request"] = metadata
         posted = post_discord_report(placeinfo_summary(result))
-        self.send_json({"ok": True, "result": result, "discord_posted": posted})
+        if not posted:
+            print("gps_discord_post_failed=true", flush=True)
+        post_result_path = save_discord_post_result(result, metadata=metadata, posted=posted)
+        self.send_json(
+            {
+                "ok": True,
+                "result": result,
+                "discord_posted": posted,
+                "discord_post_result_path": post_result_path,
+            }
+        )
 
 
 def parse_args() -> argparse.Namespace:

@@ -10,6 +10,7 @@ import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from config import GPS_WEB_BASE_URL
@@ -198,9 +199,12 @@ def gps_web_url() -> str:
     base_url = str(GPS_WEB_BASE_URL or "").strip().rstrip("/")
     if not base_url:
         return ""
-    if base_url.endswith("/gps"):
-        return base_url
-    return f"{base_url}/gps"
+    if not base_url.endswith("/gps"):
+        base_url = f"{base_url}/gps"
+    parts = urlsplit(base_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query.setdefault("source", "discord")
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 def build_placeinfo_test_view(discord: Any) -> Any:
