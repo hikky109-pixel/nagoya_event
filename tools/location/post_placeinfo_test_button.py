@@ -20,9 +20,8 @@ sys.path.insert(0, str(ROOT))
 
 import config  # noqa: E402
 from tools.location.placeinfo_test_buttons import (  # noqa: E402
-    build_placeinfo_test_view,
     is_placeinfo_test_message,
-    message_text,
+    send_placeinfo_test_button,
 )
 
 
@@ -87,6 +86,12 @@ async def visible_button_message_exists(channel: Any, client_user: Any) -> bool:
     return False
 
 
+async def post_placeinfo_test_button(channel: Any, discord: Any) -> Any:
+    sent = await send_placeinfo_test_button(channel, discord)
+    save_state(str(getattr(sent, "id", "")))
+    return sent
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Yahoo PlaceInfo テストボタンを投稿する。")
     parser.add_argument("--force", action="store_true", help="再掲制限を無視して強制投稿する。")
@@ -139,8 +144,7 @@ def main() -> int:
             await client.close()
             return
 
-        sent = await channel.send(message_text(), view=build_placeinfo_test_view(discord))
-        save_state(str(getattr(sent, "id", "")))
+        await post_placeinfo_test_button(channel, discord)
         print("Yahoo PlaceInfoテストボタン投稿完了")
         await client.close()
 

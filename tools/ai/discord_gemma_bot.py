@@ -127,7 +127,7 @@ from tools.ai.entity_dictionary import classify_by_dictionary  # noqa: E402
 from tools.ai.entity_resolver import entity_system_prompt  # noqa: E402
 from tools.ai.search_router import needs_research  # noqa: E402
 from tools.ai.time_debug import timer  # noqa: E402
-from tools.location.placeinfo_test_buttons import build_placeinfo_test_view  # noqa: E402
+from tools.location.placeinfo_test_buttons import build_placeinfo_test_view, handle_placeinfo_coordinate_message  # noqa: E402
 from tools.weather.get_today_forecast import get_today_forecast  # noqa: E402
 
 
@@ -965,6 +965,9 @@ def main() -> int:
 
             content = message.content.strip()
             if not content and not attachments:
+                return
+            if content and await handle_placeinfo_coordinate_message(message):
+                print("reply_path=placeinfo_coordinate", flush=True)
                 return
 
             blocked = bool(content and content_filter.is_filtered(content))
