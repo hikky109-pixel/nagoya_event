@@ -40,10 +40,35 @@ ASIA_CSV_PATH = ROOT / "csv_events" / "asia.csv"
 BUSY_LOG_PATH = DATA_DIR / "signals" / "meieki_busy_log.jsonl"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 DEFAULT_QWEN_OLLAMA_MODEL = "qwen2.5:7b"
+CONTEXT_BYTE_LIMIT = 8192
 PROMPT_CONTEXT_BYTE_LIMIT = 6144
 PROMPT_REPORT_BYTE_LIMIT = 1536
 AI_MODEL = getattr(config, "AI_MODEL", "qwen") or "qwen"
 MODEL = os.getenv("OLLAMA_MODEL", "").strip() or DEFAULT_QWEN_OLLAMA_MODEL
+LIST_LIMITS = {
+    "events": 20,
+    "road": 20,
+    "cruise": 10,
+    "asia_games": 10,
+    "busy_reports": 20,
+}
+COMPACT_FIELDS = (
+    "date",
+    "time",
+    "end_time",
+    "venue",
+    "title",
+    "source",
+    "status",
+    "note",
+    "url",
+    "line",
+    "name",
+    "place",
+    "label",
+    "ts",
+    "timestamp",
+)
 
 CONTEXT_KEYS = (
     "events",
@@ -92,7 +117,7 @@ def load_text(path: Path) -> str:
         return ""
 
 
-def read_csv_rows(path: Path, limit: int = 80) -> list[dict[str, str]]:
+def read_csv_rows(path: Path, limit: int = 20) -> list[dict[str, str]]:
     if not path.exists():
         return []
     try:
@@ -105,7 +130,7 @@ def read_csv_rows(path: Path, limit: int = 80) -> list[dict[str, str]]:
     return (upcoming or rows)[:limit]
 
 
-def read_busy_reports(limit: int = 50) -> list[dict[str, Any]]:
+def read_busy_reports(limit: int = 20) -> list[dict[str, Any]]:
     if not BUSY_LOG_PATH.exists():
         return []
     try:
@@ -135,18 +160,49 @@ def compact_list(value: Any, limit: int) -> Any:
     return value
 
 
+def compact_value(value: Any, max_chars: int = 100) -> Any:
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    text = " ".join(str(value).split())
+    if not text:
+        return ""
+    return text[:max_chars]
+
+
+def compact_mapping(row: Any) -> Any:
+    if not isinstance(row, dict):
+        return compact_value(row)
+    compacted = {
+        key: compact_value(row.get(key))
+        for key in COMPACT_FIELDS
+        if compact_value(row.get(key)) not in {"", None}
+    }
+    return compacted or {
+        key: compact_value(value)
+        for key, value in list(row.items())[:6]
+        if compact_value(value) not in {"", None}
+    }
+
+
+def compact_records(value: Any, key: str) -> Any:
+    limit = LIST_LIMITS.get(key, 10)
+    if not isinstance(value, list):
+        return value
+    return [compact_mapping(row) for row in value[:limit]]
+
+
 def build_input_context() -> dict[str, Any]:
     context = load_json(CONTEXT_PATH)
     road_events = context.get("road") or context.get("road_events") or []
 
     qwen_context: dict[str, Any] = {
-        "events": compact_list(context.get("events", []), 80),
+        "events": compact_records(context.get("events", []), "events"),
         "railway": context.get("railway", {}),
-        "road": compact_list(road_events, 80),
+        "road": compact_records(road_events, "road"),
         "weather": context.get("weather", {}),
-        "cruise": compact_list(context.get("cruise") or read_csv_rows(CRUISE_CSV_PATH), 80),
-        "asia_games": compact_list(context.get("asia_games") or read_csv_rows(ASIA_CSV_PATH), 80),
-        "busy_reports": compact_list(context.get("busy_reports") or read_busy_reports(), 50),
+        "cruise": compact_records(context.get("cruise") or read_csv_rows(CRUISE_CSV_PATH), "cruise"),
+        "asia_games": compact_records(context.get("asia_games") or read_csv_rows(ASIA_CSV_PATH), "asia_games"),
+        "busy_reports": compact_records(context.get("busy_reports") or read_busy_reports(), "busy_reports"),
     }
     return qwen_context
 
@@ -168,13 +224,35 @@ def serialize_input_context(input_context: dict[str, Any]) -> str:
     return json.dumps(input_context, ensure_ascii=False, indent=2, default=str)
 
 
+def fit_context_to_limit(input_context: dict[str, Any], byte_limit: int = CONTEXT_BYTE_LIMIT) -> dict[str, Any]:
+    fitted = dict(input_context)
+    for key in ("events", "road", "busy_reports", "cruise", "asia_games"):
+        value = fitted.get(key)
+        if isinstance(value, list):
+            fitted[key] = list(value)
+    while utf8_size(serialize_input_context(fitted)) > byte_limit:
+        longest_key = ""
+        longest_len = 0
+        for key, value in fitted.items():
+            if isinstance(value, list) and len(value) > longest_len:
+                longest_key = key
+                longest_len = len(value)
+        if not longest_key or longest_len <= 1:
+            break
+        fitted[longest_key] = fitted[longest_key][: max(1, longest_len // 2)]
+    return fitted
+
+
 def build_prompt(input_context: dict[str, Any], report: str) -> str:
     context_json = truncate_utf8(serialize_input_context(input_context), PROMPT_CONTEXT_BYTE_LIMIT)
     report_text = truncate_utf8(report, PROMPT_REPORT_BYTE_LIMIT)
     return "\n".join(
         [
             "あなたは名駅AIです。名古屋駅周辺の交通・天気・イベント情報を短く実務向けに整理してください。",
-            "推測は禁止。入力に無い事実を補わないでください。",
+            "事前知識を使わないでください。",
+            "入力JSONにない事実を作らないでください。",
+            "推測が必要な場合は必ず「推測」と明記してください。",
+            "名古屋城、観光地、Uberなど、入力JSONに無い話題は禁止です。",
             "送信文はこの後Python側の固定テンプレートへ流し込むため、必ずJSONだけを返してください。",
             "Markdown、前置き、コードフェンスは禁止です。",
             "",
@@ -311,7 +389,10 @@ def write_comment_result(result: dict[str, Any], comment: str) -> None:
 def main() -> int:
     log(f"ai_model: {AI_MODEL}")
     log(f"ollama_model: {MODEL}")
-    input_context = build_input_context()
+    raw_input_context = build_input_context()
+    raw_context_json = serialize_input_context(raw_input_context)
+    log(f"qwen_context_json_raw_bytes: {utf8_size(raw_context_json)}")
+    input_context = fit_context_to_limit(raw_input_context)
     context_json = serialize_input_context(input_context)
     log(f"qwen_context_json_bytes: {utf8_size(context_json)}")
     report = load_text(REPORT_PATH)
