@@ -104,6 +104,19 @@ FORBIDDEN_TERMS = (
     "2024年現在",
     "2023年データ",
 )
+INTERNAL_MESSAGE_PATTERNS = (
+    "入力あり:",
+    "入力あり：",
+)
+FALLBACK_LABELS = {
+    "events": "イベント情報を確認中",
+    "railway": "鉄道情報を確認中",
+    "road": "道路情報を確認中",
+    "weather": "天気情報を確認中",
+    "cruise": "クルーズ情報を確認中",
+    "asia_games": "試合情報を確認中",
+    "busy_reports": "混雑報告を確認中",
+}
 
 
 def now_iso() -> str:
@@ -350,11 +363,25 @@ def call_ollama(prompt: str, model: str) -> dict[str, Any] | None:
         return None
 
 
-def extract_json_object(text: str) -> dict[str, Any]:
+def strip_json_fence(text: str) -> str:
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
         stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped
+
+
+def extract_json_object(text: str) -> tuple[dict[str, Any], str]:
+    stripped = strip_json_fence(text)
+    try:
+        loaded = json.loads(stripped)
+    except json.JSONDecodeError:
+        loaded = None
+    if isinstance(loaded, (list, str)):
+        return {}, f"raw_response_type_{type(loaded).__name__}"
+    if isinstance(loaded, dict):
+        return loaded, ""
+
     candidates = [stripped]
     match = re.search(r"\{.*\}", stripped, flags=re.DOTALL)
     if match:
@@ -365,30 +392,52 @@ def extract_json_object(text: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             continue
         if isinstance(data, dict):
-            return data
-    return {}
+            return data, ""
+        if isinstance(data, (list, str)):
+            return {}, f"raw_response_type_{type(data).__name__}"
+    return {}, "raw_response_not_json_object"
 
 
-def normalize_comment_lines(value: Any) -> list[str]:
-    if isinstance(value, str):
-        candidates: list[Any] = value.splitlines()
-    elif isinstance(value, list):
-        candidates = value
-    else:
-        candidates = []
+def context_counts(input_context: dict[str, Any]) -> dict[str, int]:
+    return {
+        key: len(value) if isinstance(value, list) else int(bool(value))
+        for key, value in input_context.items()
+    }
+
+
+def has_input_data(input_context: dict[str, Any]) -> bool:
+    return any(context_counts(input_context).values())
+
+
+def normalize_comment_lines(value: Any, input_context: dict[str, Any]) -> tuple[list[str], str]:
+    if not isinstance(value, list):
+        return [], "comment_lines_not_list"
 
     lines: list[str] = []
-    for item in candidates:
-        text = " ".join(str(item or "").split())
+    for item in value:
+        if not isinstance(item, str):
+            return [], "comment_line_not_string"
+        text = " ".join(item.split())
         text = text.lstrip("-・* ").strip()
         if not text:
-            continue
+            return [], "comment_line_empty"
+        if any(pattern in text for pattern in INTERNAL_MESSAGE_PATTERNS):
+            return [], "internal_message"
+        if "判断材料不足" in text and has_input_data(input_context):
+            return [], "insufficient_material_with_data"
         if not text.startswith("・"):
             text = f"・{text}"
-        lines.append(text[:MAX_LINE_CHARS])
+        terms = forbidden_terms_in(text)
+        if terms:
+            return [], f"forbidden_terms={','.join(terms)}"
+        if len(text) > MAX_LINE_CHARS:
+            return [], f"comment_line_too_long chars={len(text)}"
+        lines.append(text)
         if len(lines) >= MAX_COMMENT_LINES:
             break
-    return lines
+    if not lines:
+        return [], "comment_lines_empty"
+    return lines, ""
 
 
 def forbidden_terms_in(text: str) -> list[str]:
@@ -408,31 +457,37 @@ def guard_comment(comment: str) -> str:
     return comment
 
 
-def render_comment(data: dict[str, Any]) -> str:
-    lines = normalize_comment_lines(data.get("comment_lines"))
+def render_comment(data: dict[str, Any], input_context: dict[str, Any]) -> tuple[str, str]:
+    if "comment_lines" not in data:
+        return "", "comment_lines_missing"
+    lines, reason = normalize_comment_lines(data.get("comment_lines"), input_context)
+    if reason:
+        return "", reason
     comment = "\n".join(lines)
+    if len(comment) > MAX_COMMENT_CHARS:
+        return "", f"comment_too_long chars={len(comment)}"
     guarded = guard_comment(comment)
     if guarded:
-        return guarded
-    return ""
+        return guarded, ""
+    return "", "output_policy_rejected"
 
 
 def fallback_comment(input_context: dict[str, Any]) -> str:
-    counts = {
-        key: len(value) if isinstance(value, list) else int(bool(value))
-        for key, value in input_context.items()
-    }
+    counts = context_counts(input_context)
     active = [key for key, count in counts.items() if count]
     if not active:
-        return ""
-    active_text = ", ".join(active[:3])
-    if len(active) > 3:
-        active_text = f"{active_text} 他{len(active) - 3}件"
-    lines = [
-        f"・入力あり: {active_text}",
-        "・判断材料不足",
-    ]
-    return guard_comment("\n".join(line[:MAX_LINE_CHARS] for line in lines))
+        return "・判断材料不足"
+    lines = [f"・{FALLBACK_LABELS.get(key, 'データを確認中')}" for key in active[:MAX_COMMENT_LINES]]
+    return guard_comment("\n".join(lines))
+
+
+def log_fallback(reason: str) -> None:
+    log(f"qwen_fallback_reason: {reason}")
+
+
+def log_output_lines(comment: str) -> None:
+    lines = comment.splitlines() if comment else []
+    log(f"qwen_output_lines: count={len(lines)} lines={json.dumps(lines, ensure_ascii=False)}")
 
 
 def write_comment_result(result: dict[str, Any], comment: str) -> None:
@@ -462,6 +517,8 @@ def main() -> int:
 
     if response is None:
         comment = fallback_comment(input_context)
+        log_fallback("ollama_error")
+        log_output_lines(comment)
         result = {
             "generated_at": now_iso(),
             "ai_model": AI_MODEL,
@@ -475,10 +532,16 @@ def main() -> int:
         return 0
 
     raw = str(response.get("response", "")).strip()
-    parsed = extract_json_object(raw)
-    comment = render_comment(parsed) if parsed else ""
+    parsed, invalid_reason = extract_json_object(raw)
+    comment = ""
+    if parsed:
+        comment, invalid_reason = render_comment(parsed, input_context)
+    if invalid_reason:
+        log(f"qwen_schema_invalid: {invalid_reason}")
     if not comment:
+        log_fallback(invalid_reason or "empty_output")
         comment = fallback_comment(input_context)
+    log_output_lines(comment)
     result = {
         "generated_at": now_iso(),
         "ai_model": AI_MODEL,
