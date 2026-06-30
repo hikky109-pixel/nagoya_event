@@ -12,22 +12,96 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from utils import is_wanted_venue
 
+from tools.common.scraper_health import (
+    build_admin_warning_message,
+    check_selector_count,
+    check_sequence,
+    check_structure_hash,
+    has_major_warning,
+)
+
 
 URL = "https://www.sundayfolk.com/calendar/"
 
 
-def scrape_sundayfolk(page, target_date):
+def _calendar_dates(soup):
+    dates = []
+    for node in soup.select("[id^='d']"):
+        match = re.fullmatch(r"d(\d{8})", node.get("id", ""))
+        if match and match.group(1) not in dates:
+            dates.append(match.group(1))
+    return dates
+
+
+def _sundayfolk_health_messages(soup):
+    messages = []
+    event_selector = "[id^='d'] tr"
+    dates = _calendar_dates(soup)
+    messages.extend(
+        check_sequence(
+            "sundayfolk",
+            "calendar_dates",
+            "dates",
+            dates,
+            min_count=1,
+        )
+    )
+    messages.extend(
+        check_selector_count(
+            "sundayfolk",
+            soup,
+            event_selector,
+            "events",
+            min_count=1,
+            drop_ratio=0.8,
+        )
+    )
+    fragment_nodes = soup.select("[id^='d'], table")
+    messages.extend(
+        check_structure_hash(
+            "sundayfolk",
+            "\n".join(str(node) for node in fragment_nodes),
+            "calendar",
+        )
+    )
+    if has_major_warning(messages, "sundayfolk"):
+        messages.append(
+            build_admin_warning_message(
+                "サンデーフォーク",
+                {"日付": len(dates), "イベント": len(soup.select(event_selector))},
+            )
+        )
+    return messages
+
+
+def scrape_sundayfolk_with_health(page, target_date):
     events = []
+    health_messages = []
 
     target_anchor = "d" + target_date.strftime("%Y%m%d")
 
-    page.goto(URL, wait_until="domcontentloaded", timeout=15000)
+    try:
+        page.goto(URL, wait_until="domcontentloaded", timeout=15000)
+    except Exception as exc:
+        health_messages.append(
+            "scraper_health_warning: "
+            f"sundayfolk HTML取得失敗 error={type(exc).__name__} url={URL}"
+        )
+        health_messages.append(
+            build_admin_warning_message(
+                "サンデーフォーク",
+                {"日付": 0, "イベント": 0},
+            )
+        )
+        return [], health_messages
+
     soup = BeautifulSoup(page.content(), "html.parser")
+    health_messages.extend(_sundayfolk_health_messages(soup))
 
     target = soup.select_one(f"#{target_anchor}")
     if not target:
         print(f"サンデーフォーク日付なし: {target_anchor}")
-        return events
+        return events, health_messages
 
     rows = target.select("tr")
 
@@ -123,16 +197,23 @@ def scrape_sundayfolk(page, target_date):
                 events.append({
                     "time": perf["time"],
                     "venue": venue,
-                    "title": title
+                    "title": title,
+                    "source": "sundayfolk",
                 })
         else:
             # 取れなかった場合の保険
             events.append({
                 "time": "未定",
                 "venue": venue,
-                "title": title
+                "title": title,
+                "source": "sundayfolk",
             })
 
+    return events, health_messages
+
+
+def scrape_sundayfolk(page, target_date):
+    events, _messages = scrape_sundayfolk_with_health(page, target_date)
     return events
 
 

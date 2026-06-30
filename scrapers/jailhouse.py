@@ -4,22 +4,87 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import re
 
-def scrape_jailhouse(page, target_date):
+from tools.common.scraper_health import (
+    build_admin_warning_message,
+    check_selector_count,
+    check_structure_hash,
+    has_major_warning,
+)
+
+
+def _jailhouse_health_messages(soup):
+    messages = []
+    day_selector = ".day[data-date]"
+    event_selector = "ul.layout > li"
+    messages.extend(
+        check_selector_count(
+            "jailhouse",
+            soup,
+            day_selector,
+            "days",
+            min_count=1,
+        )
+    )
+    messages.extend(
+        check_selector_count(
+            "jailhouse",
+            soup,
+            event_selector,
+            "events",
+            min_count=1,
+            drop_ratio=0.8,
+        )
+    )
+    fragment_nodes = soup.select(".day[data-date], ul.layout > li")
+    messages.extend(
+        check_structure_hash(
+            "jailhouse",
+            "\n".join(str(node) for node in fragment_nodes),
+            "calendar",
+        )
+    )
+    if has_major_warning(messages, "jailhouse"):
+        messages.append(
+            build_admin_warning_message(
+                "JAILHOUSE",
+                {
+                    "日付": len(soup.select(day_selector)),
+                    "イベント": len(soup.select(event_selector)),
+                },
+            )
+        )
+    return messages
+
+
+def scrape_jailhouse_with_health(page, target_date):
     events = []
 
     url = f"https://www.jailhouse.jp/live-calendar/?cal_y={target_date.year}&cal_m={target_date.month}"
     target_str = target_date.strftime("%Y/%m/%d")
 
-    page.goto(url, wait_until="networkidle")
+    try:
+        page.goto(url, wait_until="networkidle")
+    except Exception as exc:
+        messages = [
+            "scraper_health_warning: "
+            f"jailhouse HTML取得失敗 error={type(exc).__name__} url={url}",
+            build_admin_warning_message(
+                "JAILHOUSE",
+                {"日付": 0, "イベント": 0},
+            ),
+        ]
+        return [], messages
+
     soup = BeautifulSoup(page.content(), "html.parser")
+    health_messages = _jailhouse_health_messages(soup)
 
     day = soup.select_one(f'.day[data-date="{target_str}"]')
     if not day:
-        return events
+        return events, health_messages
 
     row = day.find_parent("div", class_="row")
     if not row:
-        return events
+        return events, health_messages
 
     for li in row.select("ul.layout > li"):
         title_tag = li.select_one("p.title")
@@ -84,7 +149,13 @@ def scrape_jailhouse(page, target_date):
         events.append({
             "time": time_text,
             "venue": venue,
-            "title": full_title
+            "title": full_title,
+            "source": "jailhouse",
         })
 
+    return events, health_messages
+
+
+def scrape_jailhouse(page, target_date):
+    events, _messages = scrape_jailhouse_with_health(page, target_date)
     return events

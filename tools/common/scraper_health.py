@@ -102,6 +102,50 @@ def check_selector_count(
     return messages
 
 
+def check_count(
+    scraper: str,
+    key: str,
+    label: str,
+    count: int,
+    *,
+    min_count: int = 1,
+    drop_ratio: float | None = None,
+) -> list[str]:
+    state = load_health_state(scraper)
+    counts_state = _state_section(state, "counts")
+    previous = counts_state.get(key)
+    previous_count = int(previous.get("count", 0)) if isinstance(previous, dict) else 0
+
+    counts_state[key] = {
+        "label": label,
+        "count": count,
+        "checked_at": _now_text(),
+    }
+    save_health_state(scraper, state)
+
+    messages = [f"scraper_health: {scraper} {label} count={count}"]
+    if count < min_count:
+        messages.append(
+            f"scraper_health_warning: {scraper} {label} {count}件 "
+            "HTML構造変更または取得失敗の可能性"
+        )
+    if previous_count > 0 and count == 0:
+        messages.append(
+            f"scraper_health_warning: {scraper} {label} 件数が0に急減 "
+            f"previous={previous_count} current=0"
+        )
+    elif (
+        drop_ratio is not None
+        and previous_count > 0
+        and count <= previous_count * (1 - drop_ratio)
+    ):
+        messages.append(
+            f"scraper_health_warning: {scraper} {label} count dropped "
+            f"previous={previous_count} current={count}"
+        )
+    return messages
+
+
 def check_sequence(
     scraper: str,
     key: str,
@@ -197,3 +241,28 @@ def check_structure_hash(scraper: str, html_fragment: str, key: str) -> list[str
             f"previous={previous_hash[:12]} current={digest[:12]}"
         ]
     return [f"scraper_health: {scraper} structure hash key={key} hash={digest[:12]}"]
+
+
+def has_major_warning(messages: list[str], scraper: str) -> bool:
+    prefix = f"scraper_health_warning: {scraper}"
+    return any(
+        message.startswith(prefix)
+        and (
+            "0件" in message
+            or "count dropped" in message
+            or "HTML取得失敗" in message
+        )
+        for message in messages
+    )
+
+
+def build_admin_warning_message(
+    title: str,
+    counts: dict[str, int],
+    *,
+    detail: str = "HTML構造変更または取得失敗の可能性があります。",
+) -> str:
+    lines = [f"⚠️ {title}スクレイパー異常", ""]
+    lines.extend(f"{label}: {count}件" for label, count in counts.items())
+    lines.extend(["", detail])
+    return "\n".join(lines)

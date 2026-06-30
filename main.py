@@ -23,16 +23,16 @@ from datetime import date, datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright
 
 from scrapers.vantelin import scrape_vantelin_with_health
-from scrapers.jailhouse import scrape_jailhouse
-from scrapers.sundayfolk import scrape_sundayfolk
-from scrapers.kyodo_tokai import scrape_kyodo_tokai
+from scrapers.jailhouse import scrape_jailhouse_with_health
+from scrapers.sundayfolk import scrape_sundayfolk_with_health
+from scrapers.kyodo_tokai import scrape_kyodo_tokai_with_health
 from scrapers.cruise import scrape_cruise
 from scrapers.misonoza import (
     dedupe_events as dedupe_misonoza_events,
     scrape_misonoza_with_notifications,
     write_misonoza_csv,
 )
-from scrapers.shiki import scrape_shiki, write_shiki_csv
+from scrapers.shiki import scrape_shiki_with_health, write_shiki_csv
 from scrapers.utils.csv_events import (
     filter_events_by_date,
     load_csv_events,
@@ -159,6 +159,23 @@ def send_admin_discord(message):
         raise RuntimeError(f"Discord admin webhook error: {response.status_code} {response.text}")
 
     return True
+
+
+def handle_scraper_health_messages(messages):
+    for message in messages:
+        if message.startswith("scraper_health_warning:"):
+            logging.warning(message)
+            continue
+        if message.startswith("scraper_health_info:") or message.startswith("scraper_health:"):
+            logging.info(message)
+            continue
+        if message.startswith("⚠️ "):
+            logging.warning(message)
+            try:
+                send_admin_discord(message)
+            except Exception as exc:
+                print(f"[WARN] Failed to send admin notification: {exc}")
+                logging.warning(f"管理Discord通知送信失敗: {exc}")
 
 
 def _is_empty_time(value):
@@ -582,42 +599,37 @@ def main():
 
         vantelin_events, vantelin_messages = scrape_vantelin_with_health(page, today)
         events += vantelin_events
-        for message in vantelin_messages:
-            if message.startswith("scraper_health_warning:"):
-                logging.warning(message)
-                continue
-            if message.startswith("scraper_health_info:") or message.startswith("scraper_health:"):
-                logging.info(message)
-                continue
-            if message.startswith("⚠️ バンテリンドームスクレイパー異常"):
-                logging.warning(message)
-                try:
-                    send_admin_discord(message)
-                except Exception as exc:
-                    print(f"[WARN] Failed to send admin notification: {exc}")
-                    logging.warning(f"管理Discord通知送信失敗: {exc}")
+        handle_scraper_health_messages(vantelin_messages)
         logging.info("バンテリン取得完了")
 
-        events += scrape_jailhouse(page, today)
+        jailhouse_events, jailhouse_messages = scrape_jailhouse_with_health(page, today)
+        events += jailhouse_events
+        handle_scraper_health_messages(jailhouse_messages)
         logging.info("JAILHOUSE取得完了")
 
-        events += scrape_sundayfolk(page, today)
+        sundayfolk_events, sundayfolk_messages = scrape_sundayfolk_with_health(page, today)
+        events += sundayfolk_events
+        handle_scraper_health_messages(sundayfolk_messages)
         logging.info("サンデーフォーク取得完了")
 
-        events += scrape_kyodo_tokai(page, today)
+        kyodo_events, kyodo_messages = scrape_kyodo_tokai_with_health(page, today)
+        events += kyodo_events
+        handle_scraper_health_messages(kyodo_messages)
         logging.info("キョードー東海取得完了")
 
         misonoza_events, misonoza_messages = scrape_misonoza_with_notifications(page, today)
         misonoza_events = dedupe_misonoza_events(misonoza_events)
 
-        for message in misonoza_messages:
-            if message.startswith("scraper_health_warning:"):
-                logging.warning(message)
-                continue
-            if message.startswith("scraper_health_info:") or message.startswith("scraper_health:"):
-                logging.info(message)
-                continue
-
+        handle_scraper_health_messages(
+            [
+                message for message in misonoza_messages
+                if message.startswith("scraper_health")
+            ]
+        )
+        for message in [
+            message for message in misonoza_messages
+            if not message.startswith("scraper_health")
+        ]:
             print()
             print(message)
             try:
@@ -632,7 +644,8 @@ def main():
         events += misonoza_events
         logging.info(f"御園座取得完了: {len(misonoza_events)}件")
 
-        shiki_events = scrape_shiki(page, today)
+        shiki_events, shiki_messages = scrape_shiki_with_health(page, today)
+        handle_scraper_health_messages(shiki_messages)
         write_shiki_csv(shiki_events, "csv_events/shiki.csv", today=today)
         logging.info(f"劇団四季CSV更新完了: csv_events/shiki.csv / {len(shiki_events)}件")
 

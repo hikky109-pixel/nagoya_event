@@ -7,6 +7,13 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from tools.common.scraper_health import (
+    build_admin_warning_message,
+    check_selector_count,
+    check_structure_hash,
+    has_major_warning,
+)
+
 
 URL = "https://www.shiki.jp/stage_schedule/?aj=0&rid=0019&ggc=0977"
 TITLE = "オペラ座の怪人"
@@ -235,11 +242,49 @@ def parse_shiki_events(html: str, today=None, month: str | None = None) -> list[
     return dedupe_events(events)
 
 
-def scrape_shiki(page, today=None, month: str | None = None) -> list[dict]:
+def _shiki_health_messages(html: str) -> list[str]:
+    soup = BeautifulSoup(html, "html.parser")
+    messages: list[str] = []
+    event_selector = "[id^='mor'], [id^='aft'], [id^='eve'], table tbody tr td .cal-time"
+    messages.extend(
+        check_selector_count(
+            "shiki",
+            soup,
+            event_selector,
+            "events",
+            min_count=1,
+            drop_ratio=0.8,
+        )
+    )
+    fragment_nodes = soup.select("table, [id^='mor'], [id^='aft'], [id^='eve']")
+    messages.extend(
+        check_structure_hash(
+            "shiki",
+            "\n".join(str(node) for node in fragment_nodes),
+            "schedule",
+        )
+    )
+    if has_major_warning(messages, "shiki"):
+        messages.append(
+            build_admin_warning_message(
+                "劇団四季",
+                {"イベント": len(soup.select(event_selector))},
+            )
+        )
+    return messages
+
+
+def scrape_shiki_with_health(page, today=None, month: str | None = None) -> tuple[list[dict], list[str]]:
     page.goto(URL + _month_fragment(month), wait_until="domcontentloaded", timeout=60000)
     page.wait_for_selector("[id^='mor'], [id^='aft'], [id^='eve'], .cal-time", state="attached", timeout=60000)
     page.wait_for_timeout(1000)
-    return parse_shiki_events(page.content(), today=today, month=month)
+    html = page.content()
+    return parse_shiki_events(html, today=today, month=month), _shiki_health_messages(html)
+
+
+def scrape_shiki(page, today=None, month: str | None = None) -> list[dict]:
+    events, _messages = scrape_shiki_with_health(page, today=today, month=month)
+    return events
 
 
 def _load_existing_csv(output_file: Path) -> list[dict]:

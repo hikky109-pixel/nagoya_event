@@ -2,6 +2,13 @@ from utils import is_wanted_venue
 from bs4 import BeautifulSoup
 import re
 
+from tools.common.scraper_health import (
+    build_admin_warning_message,
+    check_selector_count,
+    check_structure_hash,
+    has_major_warning,
+)
+
 URL = "https://www.kyodotokai.co.jp/events"
 
 WANTED_VENUES = [
@@ -17,13 +24,57 @@ WANTED_VENUES = [
     "バンテリンドーム",
 ]
 
-def scrape_kyodo_tokai(page, target_date):
+def _kyodo_health_messages(soup):
+    messages = []
+    event_selector = "div.eventlistbox dl"
+    messages.extend(
+        check_selector_count(
+            "kyodo_tokai",
+            soup,
+            event_selector,
+            "events",
+            min_count=1,
+            drop_ratio=0.8,
+        )
+    )
+    fragment_nodes = soup.select("div.eventlistbox")
+    messages.extend(
+        check_structure_hash(
+            "kyodo_tokai",
+            "\n".join(str(node) for node in fragment_nodes),
+            "events",
+        )
+    )
+    if has_major_warning(messages, "kyodo_tokai"):
+        messages.append(
+            build_admin_warning_message(
+                "キョードー東海",
+                {"イベント": len(soup.select(event_selector))},
+            )
+        )
+    return messages
+
+
+def scrape_kyodo_tokai_with_health(page, target_date):
     events = []
 
     target_str = target_date.strftime("%Y年%m月%d日")
 
-    page.goto(URL, wait_until="domcontentloaded", timeout=15000)
+    try:
+        page.goto(URL, wait_until="domcontentloaded", timeout=15000)
+    except Exception as exc:
+        messages = [
+            "scraper_health_warning: "
+            f"kyodo_tokai HTML取得失敗 error={type(exc).__name__} url={URL}",
+            build_admin_warning_message(
+                "キョードー東海",
+                {"イベント": 0},
+            ),
+        ]
+        return [], messages
+
     soup = BeautifulSoup(page.content(), "html.parser")
+    health_messages = _kyodo_health_messages(soup)
 
     for dl in soup.select("div.eventlistbox dl"):
         text = " ".join(dl.get_text(" ", strip=True).split())
@@ -57,7 +108,13 @@ def scrape_kyodo_tokai(page, target_date):
         events.append({
             "time": time_text,
             "venue": venue,
-            "title": title
+            "title": title,
+            "source": "kyodo_tokai",
         })
 
+    return events, health_messages
+
+
+def scrape_kyodo_tokai(page, target_date):
+    events, _messages = scrape_kyodo_tokai_with_health(page, target_date)
     return events

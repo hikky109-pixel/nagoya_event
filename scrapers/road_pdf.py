@@ -9,6 +9,14 @@ from urllib.request import urlretrieve
 
 import pdfplumber
 
+from tools.common.scraper_health import (
+    build_admin_warning_message,
+    check_count,
+    check_sequence,
+    check_structure_hash,
+    has_major_warning,
+)
+
 
 BASE_URL = "https://www.pref.aichi.jp/police/koutsu/ko-shidou/images"
 PDF_MONTHS = [f"R8.{month}" for month in range(1, 7)]
@@ -313,18 +321,82 @@ def extract_focus_events(path: Path, url: str, debug: bool = False) -> list[dict
     return events
 
 
-def extract_all_events(force_download: bool = False, debug_ocr: bool = False) -> list[dict]:
+def extract_all_events_with_health(
+    force_download: bool = False,
+    debug_ocr: bool = False,
+) -> tuple[list[dict], list[str]]:
     events = []
+    messages = []
+    downloaded_paths = []
+
+    messages.extend(
+        check_sequence(
+            "aichi_police",
+            "pdf_months",
+            "months",
+            PDF_MONTHS,
+            min_count=1,
+        )
+    )
 
     for month_key in PDF_MONTHS:
-        path, url = download_pdf(month_key, force=force_download)
+        try:
+            path, url = download_pdf(month_key, force=force_download)
+        except Exception as exc:
+            messages.append(
+                "scraper_health_warning: "
+                f"aichi_police HTML取得失敗 error={type(exc).__name__} month={month_key}"
+            )
+            continue
+        downloaded_paths.append(path)
         place_events = extract_events(path, url)
         focus_events = extract_focus_events(path, url, debug=debug_ocr)
         print(f"{path}: 地点{len(place_events)}件 / 重点{len(focus_events)}件")
         events.extend(place_events)
         events.extend(focus_events)
 
-    return sort_events(dedupe_events(events))
+    events = sort_events(dedupe_events(events))
+    messages.extend(
+        check_count(
+            "aichi_police",
+            "pdfs",
+            "pdfs",
+            len(downloaded_paths),
+            min_count=1,
+            drop_ratio=0.8,
+        )
+    )
+    messages.extend(
+        check_count(
+            "aichi_police",
+            "events",
+            "events",
+            len(events),
+            min_count=1,
+            drop_ratio=0.8,
+        )
+    )
+    manifest = "\n".join(
+        f"{path.name}:{path.stat().st_size if path.exists() else 0}"
+        for path in downloaded_paths
+    )
+    messages.extend(check_structure_hash("aichi_police", manifest, "pdf_manifest"))
+    if has_major_warning(messages, "aichi_police"):
+        messages.append(
+            build_admin_warning_message(
+                "愛知県警",
+                {"PDF": len(downloaded_paths), "イベント": len(events)},
+            )
+        )
+    return events, messages
+
+
+def extract_all_events(force_download: bool = False, debug_ocr: bool = False) -> list[dict]:
+    events, _messages = extract_all_events_with_health(
+        force_download=force_download,
+        debug_ocr=debug_ocr,
+    )
+    return events
 
 
 def dedupe_events(events: list[dict]) -> list[dict]:
@@ -366,7 +438,12 @@ def main() -> None:
     parser.add_argument("--debug-ocr", action="store_true", help="Print OCR text, classification, dates, and bbox")
     args = parser.parse_args()
 
-    events = extract_all_events(force_download=args.force_download, debug_ocr=args.debug_ocr)
+    events, health_messages = extract_all_events_with_health(
+        force_download=args.force_download,
+        debug_ocr=args.debug_ocr,
+    )
+    for message in health_messages:
+        print(message)
     save_road_csv(events)
     print(f"保存: csv_events/road.csv ({len(events)}件)")
 
