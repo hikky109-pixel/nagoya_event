@@ -201,7 +201,7 @@ async def repost_placeinfo_button(interaction: Any, discord: Any) -> None:
 
 
 async def send_placeinfo_test_button(channel: Any, discord: Any) -> Any:
-    return await channel.send(message_text(), view=build_placeinfo_test_view(discord))
+    return await channel.send(message_text(), view=create_placeinfo_test_view(discord))
 
 
 def gps_web_url() -> str:
@@ -216,7 +216,7 @@ def gps_web_url() -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
-def build_placeinfo_test_view(discord: Any) -> Any:
+def create_placeinfo_test_view(discord: Any) -> Any:
     class PlaceInfoTestView(discord.ui.View):
         def __init__(self) -> None:
             super().__init__(timeout=None)
