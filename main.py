@@ -22,7 +22,7 @@ import requests
 from datetime import date, datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright
 
-from scrapers.vantelin import scrape_vantelin
+from scrapers.vantelin import scrape_vantelin_with_health
 from scrapers.jailhouse import scrape_jailhouse
 from scrapers.sundayfolk import scrape_sundayfolk
 from scrapers.kyodo_tokai import scrape_kyodo_tokai
@@ -580,7 +580,22 @@ def main():
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
-        events += scrape_vantelin(page, today)
+        vantelin_events, vantelin_messages = scrape_vantelin_with_health(page, today)
+        events += vantelin_events
+        for message in vantelin_messages:
+            if message.startswith("scraper_health_warning:"):
+                logging.warning(message)
+                continue
+            if message.startswith("scraper_health_info:") or message.startswith("scraper_health:"):
+                logging.info(message)
+                continue
+            if message.startswith("⚠️ バンテリンドームスクレイパー異常"):
+                logging.warning(message)
+                try:
+                    send_admin_discord(message)
+                except Exception as exc:
+                    print(f"[WARN] Failed to send admin notification: {exc}")
+                    logging.warning(f"管理Discord通知送信失敗: {exc}")
         logging.info("バンテリン取得完了")
 
         events += scrape_jailhouse(page, today)

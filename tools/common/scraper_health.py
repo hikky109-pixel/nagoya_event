@@ -64,6 +64,7 @@ def check_selector_count(
     selector: str,
     label: str,
     min_count: int = 1,
+    drop_ratio: float | None = None,
 ) -> list[str]:
     state = load_health_state(scraper)
     selector_state = _state_section(state, "selectors")
@@ -88,6 +89,48 @@ def check_selector_count(
         messages.append(
             f"scraper_health_warning: {scraper} {label} 件数が0に急減 "
             f"previous={previous_count} current=0"
+        )
+    elif (
+        drop_ratio is not None
+        and previous_count > 0
+        and count <= previous_count * (1 - drop_ratio)
+    ):
+        messages.append(
+            f"scraper_health_warning: {scraper} {label} count dropped "
+            f"previous={previous_count} current={count}"
+        )
+    return messages
+
+
+def check_sequence(
+    scraper: str,
+    key: str,
+    label: str,
+    values: list[str],
+    *,
+    min_count: int = 1,
+) -> list[str]:
+    state = load_health_state(scraper)
+    sequences_state = _state_section(state, "sequences")
+    previous_values = sequences_state.get(key)
+    if not isinstance(previous_values, list):
+        previous_values = []
+
+    current_values = [str(value) for value in values if str(value)]
+    sequences_state[key] = current_values
+    save_health_state(scraper, state)
+
+    current_text = ",".join(current_values)
+    messages = [f"scraper_health: {scraper} {label}={current_text}"]
+    if len(current_values) < min_count:
+        messages.append(
+            f"scraper_health_warning: {scraper} {label} 0件 "
+            "HTML構造変更または取得失敗の可能性"
+        )
+    if previous_values and previous_values != current_values:
+        messages.append(
+            f"scraper_health_info: {scraper} {label} sequence changed "
+            f"previous={','.join(previous_values)} current={current_text}"
         )
     return messages
 
@@ -150,7 +193,7 @@ def check_structure_hash(scraper: str, html_fragment: str, key: str) -> list[str
     if previous_hash and previous_hash != digest:
         return [
             "scraper_health_info: "
-            f"{scraper} HTML hash changed key={key} "
+            f"{scraper} structure hash changed key={key} "
             f"previous={previous_hash[:12]} current={digest[:12]}"
         ]
-    return [f"scraper_health: {scraper} HTML hash key={key} hash={digest[:12]}"]
+    return [f"scraper_health: {scraper} structure hash key={key} hash={digest[:12]}"]
