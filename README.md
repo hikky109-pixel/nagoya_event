@@ -16,6 +16,22 @@ Cron should use the virtualenv Python directly:
 /home/ubuntu/nagoya_event/.venv/bin/python /home/ubuntu/nagoya_event/main.py
 ```
 
+## Weather Alert Beta
+
+天気速報βのDiscord投稿先は環境変数で管理する。チャンネルIDはコードに直書きしない。
+
+ローカル `.env` と Ubuntu 本番環境 `/home/ubuntu/nagoya_event/.env` の両方に、同じ設定を追加すること:
+
+```bash
+WEATHER_ALERT_CHANNEL_ID=1521500210239635477
+```
+
+手動テスト:
+
+```bash
+python3 tools/weather/send_weather_alert_beta.py --force --dry-run
+```
+
 ## Google Sheets
 
 Google Sheets sync uses the existing OAuth files under `credentials/`:

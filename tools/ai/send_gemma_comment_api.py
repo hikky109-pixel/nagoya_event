@@ -49,11 +49,22 @@ def has_railway_beta_alerts(meta: dict[str, Any]) -> bool:
     return isinstance(alerts, list) and any(str(alert or "").strip() for alert in alerts)
 
 
+def has_weather_beta_alerts(meta: dict[str, Any]) -> bool:
+    if meta.get("weather_beta_notification"):
+        return True
+    alerts = meta.get("weather_beta_alerts")
+    return isinstance(alerts, list) and any(str(alert or "").strip() for alert in alerts)
+
+
 def target_channel_id(meta: dict[str, Any]) -> tuple[str, str]:
     if has_railway_beta_alerts(meta):
         railway_channel_id = get_setting("GEMMA_CHANNEL_RAILWAY")
         if railway_channel_id:
             return railway_channel_id, "railway"
+    if has_weather_beta_alerts(meta):
+        weather_channel_id = get_setting("WEATHER_ALERT_CHANNEL_ID")
+        if weather_channel_id:
+            return weather_channel_id, "weather"
     return get_setting("GEMMA_DISCORD_CHANNEL_ID"), "main"
 
 
