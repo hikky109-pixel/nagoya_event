@@ -29,6 +29,14 @@ try:
 except ModuleNotFoundError:
     from tools.ai.log_utils import log
 
+try:
+    from tools.weather.weather_normalizer import get_all_weather_snapshot
+except ModuleNotFoundError:
+    try:
+        from weather_normalizer import get_all_weather_snapshot
+    except ModuleNotFoundError:
+        get_all_weather_snapshot = None  # type: ignore[assignment]
+
 
 DATA_DIR = ROOT / "data"
 AI_DIR = DATA_DIR / "ai"
@@ -202,6 +210,34 @@ def compact_records(value: Any, key: str) -> Any:
     return [compact_mapping(row) for row in value[:limit]]
 
 
+def qwen_weather_context(source_weather: Any) -> dict[str, Any]:
+    weather = source_weather if isinstance(source_weather, dict) else {}
+    result: dict[str, Any] = dict(weather)
+    if get_all_weather_snapshot is None:
+        return result
+    try:
+        snapshot = get_all_weather_snapshot()
+    except Exception as exc:  # noqa: BLE001
+        log(f"qwen_weather_snapshot_error: {type(exc).__name__}")
+        return result
+
+    sources = snapshot.get("sources") if isinstance(snapshot.get("sources"), dict) else {}
+    jma = sources.get("JMA") if isinstance(sources.get("JMA"), dict) else {}
+    yahoo = sources.get("YahooWeather") if isinstance(sources.get("YahooWeather"), dict) else {}
+    jma_alerts = jma.get("alerts") if isinstance(jma.get("alerts"), list) else []
+    result["jma_alerts"] = jma_alerts
+    if yahoo and not yahoo.get("error"):
+        result["rain_now"] = bool(yahoo.get("rain_now"))
+        result["heavy_rain"] = bool(yahoo.get("heavy_rain"))
+        result["max_precip_mm"] = yahoo.get("max_precip_mm")
+    else:
+        result["rain_now"] = None
+        result["heavy_rain"] = None
+        result["max_precip_mm"] = None
+    result["source"] = snapshot.get("source", [])
+    return result
+
+
 def build_input_context() -> dict[str, Any]:
     context = load_json(CONTEXT_PATH)
     road_events = context.get("road") or context.get("road_events") or []
@@ -210,7 +246,7 @@ def build_input_context() -> dict[str, Any]:
         "events": compact_records(context.get("events", []), "events"),
         "railway": context.get("railway", {}),
         "road": compact_records(road_events, "road"),
-        "weather": context.get("weather", {}),
+        "weather": qwen_weather_context(context.get("weather", {})),
         "cruise": compact_records(context.get("cruise") or read_csv_rows(CRUISE_CSV_PATH), "cruise"),
         "asia_games": compact_records(context.get("asia_games") or read_csv_rows(ASIA_CSV_PATH), "asia_games"),
         "busy_reports": compact_records(context.get("busy_reports") or read_busy_reports(), "busy_reports"),

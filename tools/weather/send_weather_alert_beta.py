@@ -70,10 +70,11 @@ def build_weather_alert_message(alerts: list[str], *, force: bool = False) -> st
         return "☔ 天気速報βテスト\n\n気象庁の名古屋向け警報・注意報に、現在送信対象はありません。"
     if not alerts:
         return ""
+    uses_yahoo = any(("強雨注意" in alert or "大雨注意" in alert or "雷注意" in alert) for alert in alerts)
     lines = [f"{emoji} 天気速報β"]
     lines.extend(f"・{alert}" for alert in alerts[:5])
     lines.append("")
-    lines.append("※ 気象庁データより")
+    lines.append("※ 気象庁・Yahoo天気データより" if uses_yahoo else "※ 気象庁データより")
     return "\n".join(lines)
 
 

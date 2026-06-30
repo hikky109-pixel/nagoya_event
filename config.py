@@ -3,7 +3,26 @@ try:
     from dotenv import load_dotenv
 except ImportError:
     def load_dotenv():
-        return False
+        env_path = ".env"
+        if not os.path.exists(env_path):
+            return False
+        try:
+            with open(env_path, encoding="utf-8") as f:
+                lines = f.readlines()
+        except OSError:
+            return False
+        loaded = False
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            key = key.strip()
+            if not key or key in os.environ:
+                continue
+            os.environ[key] = value.strip().strip('"').strip("'")
+            loaded = True
+        return loaded
 
 load_dotenv()
 
@@ -115,6 +134,7 @@ GEMMA_CHANNEL_ADMIN = os.getenv("GEMMA_CHANNEL_ADMIN", "")
 GEMMA_CHANNEL_NAGOYA = _channel_id_env("GEMMA_CHANNEL_NAGOYA")
 GEMMA_CHANNEL_RAILWAY = _channel_id_env("GEMMA_CHANNEL_RAILWAY")
 WEATHER_ALERT_CHANNEL_ID = _channel_id_env("WEATHER_ALERT_CHANNEL_ID") or None
+YAHOO_CLIENT_ID = os.getenv("YAHOO_CLIENT_ID", "").strip() or None
 
 # Webhook版を使う場合のみ環境変数で設定。
 GEMMA_DISCORD_WEBHOOK = os.getenv("GEMMA_DISCORD_WEBHOOK", "")

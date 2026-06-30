@@ -10,6 +10,7 @@ WEATHER_CRITICAL_KEYWORDS = (
     "記録的短時間大雨",
     "特別警報",
     "豪雨予測",
+    "大雨注意",
 )
 WEATHER_ALERT_KEYWORDS = (
     "雷注意",
