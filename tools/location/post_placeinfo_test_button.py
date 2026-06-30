@@ -39,6 +39,10 @@ def normalize_channel_id(value: str) -> str:
     return value if value.isdigit() else ""
 
 
+def is_quick_tunnel_url(value: str) -> bool:
+    return "trycloudflare.com" in value.strip().lower()
+
+
 def now_jst() -> datetime:
     return datetime.now(JST)
 
@@ -122,6 +126,8 @@ def main() -> int:
             "(例: https://xxxxx.trycloudflare.com)"
         )
         return 0
+    if is_quick_tunnel_url(get_setting("GPS_WEB_BASE_URL")):
+        print("warning: quick tunnel URLです。本運用では固定URLを推奨します。")
     if not args.force and posted_within_last_hour():
         print("Yahoo PlaceInfoテストボタン再掲スキップ: last_posted_within_1h")
         return 0
