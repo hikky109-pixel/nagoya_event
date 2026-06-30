@@ -3,7 +3,8 @@
 GPS Web mini app はブラウザの Geolocation API を使うため、メンバー利用時は HTTPS 公開URLが必要。
 Oracle側で外部HTTPポートは開けず、アプリは `127.0.0.1:8787` で待受し、Cloudflare Tunnel で HTTPS URLへ中継する。
 
-本運用は quick tunnel ではなく、Cloudflare named tunnel と固定URLで運用する。
+Cloudflare Tunnel は開発用途として残す。
+本番は Tailscale Funnel の `*.ts.net` 固定URLで運用する。
 
 ## 1. cloudflared インストール
 

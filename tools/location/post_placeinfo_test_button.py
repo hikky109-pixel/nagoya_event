@@ -122,8 +122,8 @@ def main() -> int:
     if not get_setting("GPS_WEB_BASE_URL"):
         print(
             "Yahoo PlaceInfoテストボタン投稿設定未完了: "
-            "GPS_WEB_BASE_URL にCloudflare TunnelのHTTPS公開URLを設定してください "
-            "(例: https://xxxxx.trycloudflare.com)"
+            "GPS_WEB_BASE_URL にTailscale Funnelのts.net固定URLを設定してください。"
+            "tailscale funnel status を確認してください"
         )
         return 0
     if is_quick_tunnel_url(get_setting("GPS_WEB_BASE_URL")):
