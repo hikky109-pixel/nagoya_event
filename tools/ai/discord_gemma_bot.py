@@ -28,9 +28,9 @@ INCIDENTS_DIR = DATA_DIR / "incidents"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 SUBPROCESS_TIMEOUT_SECONDS = 45
-SLOW_REPLY = "😇 調査に時間がかかっています。\n😇 少し短めに聞いてください。"
-ACK_REPLY = "確認します。少し時間ください😇"
-HEAVY_FALLBACK_REPLY = "今は重くて確認しきれませんでした。短めに聞いてください😇"
+THINKING_REPLY = "少し考えています😇"
+FAILURE_REPLY = "今は確認できませんでした😇"
+THINKING_NOTICE_SECONDS = 30
 COMMANDS = {"!brief", "!weather", "!dragons", "!incident", "!road"}
 IGNORE_CHANNELS = {"利用規約", "自己紹介"}
 LISTEN_ONLY_CHANNELS = {"バーボンハウス"}
@@ -767,7 +767,7 @@ def search_history_reply(query: str) -> str:
             )
     except subprocess.TimeoutExpired as exc:
         relay_subprocess_stderr(exc.stderr)
-        return SLOW_REPLY
+        return FAILURE_REPLY
     if result.returncode != 0:
         relay_subprocess_stderr(result.stderr, include_all=True)
         return "未確認です。"
@@ -801,7 +801,7 @@ def search_router_reply(query: str) -> str:
                 timeout=SUBPROCESS_TIMEOUT_SECONDS,
             )
     except subprocess.TimeoutExpired:
-        return SLOW_REPLY
+        return FAILURE_REPLY
     if result.returncode != 0:
         relay_subprocess_stderr(result.stderr, include_all=True)
         return "error"
@@ -811,6 +811,16 @@ def search_router_reply(query: str) -> str:
 
 async def search_router_reply_async(query: str) -> str:
     return await asyncio.to_thread(lambda: trim_discord_message(search_router_reply(query)))
+
+
+async def run_with_thinking_notice(channel: Any, work: Any) -> str:
+    async with channel.typing():
+        task = asyncio.create_task(work)
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=THINKING_NOTICE_SECONDS)
+        except asyncio.TimeoutError:
+            await channel.send(THINKING_REPLY)
+            return await task
 
 
 def should_use_search_router(content: str, history: list[dict[str, Any]]) -> bool:
@@ -1054,22 +1064,25 @@ def main() -> int:
                     reply = await light_chat_reply_async(query, channel_name)
                 else:
                     print("reply_path=heavy_lookup", flush=True)
-                    await message.channel.send(ACK_REPLY)
-                    try:
-                        if should_use_search_router(query, history):
-                            search_query = query
-                            print(f"search_router_input={search_query}")
-                            reply = await search_router_reply_async(search_query)
-                        else:
-                            reply = "no_search"
-                        if reply in {"no_search", "not_applicable", "error"}:
-                            reply = await search_history_reply_async(query)
-                    except Exception:
-                        traceback.print_exc()
-                        reply = "確認中にエラーが出ました。短めに聞き直してください😇"
+                    async def build_heavy_lookup_reply() -> str:
+                        try:
+                            if should_use_search_router(query, history):
+                                search_query = query
+                                print(f"search_router_input={search_query}")
+                                candidate_reply = await search_router_reply_async(search_query)
+                            else:
+                                candidate_reply = "no_search"
+                            if candidate_reply in {"no_search", "not_applicable", "error"}:
+                                candidate_reply = await search_history_reply_async(query)
+                            return candidate_reply
+                        except Exception:
+                            traceback.print_exc()
+                            return FAILURE_REPLY
+
+                    reply = await run_with_thinking_notice(message.channel, build_heavy_lookup_reply())
                     if not reply or reply in {"Gemma4B未起動", "日誌記憶なし", "error", "not_applicable"}:
-                        reply = HEAVY_FALLBACK_REPLY
-                if reply not in {"Gemma4B未起動", "日誌記憶なし"}:
+                        reply = FAILURE_REPLY
+                if reply != FAILURE_REPLY:
                     chat_memory.append_message(channel_id, "ジェンマ課長", reply, "assistant")
                 await message.channel.send(reply)
                 return
