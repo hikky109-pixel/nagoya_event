@@ -6,7 +6,7 @@ from __future__ import annotations
 import csv
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -236,15 +236,19 @@ def read_db(notes: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]
     return events, road_events
 
 
-def read_csv(path: Path, notes: list[str]) -> list[dict[str, str]]:
+def read_csv(path: Path, notes: list[str], *, today_only: bool = False) -> list[dict[str, str]]:
     if not path.exists():
         return []
     try:
         with path.open(encoding="utf-8-sig", newline="") as f:
-            return list(csv.DictReader(f))
+            rows = list(csv.DictReader(f))
     except (OSError, csv.Error) as exc:
         notes.append(f"Failed to read {path.relative_to(ROOT)}: {exc}")
         return []
+    if today_only:
+        today = date.today().isoformat()
+        return [row for row in rows if str(row.get("date", "")) == today]
+    return rows
 
 
 def read_incidents(yaml_module: Any | None, notes: list[str]) -> list[dict[str, Any]]:
@@ -263,7 +267,7 @@ def read_incidents(yaml_module: Any | None, notes: list[str]) -> list[dict[str, 
     return incidents
 
 
-def read_busy_reports(notes: list[str], limit: int = 50) -> list[dict[str, Any]]:
+def read_busy_reports(notes: list[str], limit: int = 5) -> list[dict[str, Any]]:
     if not BUSY_LOG_PATH.exists():
         return []
     try:
@@ -300,10 +304,9 @@ def build_context() -> dict[str, Any]:
         "events": events,
         "road_events": road_events,
         "road": road_events,
-        "cruise": read_csv(CRUISE_CSV_PATH, notes),
+        "cruise": read_csv(CRUISE_CSV_PATH, notes, today_only=True),
         "asia_games": read_csv(ASIA_CSV_PATH, notes),
         "busy_reports": read_busy_reports(notes),
-        "orbis": read_csv(ORBIS_PATH, notes),
         "incidents": read_incidents(yaml_module, notes),
         "weather": read_json(WEATHER_PATH, notes),
         "railway": read_json(RAILWAY_PATH, notes),
@@ -311,6 +314,9 @@ def build_context() -> dict[str, Any]:
         "dragons": read_yaml(DRAGONS_PATH, yaml_module, notes) or {},
         "notes": notes,
     }
+    for key in ("notes", "x_summary"):
+        if not context.get(key):
+            context.pop(key, None)
     return context
 
 
@@ -328,13 +334,12 @@ def main() -> int:
     print(f"cruise: {len(context['cruise'])}")
     print(f"asia_games: {len(context['asia_games'])}")
     print(f"busy_reports: {len(context['busy_reports'])}")
-    print(f"orbis: {len(context['orbis'])}")
     print(f"incidents: {len(context['incidents'])}")
     print(f"weather: {1 if context['weather'] else 0}")
     print(f"railway: {1 if context['railway'] else 0}")
-    print(f"x_summary: {1 if context['x_summary'] else 0}")
+    print(f"x_summary: {1 if context.get('x_summary') else 0}")
     print(f"dragons: {1 if context['dragons'] else 0}")
-    print(f"notes: {len(context['notes'])}")
+    print(f"notes: {len(context.get('notes', []))}")
     return 0
 
 

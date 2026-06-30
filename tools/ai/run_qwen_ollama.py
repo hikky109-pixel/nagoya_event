@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import date, datetime, timezone
@@ -48,9 +49,10 @@ CRUISE_CSV_PATH = ROOT / "csv_events" / "cruise.csv"
 ASIA_CSV_PATH = ROOT / "csv_events" / "asia.csv"
 BUSY_LOG_PATH = DATA_DIR / "signals" / "meieki_busy_log.jsonl"
 OLLAMA_URL = "http://localhost:11434/api/generate"
-CONTEXT_BYTE_LIMIT = 8192
-PROMPT_CONTEXT_BYTE_LIMIT = 6144
-PROMPT_REPORT_BYTE_LIMIT = 1536
+OLLAMA_TIMEOUT_SECONDS = 240
+CONTEXT_BYTE_LIMIT = 4000
+PROMPT_CONTEXT_BYTE_LIMIT = 3800
+PROMPT_REPORT_BYTE_LIMIT = 512
 MAX_COMMENT_LINES = 5
 MAX_LINE_CHARS = 40
 MAX_COMMENT_CHARS = 200
@@ -58,9 +60,9 @@ AI_MODEL = CONFIG_AI_MODEL or "qwen"
 LIST_LIMITS = {
     "events": 20,
     "road": 20,
-    "cruise": 10,
+    "cruise": 5,
     "asia_games": 10,
-    "busy_reports": 20,
+    "busy_reports": 5,
 }
 COMPACT_FIELDS = (
     "date",
@@ -71,7 +73,6 @@ COMPACT_FIELDS = (
     "source",
     "status",
     "note",
-    "url",
     "line",
     "name",
     "place",
@@ -149,7 +150,7 @@ def load_text(path: Path) -> str:
         return ""
 
 
-def read_csv_rows(path: Path, limit: int = 20) -> list[dict[str, str]]:
+def read_csv_rows(path: Path, limit: int = 20, *, today_only: bool = False) -> list[dict[str, str]]:
     if not path.exists():
         return []
     try:
@@ -158,11 +159,13 @@ def read_csv_rows(path: Path, limit: int = 20) -> list[dict[str, str]]:
     except (OSError, csv.Error):
         return []
     today = date.today().isoformat()
+    if today_only:
+        return [row for row in rows if str(row.get("date", "")) == today][:limit]
     upcoming = [row for row in rows if str(row.get("date", "")) >= today]
     return (upcoming or rows)[:limit]
 
 
-def read_busy_reports(limit: int = 20) -> list[dict[str, Any]]:
+def read_busy_reports(limit: int = 5) -> list[dict[str, Any]]:
     if not BUSY_LOG_PATH.exists():
         return []
     try:
@@ -192,7 +195,7 @@ def compact_list(value: Any, limit: int) -> Any:
     return value
 
 
-def compact_value(value: Any, max_chars: int = 100) -> Any:
+def compact_value(value: Any, max_chars: int = 60) -> Any:
     if value is None or isinstance(value, (int, float, bool)):
         return value
     text = " ".join(str(value).split())
@@ -216,11 +219,19 @@ def compact_mapping(row: Any) -> Any:
     }
 
 
+def today_records(value: Any) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    today = date.today().isoformat()
+    return [row for row in value if isinstance(row, dict) and str(row.get("date", "")) == today]
+
+
 def compact_records(value: Any, key: str) -> Any:
     limit = LIST_LIMITS.get(key, 10)
     if not isinstance(value, list):
         return value
-    return [compact_mapping(row) for row in value[:limit]]
+    rows = value[-limit:] if key == "busy_reports" else value[:limit]
+    return [compact_mapping(row) for row in rows]
 
 
 def qwen_weather_context(source_weather: Any) -> dict[str, Any]:
@@ -260,7 +271,10 @@ def build_input_context() -> dict[str, Any]:
         "railway": context.get("railway", {}),
         "road": compact_records(road_events, "road"),
         "weather": qwen_weather_context(context.get("weather", {})),
-        "cruise": compact_records(context.get("cruise") or read_csv_rows(CRUISE_CSV_PATH), "cruise"),
+        "cruise": compact_records(
+            today_records(context.get("cruise")) or read_csv_rows(CRUISE_CSV_PATH, limit=5, today_only=True),
+            "cruise",
+        ),
         "asia_games": compact_records(context.get("asia_games") or read_csv_rows(ASIA_CSV_PATH), "asia_games"),
         "busy_reports": compact_records(context.get("busy_reports") or read_busy_reports(), "busy_reports"),
     }
@@ -281,7 +295,7 @@ def truncate_utf8(text: str, byte_limit: int) -> str:
 
 
 def serialize_input_context(input_context: dict[str, Any]) -> str:
-    return json.dumps(input_context, ensure_ascii=False, indent=2, default=str)
+    return json.dumps(input_context, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
 def fit_context_to_limit(input_context: dict[str, Any], byte_limit: int = CONTEXT_BYTE_LIMIT) -> dict[str, Any]:
@@ -308,31 +322,15 @@ def build_prompt(input_context: dict[str, Any], report: str) -> str:
     report_text = truncate_utf8(report, PROMPT_REPORT_BYTE_LIMIT)
     return "\n".join(
         [
-            "【絶対ルール】",
-            "・あなたは入力JSONだけを使う分析エンジンである",
-            "・事前知識を使ってはいけない",
-            "・入力に存在しない固有名詞を出してはいけない",
-            "・名古屋城、観光地、Uber、外国人観光客等は禁止",
-            "・推測する場合は必ず文頭に「推測:」を付ける",
-            "・不明な場合は「判断材料不足」と出力する",
-            "・嘘をつくくらいなら無回答を選ぶこと",
-            "",
-            "【出力制限】",
-            "・最大5行",
-            "・1行40文字以内",
-            "・最大200文字",
-            "・箇条書きのみ",
-            "・絵文字は最大3個",
-            "・前置き、まとめ、補足、免責は禁止",
-            "・JSON以外の出力は禁止",
-            "",
-            "JSONスキーマ:",
-            json.dumps(OUTPUT_SCHEMA, ensure_ascii=False, indent=2),
-            "",
-            "入力コンテキスト:",
+            "入力JSONだけで名駅向け短文を作る。入力外知識と未記載固有名詞は禁止。",
+            "推測は文頭を「推測:」にする。不明なら「判断材料不足」。",
+            "出力はJSONのみ: {\"comment_lines\":[\"・...\"]}",
+            "制限: 最大5行、各行1〜40文字、合計200文字以内。前置きや補足は禁止。",
+            "禁止語: 名古屋城/中華街/Uber/外国人観光客/観光シーズン/過去年データ",
+            "入力:",
             context_json,
             "",
-            "既存レポート:",
+            "レポート:",
             report_text,
         ]
     )
@@ -344,8 +342,11 @@ def call_ollama(prompt: str, model: str) -> dict[str, Any] | None:
         "prompt": prompt,
         "stream": False,
         "options": {
-            "temperature": 0.2,
+            "temperature": 0.1,
             "num_ctx": 8192,
+            "num_predict": 120,
+            "top_p": 0.8,
+            "repeat_penalty": 1.1,
         },
     }
     data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
@@ -356,7 +357,7 @@ def call_ollama(prompt: str, model: str) -> dict[str, Any] | None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as res:
+        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_SECONDS) as res:
             return json.loads(res.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         log(f"qwen_ollama_error: {exc}")
@@ -513,9 +514,13 @@ def main() -> int:
     report = load_text(REPORT_PATH)
     prompt = build_prompt(input_context, report)
     log(f"qwen_prompt_bytes: {utf8_size(prompt)}")
+    started_at = time.monotonic()
     response = call_ollama(prompt, effective_ollama_model)
+    elapsed_seconds = time.monotonic() - started_at
+    log(f"qwen_elapsed_seconds: {elapsed_seconds:.3f}")
 
     if response is None:
+        log("qwen_response_bytes: 0")
         comment = fallback_comment(input_context)
         log_fallback("ollama_error")
         log_output_lines(comment)
@@ -532,6 +537,7 @@ def main() -> int:
         return 0
 
     raw = str(response.get("response", "")).strip()
+    log(f"qwen_response_bytes: {utf8_size(raw)}")
     parsed, invalid_reason = extract_json_object(raw)
     comment = ""
     if parsed:
