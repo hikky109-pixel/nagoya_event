@@ -182,8 +182,16 @@ async def repost_placeinfo_button(interaction: Any, discord: Any) -> None:
             await interaction.response.send_message(FAILURE_MESSAGE, ephemeral=True)
             return
         await send_placeinfo_test_button(channel, discord)
+        original_message = getattr(interaction, "message", None)
+        if original_message is not None:
+            try:
+                await original_message.delete()
+            except Exception:
+                print("placeinfo_repost_original_delete_failed", flush=True)
+                traceback.print_exc()
         await interaction.response.send_message("📍 新しいPlaceInfoテストボタンを追加しました😇", ephemeral=True)
     except Exception:
+        print("placeinfo_repost_failed", flush=True)
         traceback.print_exc()
         if not interaction.response.is_done():
             await interaction.response.send_message(FAILURE_MESSAGE, ephemeral=True)
