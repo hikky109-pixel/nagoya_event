@@ -116,7 +116,11 @@ def main() -> int:
         print("Yahoo PlaceInfoテストボタン投稿設定未完了: YAHOO_CLIENT_ID")
         return 0
     if not get_setting("GPS_WEB_BASE_URL"):
-        print("Yahoo PlaceInfoテストボタン投稿設定未完了: GPS_WEB_BASE_URL")
+        print(
+            "Yahoo PlaceInfoテストボタン投稿設定未完了: "
+            "GPS_WEB_BASE_URL にCloudflare TunnelのHTTPS公開URLを設定してください "
+            "(例: https://xxxxx.trycloudflare.com)"
+        )
         return 0
     if not args.force and posted_within_last_hour():
         print("Yahoo PlaceInfoテストボタン再掲スキップ: last_posted_within_1h")

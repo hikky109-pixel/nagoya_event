@@ -198,6 +198,8 @@ def gps_web_url() -> str:
     base_url = str(GPS_WEB_BASE_URL or "").strip().rstrip("/")
     if not base_url:
         return ""
+    if base_url.endswith("/gps"):
+        return base_url
     return f"{base_url}/gps"
 
 
