@@ -88,6 +88,24 @@ GPS_HTML = """<!doctype html>
       statusBox.textContent = text;
     }
 
+    function enableRetry() {
+      button.disabled = false;
+      button.textContent = "もう一度取得";
+    }
+
+    function geolocationErrorMessage(error) {
+      if (error.code === 1) {
+        return "位置情報が拒否されました";
+      }
+      if (error.code === 2) {
+        return "位置情報を取得できませんでした";
+      }
+      if (error.code === 3) {
+        return "位置情報取得がタイムアウトしました";
+      }
+      return error.message || "位置情報を取得できませんでした";
+    }
+
     function renderCandidates(items) {
       list.innerHTML = "";
       for (const item of items.slice(0, 5)) {
@@ -113,24 +131,26 @@ GPS_HTML = """<!doctype html>
 
     function getCurrentPosition() {
       if (!navigator.geolocation) {
-        setStatus("このブラウザでは位置情報を取得できません。");
+        setStatus("このブラウザでは位置情報を取得できません。\\nうまく動かない場合はSafariで開いてください😇");
+        enableRetry();
         return;
       }
       button.disabled = true;
-      setStatus("位置情報を取得しています...");
+      setStatus("GPS許可を確認しています...");
       navigator.geolocation.getCurrentPosition(
         (position) => {
           sendPosition(position).catch((error) => {
             setStatus(`位置情報テストを開始できませんでした: ${error.message}`);
-          }).finally(() => {
+            enableRetry();
+          }).then(() => {
             button.disabled = false;
           });
         },
         (error) => {
-          setStatus(`位置情報を取得できませんでした: ${error.message}`);
-          button.disabled = false;
+          setStatus(`${geolocationErrorMessage(error)}\\nうまく動かない場合はSafariで開いてください😇`);
+          enableRetry();
         },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
       );
     }
 
