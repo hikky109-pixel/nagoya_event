@@ -128,7 +128,7 @@ def run(*, force: bool = False, hours: int = 24) -> dict[str, Any]:
         return {"sent": False, "skipped": True, "reason": "duplicate", "hash": forecast_hash, "content": content}
 
     token = setting("DISCORD_BOT_TOKEN")
-    channel_id = setting("OPENMETEO_FORECAST_CHANNEL_ID")
+    channel_id = setting("WEATHER_ALERT_CHANNEL_ID")
     if not token or not channel_id:
         return {
             "sent": False,

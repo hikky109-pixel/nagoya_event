@@ -24,7 +24,6 @@ Cron should use the virtualenv Python directly:
 
 ```bash
 WEATHER_ALERT_CHANNEL_ID=1521500210239635477
-OPENMETEO_FORECAST_CHANNEL_ID=1521500210239635477
 ```
 
 手動テスト:
