@@ -43,6 +43,9 @@ DEFAULT_QWEN_OLLAMA_MODEL = "qwen2.5:7b"
 CONTEXT_BYTE_LIMIT = 8192
 PROMPT_CONTEXT_BYTE_LIMIT = 6144
 PROMPT_REPORT_BYTE_LIMIT = 1536
+MAX_COMMENT_LINES = 5
+MAX_LINE_CHARS = 40
+MAX_COMMENT_CHARS = 200
 AI_MODEL = getattr(config, "AI_MODEL", "qwen") or "qwen"
 MODEL = os.getenv("OLLAMA_MODEL", "").strip() or DEFAULT_QWEN_OLLAMA_MODEL
 LIST_LIMITS = {
@@ -81,16 +84,19 @@ CONTEXT_KEYS = (
 )
 
 OUTPUT_SCHEMA = {
-    "headline": "15字から32字の短い見出し。事実ベース。",
-    "railway": ["鉄道で利用者に伝えるべき事項。なければ空配列。"],
-    "road": ["道路・規制・渋滞で伝えるべき事項。なければ空配列。"],
-    "weather": ["天気警報・注意報で伝えるべき事項。なければ空配列。"],
-    "events": ["イベント起因の混雑や送迎需要。なければ空配列。"],
-    "cruise": ["クルーズ船の入出港による需要。なければ空配列。"],
-    "asia_games": ["アジア大会関連の需要。なければ空配列。"],
-    "busy_reports": ["名駅繁忙ボタンの現場報告。なければ空配列。"],
-    "note": "最後に1文だけ。不要なら空文字。",
+    "comment_lines": [
+        "入力JSONだけに基づく箇条書き。最大5行、1行40文字以内。"
+    ],
 }
+FORBIDDEN_TERMS = (
+    "名古屋城",
+    "中華街",
+    "Uber",
+    "外国人観光客",
+    "観光シーズン",
+    "2024年現在",
+    "2023年データ",
+)
 
 
 def now_iso() -> str:
@@ -248,13 +254,23 @@ def build_prompt(input_context: dict[str, Any], report: str) -> str:
     report_text = truncate_utf8(report, PROMPT_REPORT_BYTE_LIMIT)
     return "\n".join(
         [
-            "あなたは名駅AIです。名古屋駅周辺の交通・天気・イベント情報を短く実務向けに整理してください。",
-            "事前知識を使わないでください。",
-            "入力JSONにない事実を作らないでください。",
-            "推測が必要な場合は必ず「推測」と明記してください。",
-            "名古屋城、観光地、Uberなど、入力JSONに無い話題は禁止です。",
-            "送信文はこの後Python側の固定テンプレートへ流し込むため、必ずJSONだけを返してください。",
-            "Markdown、前置き、コードフェンスは禁止です。",
+            "【絶対ルール】",
+            "・あなたは入力JSONだけを使う分析エンジンである",
+            "・事前知識を使ってはいけない",
+            "・入力に存在しない固有名詞を出してはいけない",
+            "・名古屋城、観光地、Uber、外国人観光客等は禁止",
+            "・推測する場合は必ず文頭に「推測:」を付ける",
+            "・不明な場合は「判断材料不足」と出力する",
+            "・嘘をつくくらいなら無回答を選ぶこと",
+            "",
+            "【出力制限】",
+            "・最大5行",
+            "・1行40文字以内",
+            "・最大200文字",
+            "・箇条書きのみ",
+            "・絵文字は最大3個",
+            "・前置き、まとめ、補足、免責は禁止",
+            "・JSON以外の出力は禁止",
             "",
             "JSONスキーマ:",
             json.dumps(OUTPUT_SCHEMA, ensure_ascii=False, indent=2),
@@ -312,53 +328,52 @@ def extract_json_object(text: str) -> dict[str, Any]:
     return {}
 
 
-def normalize_items(value: Any, limit: int = 3) -> list[str]:
+def normalize_comment_lines(value: Any) -> list[str]:
     if isinstance(value, str):
-        values: list[Any] = [value]
+        candidates: list[Any] = value.splitlines()
     elif isinstance(value, list):
-        values = value
+        candidates = value
     else:
-        values = []
+        candidates = []
 
-    items: list[str] = []
-    for item in values:
+    lines: list[str] = []
+    for item in candidates:
         text = " ".join(str(item or "").split())
+        text = text.lstrip("-・* ").strip()
         if not text:
             continue
-        items.append(text[:120])
-        if len(items) >= limit:
+        if not text.startswith("・"):
+            text = f"・{text}"
+        lines.append(text[:MAX_LINE_CHARS])
+        if len(lines) >= MAX_COMMENT_LINES:
             break
-    return items
+    return lines
 
 
-def render_section(title: str, items: list[str]) -> list[str]:
-    if not items:
-        return []
-    return [title, *[f"・{item}" for item in items]]
+def forbidden_terms_in(text: str) -> list[str]:
+    return [term for term in FORBIDDEN_TERMS if term in text]
+
+
+def guard_comment(comment: str) -> str:
+    if not comment.strip():
+        return ""
+    terms = forbidden_terms_in(comment)
+    if terms:
+        log(f"qwen_output_policy_warning: forbidden_terms={','.join(terms)}")
+        return ""
+    if len(comment) > MAX_COMMENT_CHARS:
+        log(f"qwen_output_policy_warning: too_long chars={len(comment)}")
+        return ""
+    return comment
 
 
 def render_comment(data: dict[str, Any]) -> str:
-    headline = " ".join(str(data.get("headline") or "名駅周辺メモ").split())[:40]
-    lines: list[str] = ["名駅AI", headline, ""]
-
-    sections = [
-        ("交通", normalize_items(data.get("railway")) + normalize_items(data.get("road"))),
-        ("天気", normalize_items(data.get("weather"))),
-        ("イベント", normalize_items(data.get("events"))),
-        ("港・大会", normalize_items(data.get("cruise"), 2) + normalize_items(data.get("asia_games"), 2)),
-        ("現場繁忙", normalize_items(data.get("busy_reports"), 3)),
-    ]
-    for title, items in sections:
-        rendered = render_section(title, items)
-        if rendered:
-            lines.extend(rendered)
-            lines.append("")
-
-    note = " ".join(str(data.get("note") or "").split())[:120]
-    if note:
-        lines.append(note)
-
-    return "\n".join(lines).strip()
+    lines = normalize_comment_lines(data.get("comment_lines"))
+    comment = "\n".join(lines)
+    guarded = guard_comment(comment)
+    if guarded:
+        return guarded
+    return ""
 
 
 def fallback_comment(input_context: dict[str, Any]) -> str:
@@ -369,13 +384,14 @@ def fallback_comment(input_context: dict[str, Any]) -> str:
     active = [key for key, count in counts.items() if count]
     if not active:
         return ""
-    return render_comment(
-        {
-            "headline": "名駅周辺の入力情報を確認",
-            "events": [f"入力あり: {', '.join(active)}"],
-            "note": "詳細文の生成に失敗したため、固定テンプレートで概要のみ記録します。",
-        }
-    )
+    active_text = ", ".join(active[:3])
+    if len(active) > 3:
+        active_text = f"{active_text} 他{len(active) - 3}件"
+    lines = [
+        f"・入力あり: {active_text}",
+        "・判断材料不足",
+    ]
+    return guard_comment("\n".join(line[:MAX_LINE_CHARS] for line in lines))
 
 
 def write_comment_result(result: dict[str, Any], comment: str) -> None:
@@ -416,7 +432,9 @@ def main() -> int:
 
     raw = str(response.get("response", "")).strip()
     parsed = extract_json_object(raw)
-    comment = render_comment(parsed) if parsed else fallback_comment(input_context)
+    comment = render_comment(parsed) if parsed else ""
+    if not comment:
+        comment = fallback_comment(input_context)
     result = {
         "generated_at": now_iso(),
         "ai_model": AI_MODEL,
@@ -425,7 +443,7 @@ def main() -> int:
         "done": bool(response.get("done")) and bool(comment),
         "input_context_keys": list(CONTEXT_KEYS),
         "raw_response": raw,
-        "template": "qwen_fixed_v1",
+        "template": "qwen_comment_lines_v1",
     }
     write_comment_result(result, comment)
     log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
