@@ -178,6 +178,47 @@ def handle_scraper_health_messages(messages):
                 logging.warning(f"管理Discord通知送信失敗: {exc}")
 
 
+def run_scraper_health_dashboard(force=False):
+    from tools.health.build_scraper_dashboard import build_dashboard
+
+    result = build_dashboard(force=force)
+    if result.get("skipped"):
+        logging.info(
+            "scraper_dashboard: skipped reason=%s last_run_at=%s",
+            result.get("reason", ""),
+            result.get("last_run_at", ""),
+        )
+        return
+
+    dashboard = result.get("dashboard")
+    if not isinstance(dashboard, dict):
+        logging.warning("scraper_dashboard: failed empty_result")
+        return
+
+    warnings = dashboard.get("warnings")
+    if not isinstance(warnings, list):
+        warnings = []
+    infos = dashboard.get("infos")
+    if not isinstance(infos, list):
+        infos = []
+
+    logging.info("scraper_dashboard: generated warnings=%s infos=%s", len(warnings), len(infos))
+    for info in infos:
+        logging.info("scraper_dashboard_info: %s", info)
+    for warning in warnings:
+        logging.warning("scraper_dashboard_warning: %s", warning)
+
+    if warnings:
+        message = "⚠️ Scraper Health Dashboard\n\n" + "\n".join(
+            f"・{warning}" for warning in warnings
+        )
+        try:
+            send_admin_discord(message)
+        except Exception as exc:
+            print(f"[WARN] Failed to send admin notification: {exc}")
+            logging.warning(f"管理Discord通知送信失敗: {exc}")
+
+
 def _is_empty_time(value):
     return not value or value in ("未定", "時間情報なし")
 
@@ -650,6 +691,8 @@ def main():
         logging.info(f"劇団四季CSV更新完了: csv_events/shiki.csv / {len(shiki_events)}件")
 
         browser.close()
+
+    run_scraper_health_dashboard()
 
     manual_events = filter_events_by_date(load_non_road_manual_csv_events(), today)
     events += manual_events
