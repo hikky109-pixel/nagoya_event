@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from config import GPS_WEB_BASE_URL
 from tools.location.get_yahoo_placeinfo import get_yahoo_placeinfo
 
 
@@ -29,7 +30,7 @@ def message_text() -> str:
         [
             "📍 Yahoo PlaceInfo テスト",
             "",
-            "現在地または指定座標から",
+            "ブラウザで現在地を取得し、",
             "近くのランドマーク候補を取得します。",
         ]
     )
@@ -193,33 +194,25 @@ async def send_placeinfo_test_button(channel: Any, discord: Any) -> Any:
     return await channel.send(message_text(), view=build_placeinfo_test_view(discord))
 
 
+def gps_web_url() -> str:
+    base_url = str(GPS_WEB_BASE_URL or "").strip().rstrip("/")
+    if not base_url:
+        return ""
+    return f"{base_url}/gps"
+
+
 def build_placeinfo_test_view(discord: Any) -> Any:
     class PlaceInfoTestView(discord.ui.View):
         def __init__(self) -> None:
             super().__init__(timeout=None)
-
-        @discord.ui.button(
-            label="現在地座標でテスト",
-            style=discord.ButtonStyle.primary,
-            custom_id="yahoo_placeinfo_test_current",
-        )
-        async def current_button(self, interaction: Any, button: Any) -> None:
-            await prompt_for_coordinates(interaction, mode="current")
-
-        @discord.ui.button(
-            label="座標を指定してテスト",
-            style=discord.ButtonStyle.secondary,
-            custom_id="yahoo_placeinfo_test_coordinate",
-        )
-        async def coordinate_button(self, interaction: Any, button: Any) -> None:
-            await prompt_for_coordinates(interaction, mode="coordinate")
-
-        @discord.ui.button(
-            label="このボタンを新たに追加",
-            style=discord.ButtonStyle.success,
-            custom_id="yahoo_placeinfo_test_repost",
-        )
-        async def repost_button(self, interaction: Any, button: Any) -> None:
-            await repost_placeinfo_button(interaction, discord)
+            url = gps_web_url()
+            if url:
+                self.add_item(
+                    discord.ui.Button(
+                        label="📍 現在地からテスト",
+                        style=discord.ButtonStyle.link,
+                        url=url,
+                    )
+                )
 
     return PlaceInfoTestView()
