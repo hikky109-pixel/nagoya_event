@@ -32,6 +32,24 @@ WEATHER_ALERT_CHANNEL_ID=1521500210239635477
 python3 tools/weather/send_weather_alert_beta.py --force --dry-run
 ```
 
+## Yahoo PlaceInfo Alpha
+
+Yahoo PlaceInfo テストボタンの投稿先は環境変数で管理する。チャンネルIDとYahoo Client IDはコードに直書きしない。
+
+ローカル `.env` と Ubuntu 本番環境 `/home/ubuntu/nagoya_event/.env` の両方に、同じ設定を追加すること:
+
+```bash
+YAHOO_CLIENT_ID=...
+YAHOO_PLACEINFO_TEST_CHANNEL_ID=1521532870601080852
+```
+
+手動テスト:
+
+```bash
+python3 tools/location/get_yahoo_placeinfo.py --lat 35.170915 --lon 136.881537 --pretty
+python3 tools/location/post_placeinfo_test_button.py --force
+```
+
 ## Google Sheets
 
 Google Sheets sync uses the existing OAuth files under `credentials/`:
