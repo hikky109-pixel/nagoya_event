@@ -24,12 +24,15 @@ Cron should use the virtualenv Python directly:
 
 ```bash
 WEATHER_ALERT_CHANNEL_ID=1521500210239635477
+OPENMETEO_FORECAST_CHANNEL_ID=1521500210239635477
 ```
 
 手動テスト:
 
 ```bash
 python3 tools/weather/send_weather_alert_beta.py --force --dry-run
+python3 tools/weather/get_openmeteo_forecast.py --pretty
+python3 tools/weather/post_openmeteo_forecast.py --force
 ```
 
 ## Yahoo PlaceInfo Alpha
