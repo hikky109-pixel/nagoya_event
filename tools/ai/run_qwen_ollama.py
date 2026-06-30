@@ -21,7 +21,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-import config  # noqa: E402
+from config import AI_MODEL as CONFIG_AI_MODEL  # noqa: E402
+from config import OLLAMA_MODEL  # noqa: E402
 
 try:
     from log_utils import log
@@ -39,15 +40,13 @@ CRUISE_CSV_PATH = ROOT / "csv_events" / "cruise.csv"
 ASIA_CSV_PATH = ROOT / "csv_events" / "asia.csv"
 BUSY_LOG_PATH = DATA_DIR / "signals" / "meieki_busy_log.jsonl"
 OLLAMA_URL = "http://localhost:11434/api/generate"
-DEFAULT_QWEN_OLLAMA_MODEL = "qwen2.5:7b"
 CONTEXT_BYTE_LIMIT = 8192
 PROMPT_CONTEXT_BYTE_LIMIT = 6144
 PROMPT_REPORT_BYTE_LIMIT = 1536
 MAX_COMMENT_LINES = 5
 MAX_LINE_CHARS = 40
 MAX_COMMENT_CHARS = 200
-AI_MODEL = getattr(config, "AI_MODEL", "qwen") or "qwen"
-MODEL = os.getenv("OLLAMA_MODEL", "").strip() or DEFAULT_QWEN_OLLAMA_MODEL
+AI_MODEL = CONFIG_AI_MODEL or "qwen"
 LIST_LIMITS = {
     "events": 20,
     "road": 20,
@@ -101,6 +100,12 @@ FORBIDDEN_TERMS = (
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def resolve_ollama_model() -> tuple[str, str, str]:
+    env_model = os.getenv("OLLAMA_MODEL", "").strip()
+    config_model = str(OLLAMA_MODEL or "").strip()
+    return env_model, config_model, config_model
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -284,9 +289,9 @@ def build_prompt(input_context: dict[str, Any], report: str) -> str:
     )
 
 
-def call_ollama(prompt: str) -> dict[str, Any] | None:
+def call_ollama(prompt: str, model: str) -> dict[str, Any] | None:
     payload = {
-        "model": MODEL,
+        "model": model,
         "prompt": prompt,
         "stream": False,
         "options": {
@@ -403,8 +408,11 @@ def write_comment_result(result: dict[str, Any], comment: str) -> None:
 
 
 def main() -> int:
+    env_ollama_model, config_ollama_model, effective_ollama_model = resolve_ollama_model()
     log(f"ai_model: {AI_MODEL}")
-    log(f"ollama_model: {MODEL}")
+    log(f"env_ollama_model: {env_ollama_model or '(unset)'}")
+    log(f"config_ollama_model: {config_ollama_model or '(unset)'}")
+    log(f"effective_ollama_model: {effective_ollama_model}")
     raw_input_context = build_input_context()
     raw_context_json = serialize_input_context(raw_input_context)
     log(f"qwen_context_json_raw_bytes: {utf8_size(raw_context_json)}")
@@ -414,14 +422,14 @@ def main() -> int:
     report = load_text(REPORT_PATH)
     prompt = build_prompt(input_context, report)
     log(f"qwen_prompt_bytes: {utf8_size(prompt)}")
-    response = call_ollama(prompt)
+    response = call_ollama(prompt, effective_ollama_model)
 
     if response is None:
         comment = fallback_comment(input_context)
         result = {
             "generated_at": now_iso(),
             "ai_model": AI_MODEL,
-            "model": MODEL,
+            "model": effective_ollama_model,
             "comment": comment,
             "done": False,
             "ollama_error": True,
@@ -438,7 +446,7 @@ def main() -> int:
     result = {
         "generated_at": now_iso(),
         "ai_model": AI_MODEL,
-        "model": MODEL,
+        "model": effective_ollama_model,
         "comment": comment,
         "done": bool(response.get("done")) and bool(comment),
         "input_context_keys": list(CONTEXT_KEYS),
