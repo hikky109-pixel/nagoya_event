@@ -228,13 +228,15 @@ def build_placeinfo_test_view(discord: Any) -> Any:
                         url=url,
                     )
                 )
+            repost_button = discord.ui.Button(
+                label="🔄 テストボタン再投稿",
+                style=discord.ButtonStyle.secondary,
+                custom_id="yahoo_placeinfo_test_repost",
+            )
+            repost_button.callback = self.repost_button
+            self.add_item(repost_button)
 
-        @discord.ui.button(
-            label="🔄 テストボタン再投稿",
-            style=discord.ButtonStyle.secondary,
-            custom_id="yahoo_placeinfo_test_repost",
-        )
-        async def repost_button(self, interaction: Any, button: Any) -> None:
+        async def repost_button(self, interaction: Any) -> None:
             await repost_placeinfo_button(interaction, discord)
 
     return PlaceInfoTestView()
