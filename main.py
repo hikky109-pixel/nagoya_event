@@ -596,6 +596,13 @@ def main():
         misonoza_events = dedupe_misonoza_events(misonoza_events)
 
         for message in misonoza_messages:
+            if message.startswith("scraper_health_warning:"):
+                logging.warning(message)
+                continue
+            if message.startswith("scraper_health_info:") or message.startswith("scraper_health:"):
+                logging.info(message)
+                continue
+
             print()
             print(message)
             try:

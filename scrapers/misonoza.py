@@ -11,12 +11,17 @@ import tempfile
 
 import pytesseract
 
+from tools.common.scraper_health import (
+    check_selector_count,
+    check_structure_hash,
+    check_year_tabs,
+)
+
 pytesseract.pytesseract.tesseract_cmd = "/opt/homebrew/bin/tesseract"
 
 
 JST = timezone(timedelta(hours=9))
 LIST_URLS = [
-    "https://www.misonoza.co.jp/lineup/monthly/",
     "https://www.misonoza.co.jp/lineup/",
 ]
 COMMON_COLUMNS = ["date", "time", "venue", "title"]
@@ -205,6 +210,7 @@ def _apply_event_metadata(events: list[dict], title: str, url: str, soup) -> lis
     for event in events:
         event.setdefault("url", url)
         event.setdefault("status", "confirmed")
+        event["source"] = "lineup"
         if is_rental_event(title):
             event["note"] = "貸館"
             if end_time:
@@ -379,7 +385,7 @@ def normalize_misonoza_event(event: dict) -> dict:
         "end_time": event.get("end_time", ""),
         "venue": event.get("venue", "御園座"),
         "title": event.get("title", ""),
-        "source": "御園座",
+        "source": event.get("source", "lineup"),
         "status": event.get("status", "confirmed"),
         "note": event.get("note", ""),
         "url": event.get("url", ""),
@@ -527,7 +533,11 @@ def write_misonoza_csv(events: list[dict], output_path: str) -> None:
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    normalized_events = [normalize_misonoza_event(event) for event in dedupe_events(events)]
+    lineup_events = [
+        event for event in dedupe_events(events)
+        if event.get("source") == "lineup"
+    ]
+    normalized_events = [normalize_misonoza_event(event) for event in lineup_events]
     existing_rows = _load_existing_misonoza_csv(output_file)
     merged_events = dedupe_events(_merge_manual_rows(normalized_events, existing_rows))
 
@@ -724,13 +734,49 @@ def _scrape_show_page(page, url):
     return events
 
 
-def _lineup_items(page):
+def _lineup_health_messages(soup) -> list[str]:
+    messages: list[str] = []
+    messages.extend(
+        check_year_tabs(
+            "misonoza",
+            soup,
+            '.tab_style a[href^="#tab-cont"]',
+        )
+    )
+    messages.extend(
+        check_selector_count(
+            "misonoza",
+            soup,
+            ".set-lineup",
+            "公演ブロック",
+            min_count=1,
+        )
+    )
+    monitored_nodes = soup.select('.tab_style a[href^="#tab-cont"], .set-lineup')
+    messages.extend(
+        check_structure_hash(
+            "misonoza",
+            "\n".join(str(node) for node in monitored_nodes),
+            "lineup",
+        )
+    )
+    return messages
+
+
+def _lineup_items(page, health_messages: list[str] | None = None):
     for list_url in LIST_URLS:
         response = page.goto(list_url, wait_until="domcontentloaded", timeout=30000)
         if response and response.status >= 400:
+            if health_messages is not None:
+                health_messages.append(
+                    "scraper_health_warning: "
+                    f"misonoza lineup取得失敗 status={response.status} url={list_url}"
+                )
             continue
 
         soup = BeautifulSoup(page.content(), "html.parser")
+        if health_messages is not None:
+            health_messages.extend(_lineup_health_messages(soup))
         items = []
         seen = set()
 
@@ -776,7 +822,7 @@ def scrape_misonoza_with_notifications(page, today=None):
     notified_state_changed = False
     manual_rows = _manual_rows(_load_existing_misonoza_csv(DEFAULT_MISONOZA_CSV_PATH))
 
-    for item in _lineup_items(page):
+    for item in _lineup_items(page, health_messages=messages):
         try:
             events = []
             page_messages = []
