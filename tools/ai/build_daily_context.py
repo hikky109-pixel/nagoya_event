@@ -319,7 +319,7 @@ def main() -> int:
     context = build_context()
 
     with OUTPUT_PATH.open("w", encoding="utf-8") as f:
-        json.dump(context, f, ensure_ascii=False, indent=2)
+        json.dump(context, f, ensure_ascii=False, indent=2, default=str)
         f.write("\n")
 
     print(f"wrote: {OUTPUT_PATH.relative_to(ROOT)}")

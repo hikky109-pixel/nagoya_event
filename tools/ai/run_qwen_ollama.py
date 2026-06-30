@@ -40,6 +40,8 @@ ASIA_CSV_PATH = ROOT / "csv_events" / "asia.csv"
 BUSY_LOG_PATH = DATA_DIR / "signals" / "meieki_busy_log.jsonl"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 DEFAULT_QWEN_OLLAMA_MODEL = "qwen2.5:7b"
+PROMPT_CONTEXT_BYTE_LIMIT = 6144
+PROMPT_REPORT_BYTE_LIMIT = 1536
 AI_MODEL = getattr(config, "AI_MODEL", "qwen") or "qwen"
 MODEL = os.getenv("OLLAMA_MODEL", "").strip() or DEFAULT_QWEN_OLLAMA_MODEL
 
@@ -149,7 +151,26 @@ def build_input_context() -> dict[str, Any]:
     return qwen_context
 
 
+def utf8_size(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
+def truncate_utf8(text: str, byte_limit: int) -> str:
+    if utf8_size(text) <= byte_limit:
+        return text
+    marker = "\n... truncated ..."
+    marker_bytes = utf8_size(marker)
+    body_limit = max(0, byte_limit - marker_bytes)
+    return text.encode("utf-8")[:body_limit].decode("utf-8", errors="ignore") + marker
+
+
+def serialize_input_context(input_context: dict[str, Any]) -> str:
+    return json.dumps(input_context, ensure_ascii=False, indent=2, default=str)
+
+
 def build_prompt(input_context: dict[str, Any], report: str) -> str:
+    context_json = truncate_utf8(serialize_input_context(input_context), PROMPT_CONTEXT_BYTE_LIMIT)
+    report_text = truncate_utf8(report, PROMPT_REPORT_BYTE_LIMIT)
     return "\n".join(
         [
             "あなたは名駅AIです。名古屋駅周辺の交通・天気・イベント情報を短く実務向けに整理してください。",
@@ -161,10 +182,10 @@ def build_prompt(input_context: dict[str, Any], report: str) -> str:
             json.dumps(OUTPUT_SCHEMA, ensure_ascii=False, indent=2),
             "",
             "入力コンテキスト:",
-            json.dumps(input_context, ensure_ascii=False, indent=2, default=str),
+            context_json,
             "",
             "既存レポート:",
-            report[:12000],
+            report_text,
         ]
     )
 
@@ -179,7 +200,7 @@ def call_ollama(prompt: str) -> dict[str, Any] | None:
             "num_ctx": 8192,
         },
     }
-    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     req = urllib.request.Request(
         OLLAMA_URL,
         data=data,
@@ -283,7 +304,7 @@ def write_comment_result(result: dict[str, Any], comment: str) -> None:
     AI_DIR.mkdir(parents=True, exist_ok=True)
     TEXT_OUTPUT_PATH.write_text(comment, encoding="utf-8")
     with JSON_OUTPUT_PATH.open("w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
+        json.dump(result, f, ensure_ascii=False, indent=2, default=str)
         f.write("\n")
 
 
@@ -291,8 +312,11 @@ def main() -> int:
     log(f"ai_model: {AI_MODEL}")
     log(f"ollama_model: {MODEL}")
     input_context = build_input_context()
+    context_json = serialize_input_context(input_context)
+    log(f"qwen_context_json_bytes: {utf8_size(context_json)}")
     report = load_text(REPORT_PATH)
     prompt = build_prompt(input_context, report)
+    log(f"qwen_prompt_bytes: {utf8_size(prompt)}")
     response = call_ollama(prompt)
 
     if response is None:
