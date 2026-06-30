@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import csv
+import json
 
 import requests
 
@@ -78,6 +79,8 @@ ROAD_CATEGORY_ICONS = {
 }
 LOG_DIR = Path(os.getenv("EVENT_BOT_LOG_DIR", PROJECT_ROOT / "logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+OPENMETEO_FORECAST_STATE_PATH = PROJECT_ROOT / "data" / "weather" / "openmeteo_forecast_state.json"
+OPENMETEO_FORECAST_SLOTS = {0, 6, 12, 18}
 
 logging.basicConfig(
     filename=LOG_DIR / "event_bot.log",
@@ -85,6 +88,65 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     encoding="utf-8"
 )
+
+
+def _load_json_state(path):
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_json_state(path, state):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def openmeteo_forecast_slot_key(now):
+    return f"{now:%Y-%m-%d}-{now.hour:02d}"
+
+
+def run_openmeteo_forecast_scheduler(now):
+    if now.hour not in OPENMETEO_FORECAST_SLOTS:
+        print("openmeteo_forecast: skipped outside slot")
+        logging.info("openmeteo_forecast: skipped outside slot")
+        return
+
+    if not os.getenv("WEATHER_ALERT_CHANNEL_ID", "").strip():
+        print("openmeteo_forecast: skipped missing WEATHER_ALERT_CHANNEL_ID")
+        logging.info("openmeteo_forecast: skipped missing WEATHER_ALERT_CHANNEL_ID")
+        return
+
+    slot_key = openmeteo_forecast_slot_key(now)
+    state = _load_json_state(OPENMETEO_FORECAST_STATE_PATH)
+    if state.get(slot_key):
+        print("openmeteo_forecast: skipped already posted")
+        logging.info("openmeteo_forecast: skipped already posted")
+        return
+
+    try:
+        from tools.weather.post_openmeteo_forecast import run as post_openmeteo_forecast
+
+        result = post_openmeteo_forecast(force=True)
+        if result.get("sent"):
+            state = _load_json_state(OPENMETEO_FORECAST_STATE_PATH)
+            state[slot_key] = {
+                "posted_at": datetime.now(JST).isoformat(timespec="seconds"),
+                "hash": result.get("hash", ""),
+            }
+            state["last_slot_key"] = slot_key
+            _save_json_state(OPENMETEO_FORECAST_STATE_PATH, state)
+            print("openmeteo_forecast: posted")
+            logging.info("openmeteo_forecast: posted")
+            return
+        print(f"openmeteo_forecast_error: {result.get('reason') or result.get('status_code') or 'not_sent'}")
+        logging.warning("openmeteo_forecast_error: %s", result)
+    except Exception as exc:
+        print(f"openmeteo_forecast_error: {exc}")
+        logging.exception("openmeteo_forecast_error: %s", exc)
 
 
 def normalize_date_text(value, today=None):
@@ -630,6 +692,7 @@ def main():
     today = datetime.now(JST)
     #下記はテスト用。
     #today = datetime(2026, 6, 10, tzinfo=JST)
+    run_openmeteo_forecast_scheduler(today)
 
     events = []
 

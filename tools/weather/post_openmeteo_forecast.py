@@ -22,7 +22,7 @@ import config  # noqa: E402
 from tools.weather.get_openmeteo_forecast import get_openmeteo_forecast  # noqa: E402
 
 
-STATE_PATH = ROOT / "data" / "openmeteo_forecast_state.json"
+STATE_PATH = ROOT / "data" / "weather" / "openmeteo_forecast_state.json"
 JST = ZoneInfo("Asia/Tokyo")
 REQUEST_TIMEOUT_SECONDS = 15
 
