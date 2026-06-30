@@ -48,6 +48,7 @@ GPS_REPORT_CHANNEL_ID=1521532870601080852
 `GPS_WEB_BASE_URL` はHTTPS公開URLを設定する。ローカル検証時のみ `http://localhost:8787` を使える。
 Tailscale Funnelを推奨本番構成にする。手順は [docs/gps_tailscale_funnel.md](docs/gps_tailscale_funnel.md) を参照。
 Cloudflare Tunnelは開発用途として残す。手順は [docs/gps_cloudflare_tunnel.md](docs/gps_cloudflare_tunnel.md) を参照。
+※再投稿ボタンはテスト期間限定。本運用ではコンパネ専用チャンネルへ移行予定。
 
 手動テスト:
 
