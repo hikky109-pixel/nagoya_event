@@ -54,25 +54,72 @@ def save_state(state: dict[str, Any]) -> None:
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def format_precipitation(value: Any) -> str:
+    precipitation = _float_or_none(value)
+    if precipitation is None or precipitation < 1:
+        return ""
+    if precipitation.is_integer():
+        amount = str(int(precipitation))
+    else:
+        amount = f"{precipitation:.1f}".rstrip("0").rstrip(".")
+    return f"☔{amount}mm/h"
+
+
 def forecast_line(row: dict[str, Any]) -> str:
     label = str(row.get("label") or "--:--")
     weather = str(row.get("weather") or "不明")
     temp = row.get("temperature_2m")
+    precip_mm = format_precipitation(row.get("precipitation"))
     precip = row.get("precipitation_probability")
     text = f"{label} {weather}"
     if temp is not None:
         text += f" {int(temp)}℃"
+    if precip_mm:
+        text += f" {precip_mm}"
     if precip is not None and int(precip) >= 30:
         text += f" ☔{int(precip)}%"
     return text
 
 
+def max_precipitation(rows: list[dict[str, Any]]) -> float:
+    values = [
+        precipitation
+        for precipitation in (_float_or_none(row.get("precipitation")) for row in rows)
+        if precipitation is not None
+    ]
+    return max(values or [0.0])
+
+
+def taxi_operation_memo(rows: list[dict[str, Any]]) -> str:
+    maximum = max_precipitation(rows)
+    if maximum >= 10:
+        return "🚕運行メモ: 強い雨の時間帯あり。駅前・繁華街はタクシー需要が急に増える可能性があります。"
+    if maximum >= 5:
+        return "🚕運行メモ: 雨脚が強まる時間帯あり。乗り場待ちや迎車需要が伸びやすいです。"
+    if maximum >= 1:
+        return "🚕運行メモ: 小雨〜雨の時間帯あり。短距離移動のタクシー利用が増えやすいです。"
+    return "🚕運行メモ: 降水量ベースでは大きな雨影響は少なそうです。"
+
+
 def comment_for_forecast(rows: list[dict[str, Any]]) -> str:
+    rainy_by_amount = [row for row in rows if (_float_or_none(row.get("precipitation")) or 0) >= 1]
     rainy_rows = [
         row
         for row in rows
         if int(row.get("precipitation_probability") or 0) >= 50 or str(row.get("weather") or "") in {"雨", "雷雨"}
     ]
+    if rainy_by_amount:
+        first = str(rainy_by_amount[0].get("label") or "")
+        if first in {"18:00", "00:00"}:
+            return "夕方以降は雨量が出る可能性があります😇"
+        return "雨量が出る時間帯があります。空模様に注意してください😇"
     if rainy_rows:
         first = str(rainy_rows[0].get("label") or "")
         if first in {"18:00", "00:00"}:
@@ -90,7 +137,8 @@ def build_message(forecast: dict[str, Any]) -> str:
         lines.append("予報を取得できませんでした。")
     else:
         lines.extend(forecast_line(row) for row in rows[:4] if isinstance(row, dict))
-    lines.extend(["", "💬", comment_for_forecast([row for row in rows if isinstance(row, dict)])])
+    forecast_rows = [row for row in rows if isinstance(row, dict)]
+    lines.extend(["", taxi_operation_memo(forecast_rows), "", "💬", comment_for_forecast(forecast_rows)])
     return "\n".join(lines)
 
 

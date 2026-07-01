@@ -62,7 +62,7 @@ def openmeteo_url(*, hours: int) -> str:
         {
             "latitude": f"{NAGOYA_STATION_LAT:.6f}",
             "longitude": f"{NAGOYA_STATION_LON:.6f}",
-            "hourly": "temperature_2m,precipitation_probability,weather_code,wind_speed_10m",
+            "hourly": "temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m",
             "forecast_hours": max(int(hours), 1),
             "timezone": "Asia/Tokyo",
         }
@@ -119,6 +119,7 @@ def build_forecast(payload: dict[str, Any], *, hours: int, saved_at: datetime | 
         if dt is None or dt.hour not in TARGET_HOURS:
             continue
         temp = _int_or_none(_list_at(hourly.get("temperature_2m"), index))
+        precip_mm = _float_or_none(_list_at(hourly.get("precipitation"), index))
         precip = _int_or_none(_list_at(hourly.get("precipitation_probability"), index))
         code = _int_or_none(_list_at(hourly.get("weather_code"), index))
         wind = _float_or_none(_list_at(hourly.get("wind_speed_10m"), index))
@@ -127,6 +128,7 @@ def build_forecast(payload: dict[str, Any], *, hours: int, saved_at: datetime | 
                 "time": dt.isoformat(timespec="minutes"),
                 "label": f"{dt:%H:%M}",
                 "temperature_2m": temp,
+                "precipitation": precip_mm,
                 "precipitation_probability": precip,
                 "weather_code": code,
                 "weather": weather_code_label(code),
