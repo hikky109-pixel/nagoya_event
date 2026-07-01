@@ -160,6 +160,10 @@ def normalize_jma_component(raw: Any) -> dict[str, Any]:
             "label": str(value.get("label") or key),
             "message": str(value.get("message") or ""),
             "emoji": str(value.get("emoji") or "⚠️"),
+            "code": str(value.get("code") or ""),
+            "level": str(value.get("level") or ""),
+            "level_code": str(value.get("level_code") or ""),
+            "notify": bool(value.get("notify", True)),
         }
     component["active"] = normalized_active
     component["updated_at"] = str(raw.get("updated_at") or "")
@@ -341,10 +345,10 @@ def _flood_target(title: str) -> str:
 def jma_active_advisories_from_snapshot(
     snapshot: dict[str, Any],
     now: datetime | None = None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     current = now or now_jst()
     raw = _jma_raw(snapshot)
-    advisories: list[dict[str, str]] = []
+    advisories: list[dict[str, Any]] = []
 
     warning = raw.get("warning")
     if isinstance(warning, dict):
@@ -414,7 +418,7 @@ def jma_active_advisories_from_snapshot(
 
 def jma_debug_logs_from_snapshot(
     snapshot: dict[str, Any],
-    advisories: list[dict[str, str]],
+    advisories: list[dict[str, Any]],
 ) -> list[str]:
     raw = _jma_raw(snapshot)
     warning_items = _nagoya_warning_items(raw)
@@ -431,6 +435,43 @@ def jma_debug_logs_from_snapshot(
     if not advisories:
         logs.append("jma_warning: no active advisories parsed")
     return logs
+
+
+def _advisory_level(advisory: dict[str, Any]) -> str:
+    level = str(advisory.get("level") or "").strip()
+    if level:
+        return level
+    level_code = str(advisory.get("level_code") or "").strip()
+    if level_code.startswith("2"):
+        return "2"
+    if level_code.startswith("3"):
+        return "3"
+    if level_code.startswith("4"):
+        return "4"
+    if level_code.startswith("5"):
+        return "5"
+    return ""
+
+
+def _is_landslide_level2(advisory: dict[str, Any]) -> bool:
+    code = str(advisory.get("code") or "").strip()
+    label = str(advisory.get("label") or "")
+    message = str(advisory.get("message") or "")
+    text = label + " " + message
+    level = _advisory_level(advisory)
+    if code == "29" and level == "2":
+        return True
+    if "土砂" in text and ("レベル2" in text or "レベル２" in text):
+        return True
+    return False
+
+
+def jma_advisory_notify_enabled(advisory: dict[str, Any]) -> bool:
+    if advisory.get("notify") is False:
+        return False
+    if _is_landslide_level2(advisory):
+        return False
+    return True
 
 
 def get_current_values() -> tuple[float, float, dict[str, Any], list[str]]:
@@ -548,7 +589,7 @@ def evaluate_weather_state(
     *,
     rain_mm: float,
     wind_mps: float,
-    jma_advisories: list[dict[str, str]] | None = None,
+    jma_advisories: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     current = now or now_jst()
@@ -578,7 +619,7 @@ def evaluate_weather_state(
 
 def evaluate_jma_state(
     component: dict[str, Any],
-    advisories: list[dict[str, str]],
+    advisories: list[dict[str, Any]],
     now: datetime,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     now_text = now.isoformat(timespec="seconds")
@@ -594,6 +635,10 @@ def evaluate_jma_state(
             "label": str(advisory.get("label") or key),
             "message": str(advisory.get("message") or ""),
             "emoji": str(advisory.get("emoji") or "⚠️"),
+            "code": str(advisory.get("code") or ""),
+            "level": _advisory_level(advisory),
+            "level_code": str(advisory.get("level_code") or ""),
+            "notify": jma_advisory_notify_enabled(advisory),
         }
 
     messages: list[str] = []
@@ -603,6 +648,12 @@ def evaluate_jma_state(
 
     for key in sorted(current_keys - previous_keys):
         advisory = current_active[key]
+        if not advisory.get("notify", True):
+            if advisory.get("code") == "29" or "土砂" in str(advisory.get("label") or ""):
+                logs.append("landslide_suppressed: level=2 code=29 reason=policy")
+            else:
+                logs.append(f"weather_notify_suppressed: jma_policy {advisory.get('label', key)}")
+            continue
         message = advisory.get("message") or f"{advisory.get('emoji', '⚠️')} 気象庁発表: {advisory.get('label', key)}が発表中です。"
         messages.append(message)
         logs.append(f"weather_state_changed: jma issued {advisory.get('label', key)}")
@@ -615,6 +666,12 @@ def evaluate_jma_state(
         previous = previous_active.get(key)
         if not isinstance(previous, dict):
             previous = {"label": key}
+        if not previous.get("notify", True):
+            if previous.get("code") == "29" or "土砂" in str(previous.get("label") or ""):
+                logs.append("landslide_suppressed: level=2 code=29 reason=policy")
+            else:
+                logs.append(f"weather_recovered: jma {previous.get('label', key)} released_without_notification")
+            continue
         label = str(previous.get("label") or key)
         messages.append(f"✅ 気象庁発表: {label}は解除されました。")
         logs.append(f"weather_recovered: jma {label} released")
