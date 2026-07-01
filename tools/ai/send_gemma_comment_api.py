@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 COMMENT_PATH = ROOT / "data" / "ai" / "gemma_comment.txt"
 COMMENT_JSON_PATH = ROOT / "data" / "ai" / "gemma_comment.json"
+SEND_STATE_PATH = ROOT / "data" / "ai" / "gemma_comment_send_state.json"
 
 sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
@@ -40,6 +42,36 @@ def read_comment_meta() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def load_send_state() -> dict[str, Any]:
+    if not SEND_STATE_PATH.exists():
+        return {}
+    try:
+        with SEND_STATE_PATH.open(encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_send_state(state: dict[str, Any]) -> None:
+    SEND_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with SEND_STATE_PATH.open("w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2, sort_keys=True)
+        f.write("\n")
+
+
+def content_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def send_dedupe_key(meta: dict[str, Any], channel_key: str, content: str) -> str:
+    if channel_key == "railway":
+        official_hash = str(meta.get("railway_official_hash") or "").strip()
+        if official_hash:
+            return f"railway:{official_hash}:{content_hash(content)}"
+    return f"{channel_key}:{content_hash(content)}"
 
 
 def has_railway_beta_alerts(meta: dict[str, Any]) -> bool:
@@ -96,14 +128,37 @@ def main() -> int:
 
     content = read_comment()
     if not content.strip():
-        log("Gemma課長コメントなし: 送信スキップ")
+        log("Gemma課長コメントなし: 送信スキップ source=send_gemma_comment_api")
+        return 0
+
+    dedupe_key = send_dedupe_key(meta, channel_key, content)
+    send_state = load_send_state()
+    if send_state.get("last_sent_key") == dedupe_key:
+        log(
+            "Gemma課長コメント送信スキップ: duplicate "
+            f"source=send_gemma_comment_api channel={channel_key} key={dedupe_key}"
+        )
         return 0
 
     ok, status_code, body = post_comment(token, channel_id, content)
     if ok:
-        log(f"Gemma課長コメントDiscord API送信成功: {channel_key}")
+        send_state.update(
+            {
+                "last_sent_key": dedupe_key,
+                "last_channel": channel_key,
+                "last_railway_official_hash": str(meta.get("railway_official_hash") or ""),
+            }
+        )
+        save_send_state(send_state)
+        log(
+            "Gemma課長コメントDiscord API送信成功: "
+            f"{channel_key} source=send_gemma_comment_api key={dedupe_key}"
+        )
     else:
-        log(f"Gemma課長コメントDiscord API送信失敗: HTTP{status_code} {body}")
+        log(
+            "Gemma課長コメントDiscord API送信失敗: "
+            f"HTTP{status_code} {body} source=send_gemma_comment_api channel={channel_key}"
+        )
     return 0
 
 

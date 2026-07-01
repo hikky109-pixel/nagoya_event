@@ -108,14 +108,27 @@ RAILWAY_BETA_EXCLUDE_MARKERS = (
     "運行情報提供停止",
 )
 AONAMI_DEMAND_REASON = "金城ふ頭方面は代替交通が少ない"
-SHINKANSEN_NO_OFFICIAL_CHANGE_TARGET_MARKERS = (
+IMPORTANT_ACTIVE_TARGET_MARKERS = (
     "shinkansen",
     "新幹線",
     "東海道新幹線",
     "山陽新幹線",
+    "JR東海在来線",
+    "中央線",
+    "関西線",
+    "東海道線",
+    "武豊線",
+    "飯田線",
+    "名鉄",
+    "地下鉄",
+    "近鉄",
 )
-SHINKANSEN_NO_OFFICIAL_CHANGE_AREA_MARKERS = (
+IMPORTANT_ACTIVE_AREA_MARKERS = (
     "名古屋",
+    "名古屋駅",
+    "名古屋駅～八田駅",
+    "名古屋市内",
+    "八田",
     "東京",
     "新大阪",
     "静岡",
@@ -123,13 +136,15 @@ SHINKANSEN_NO_OFFICIAL_CHANGE_AREA_MARKERS = (
     "新横浜",
     "三河安城",
     "豊橋",
+    "岐阜羽島",
     "米原",
 )
-SHINKANSEN_NO_OFFICIAL_CHANGE_INCIDENT_MARKERS = (
+IMPORTANT_ACTIVE_INCIDENT_MARKERS = (
     "遅れ",
     "遅延",
     "急病",
     "救護",
+    "車内確認",
     "安全確認",
     "車両点検",
 )
@@ -536,16 +551,16 @@ def railway_official_hash(
     )
 
 
-def shinkansen_no_official_change_override_alerts(alerts: list[str]) -> list[str]:
+def important_active_no_official_change_override_alerts(alerts: list[str]) -> list[str]:
     matched = []
     for alert in alerts:
         text = " ".join(str(alert or "").split())
         if not text:
             continue
-        if not any(marker in text for marker in SHINKANSEN_NO_OFFICIAL_CHANGE_TARGET_MARKERS):
+        if not any(marker in text for marker in IMPORTANT_ACTIVE_TARGET_MARKERS):
             continue
-        if any(marker in text for marker in SHINKANSEN_NO_OFFICIAL_CHANGE_AREA_MARKERS) or any(
-            marker in text for marker in SHINKANSEN_NO_OFFICIAL_CHANGE_INCIDENT_MARKERS
+        if any(marker in text for marker in IMPORTANT_ACTIVE_AREA_MARKERS) and any(
+            marker in text for marker in IMPORTANT_ACTIVE_INCIDENT_MARKERS
         ):
             matched.append(text)
     return matched
@@ -1440,25 +1455,25 @@ def main() -> int:
         else:
             next_critical_transport_recovered_at = critical_transport_recovered_at
         railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
-        shinkansen_override_alerts = shinkansen_no_official_change_override_alerts(
+        important_override_alerts = important_active_no_official_change_override_alerts(
             railway_beta_alerts
         )
-        previous_shinkansen_override_hash = str(
-            state_metadata.get("shinkansen_no_official_change_override_hash") or ""
+        previous_important_override_hash = str(
+            state_metadata.get("important_active_no_official_change_override_hash") or ""
         )
-        shinkansen_no_official_change_override = (
-            railway_pre_notify_reason == "no_official_change"
-            and bool(shinkansen_override_alerts)
-            and previous_shinkansen_override_hash != railway_official_current_hash
+        important_active_no_official_change_override = (
+            railway_pre_notify_reason in ("no_official_change", "low_impact")
+            and bool(important_override_alerts)
+            and previous_important_override_hash != railway_official_current_hash
         )
 
-        if shinkansen_no_official_change_override:
+        if important_active_no_official_change_override:
             log(
                 "railway_notify_allowed: true "
-                "reason=shinkansen_active_no_official_change_override"
+                "reason=important_active_no_official_change_override"
             )
             comment = build_railway_beta_comment(
-                shinkansen_override_alerts,
+                important_override_alerts,
                 now_jst,
                 railway_updated_at_by_alert,
                 railway_source_url_by_alert,
@@ -1477,10 +1492,15 @@ def main() -> int:
                 critical_transport_recovered_at=next_critical_transport_recovered_at,
                 official_hash=railway_official_current_hash,
                 impact=current_railway_impact,
-                shinkansen_no_official_change_override_hash=(
+                important_active_no_official_change_override_hash=(
                     railway_official_current_hash
                     if comment
-                    else previous_shinkansen_override_hash
+                    else previous_important_override_hash
+                ),
+                shinkansen_no_official_change_override_hash=(
+                    railway_official_current_hash
+                    if comment and any("新幹線" in alert for alert in important_override_alerts)
+                    else str(state_metadata.get("shinkansen_no_official_change_override_hash") or "")
                 ),
             )
             save_structured_filter_state(
@@ -1495,7 +1515,7 @@ def main() -> int:
                 )
             result = {
                 "generated_at": now_iso(),
-                "model": "python:railway_no_official_change_override",
+                "model": "python:important_active_no_official_change_override",
                 "comment": comment,
                 "railway_beta_alerts": railway_beta_alerts,
                 "railway_beta_display_alerts": railway_beta_display_alerts,
@@ -1503,11 +1523,11 @@ def main() -> int:
                 "railway_beta_previous_display_alerts": [
                     display_railway_alert(alert) for alert in previous_railway_alerts
                 ],
-                "railway_beta_override_alerts": shinkansen_override_alerts,
+                "railway_beta_override_alerts": important_override_alerts,
                 "railway_beta_source_urls": railway_source_url_by_alert,
                 "railway_beta_levels": railway_level_by_alert,
-                "railway_beta_change_type": "no_official_change_override",
-                "railway_beta_change_reason": "shinkansen_active_no_official_change_override",
+                "railway_beta_change_type": "important_active_no_official_change_override",
+                "railway_beta_change_reason": "important_active_no_official_change_override",
                 "railway_beta_notification": bool(comment),
                 "railway_notify_allowed": bool(comment),
                 "railway_official_hash": railway_official_current_hash,
@@ -1517,9 +1537,14 @@ def main() -> int:
                 "done": bool(comment),
                 "ollama_skipped": True,
                 "llm_skipped": True,
+                "silent_reason": "important_active_no_official_change_override",
             }
             write_comment_result(result, comment)
-            log("railway_beta_comment: no_official_change_override" if comment else "railway_beta_comment: empty")
+            log(
+                "railway_beta_comment: important_active_no_official_change_override"
+                if comment
+                else "railway_beta_comment: empty"
+            )
             record_weather_decision(
                 weather_snapshot,
                 now=now_jst,

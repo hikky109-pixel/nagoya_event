@@ -61,29 +61,28 @@ def _float_or_none(value: Any) -> float | None:
         return None
 
 
-def format_precipitation(value: Any) -> str:
+def format_precipitation(row: dict[str, Any]) -> str:
+    weather = str(row.get("weather") or "")
+    value = row.get("precipitation")
     precipitation = _float_or_none(value)
-    if precipitation is None or precipitation < 1:
+    threshold = 0.1 if weather in {"雨", "雷雨"} else 1.0
+    if precipitation is None or precipitation < threshold:
         return ""
-    if precipitation.is_integer():
-        amount = str(int(precipitation))
-    else:
-        amount = f"{precipitation:.1f}".rstrip("0").rstrip(".")
-    return f"☔{amount}mm/h"
+    return f"☔{precipitation:.1f}mm/h"
 
 
 def forecast_line(row: dict[str, Any]) -> str:
     label = str(row.get("label") or "--:--")
     weather = str(row.get("weather") or "不明")
     temp = row.get("temperature_2m")
-    precip_mm = format_precipitation(row.get("precipitation"))
+    precip_mm = format_precipitation(row)
     precip = row.get("precipitation_probability")
     text = f"{label} {weather}"
     if temp is not None:
         text += f" {int(temp)}℃"
     if precip_mm:
         text += f" {precip_mm}"
-    if precip is not None and int(precip) >= 30:
+    if precip is not None and int(precip) >= 70:
         text += f" ☔{int(precip)}%"
     return text
 

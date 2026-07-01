@@ -60,22 +60,23 @@ def openmeteo_forecast_slot_key(now: datetime) -> str:
 
 
 def run_openmeteo_forecast(now: datetime) -> None:
+    slot_key = openmeteo_forecast_slot_key(now)
     if now.hour not in OPENMETEO_FORECAST_SLOTS:
-        log("openmeteo_forecast: skipped outside slot")
+        log(f"openmeteo_forecast: skipped outside slot hour={now.hour:02d} slot={slot_key}")
         return
 
-    slot_key = openmeteo_forecast_slot_key(now)
     state = load_json_state(OPENMETEO_FORECAST_STATE_PATH)
     if state.get(slot_key):
-        log("openmeteo_forecast: skipped already posted")
+        log(f"openmeteo_forecast: skipped already posted slot={slot_key}")
         return
 
+    log(f"openmeteo_forecast: slot active slot={slot_key}")
     try:
         from tools.weather.post_openmeteo_forecast import run as post_openmeteo_forecast
 
         result = post_openmeteo_forecast(force=True)
     except Exception as exc:
-        message = f"openmeteo_forecast_error: {exc}"
+        message = f"openmeteo_forecast_error: slot={slot_key} {exc}"
         print(message, flush=True)
         logging.exception("openmeteo_forecast_error: %s", exc)
         return
@@ -88,11 +89,11 @@ def run_openmeteo_forecast(now: datetime) -> None:
         }
         state["last_slot_key"] = slot_key
         save_json_state(OPENMETEO_FORECAST_STATE_PATH, state)
-        log("openmeteo_forecast: posted")
+        log(f"openmeteo_forecast: posted slot={slot_key}")
         return
 
     reason = result.get("reason") or result.get("status_code") or "not_sent"
-    print(f"openmeteo_forecast_error: {reason}", flush=True)
+    print(f"openmeteo_forecast_error: slot={slot_key} {reason}", flush=True)
     logging.warning("openmeteo_forecast_error: %s", result)
 
 
@@ -101,7 +102,7 @@ SchedulerJob = Callable[[datetime], None]
 
 def scheduler_tick(jobs: list[SchedulerJob] | None = None) -> None:
     now = datetime.now(JST)
-    log("scheduler_tick")
+    log(f"scheduler_tick now={now.isoformat(timespec='seconds')}")
     for job in jobs or [run_openmeteo_forecast]:
         try:
             job(now)
