@@ -88,6 +88,27 @@ try:
 except ModuleNotFoundError:
     from weather_normalizer import get_all_weather_alerts, get_all_weather_snapshot
 
+try:
+    from tools.weather.get_openmeteo_forecast import get_openmeteo_forecast
+    from tools.weather.weather_state import (
+        evaluate_weather_state,
+        jma_active_advisories_from_snapshot,
+        load_state as load_weather_alert_state,
+        max_precipitation_from_snapshot,
+        max_wind_from_forecast,
+        save_state as save_weather_alert_state,
+    )
+except ModuleNotFoundError:
+    from tools.weather.get_openmeteo_forecast import get_openmeteo_forecast
+    from tools.weather.weather_state import (
+        evaluate_weather_state,
+        jma_active_advisories_from_snapshot,
+        load_state as load_weather_alert_state,
+        max_precipitation_from_snapshot,
+        max_wind_from_forecast,
+        save_state as save_weather_alert_state,
+    )
+
 
 AI_DIR = ROOT / "data" / "ai"
 REPORT_PATH = AI_DIR / "gemma_report.txt"
@@ -1372,21 +1393,29 @@ def main() -> int:
         display_railway_alert(alert) for alert in railway_beta_alerts
     ]
     weather_snapshot = load_weather_beta_snapshot(now_jst)
-    weather_beta_alerts = weather_snapshot.get("normalized_alerts")
-    if not isinstance(weather_beta_alerts, list):
-        weather_beta_alerts = []
-    weather_severity = detect_weather_severity(weather_beta_alerts)
-    previous_weather_state = load_weather_state()
-    previous_weather_alerts = previous_weather_state.get("alerts")
-    if not isinstance(previous_weather_alerts, list):
-        previous_weather_alerts = []
-    weather_hash = _json_hash(
-        {
-            "normalized_alerts": weather_beta_alerts,
-        }
+    raw_weather_beta_alerts = weather_snapshot.get("normalized_alerts")
+    if not isinstance(raw_weather_beta_alerts, list):
+        raw_weather_beta_alerts = []
+    rain_mm = max_precipitation_from_snapshot(weather_snapshot)
+    try:
+        wind_mps = max_wind_from_forecast(get_openmeteo_forecast(hours=24))
+    except Exception as exc:
+        log(f"weather_source_failed: source=Open-Meteo wind error={type(exc).__name__}")
+        wind_mps = 0.0
+    previous_weather_state = load_weather_alert_state(WEATHER_STATE_PATH)
+    next_weather_state, weather_beta_alerts, weather_state_logs = evaluate_weather_state(
+        previous_weather_state,
+        rain_mm=rain_mm,
+        wind_mps=wind_mps,
+        jma_advisories=jma_active_advisories_from_snapshot(weather_snapshot, now_jst),
+        now=now_jst,
     )
-    weather_change = weather_change_type(previous_weather_alerts, weather_beta_alerts)
-    save_weather_state(weather_beta_alerts, weather_hash, now_jst)
+    save_weather_alert_state(next_weather_state, WEATHER_STATE_PATH)
+    for weather_state_log in weather_state_logs:
+        log(weather_state_log)
+    weather_severity = detect_weather_severity(weather_beta_alerts)
+    weather_hash = _json_hash({"state": next_weather_state, "alerts": weather_beta_alerts})
+    weather_change = "state_transition" if weather_beta_alerts else "no_state_transition"
     if not railway_beta_is_active:
         log(f"railway_beta_alerts: skipped overnight reason={railway_monitoring_reason}")
     elif railway_beta_alerts:
@@ -1394,6 +1423,8 @@ def main() -> int:
     else:
         log(f"railway_beta_alerts: 0 reason={railway_monitoring_reason}")
     log(f"weather_beta_alerts: {len(weather_beta_alerts)}")
+    log(f"weather_raw_alerts: {len(raw_weather_beta_alerts)}")
+    log(f"weather_values: rain_mm={rain_mm:g} wind_mps={wind_mps:g}")
     if weather_beta_alerts:
         log(f"weather_alerts_detected: {len(weather_beta_alerts)}")
     log(f"weather_hash: {weather_hash[:12]}")
@@ -2073,32 +2104,8 @@ def main() -> int:
         log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
         return 0
 
-    if weather_beta_alerts and weather_change == "no change":
-        result = {
-            "generated_at": now_iso(),
-            "model": "python:weather_beta_no_change",
-            "comment": "",
-            "weather_beta_alerts": weather_beta_alerts,
-            "weather_severity": weather_severity,
-            "weather_beta_notification": False,
-            "done": False,
-            "ollama_skipped": True,
-        }
-        write_comment_result(result, "")
-        log("weather_beta_comment: no change")
-        record_weather_decision(
-            weather_snapshot,
-            now=now_jst,
-            severity=weather_severity,
-            notify_allowed=False,
-            suppress_reason="weather_no_change",
-        )
-        log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
-        log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
-        return 0
-
     if weather_beta_alerts and not railway_beta_alerts:
-        comment = build_weather_beta_comment(weather_beta_alerts, weather_severity)
+        comment = "\n".join(weather_beta_alerts)
         result = {
             "generated_at": now_iso(),
             "model": "python:weather_beta",
