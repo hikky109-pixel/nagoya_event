@@ -203,7 +203,7 @@ def evaluate_dashboard(
                 "same_since": same_since,
             }
             if previous_hash and previous_hash != digest:
-                warnings.append(
+                infos.append(
                     f"{scraper}: structure hash changed key={key} "
                     f"previous={previous_hash[:12]} current={digest[:12]}"
                 )
