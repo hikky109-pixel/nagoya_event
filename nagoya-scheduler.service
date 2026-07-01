@@ -1,0 +1,16 @@
+[Unit]
+Description=Nagoya Event Scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/nagoya_event
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/nagoya_event/.venv/bin/python /home/ubuntu/nagoya_event/tools/scheduler/run_scheduler.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
