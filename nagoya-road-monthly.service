@@ -1,0 +1,11 @@
+[Unit]
+Description=Nagoya Road Monthly PDF Watch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/nagoya_event
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/nagoya_event/.venv/bin/python /home/ubuntu/nagoya_event/tools/road/check_monthly_road_pdf.py

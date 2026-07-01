@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Nagoya Road Monthly PDF Watch on first day of each month
+
+[Timer]
+OnCalendar=*-*-01 10:01:00
+OnCalendar=*-*-01 12:01:00
+OnCalendar=*-*-01 15:01:00
+OnCalendar=*-*-01 18:01:00
+Persistent=true
+Unit=nagoya-road-monthly.service
+
+[Install]
+WantedBy=timers.target

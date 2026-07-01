@@ -19,7 +19,6 @@ from tools.common.scraper_health import (
 
 
 BASE_URL = "https://www.pref.aichi.jp/police/koutsu/ko-shidou/images"
-PDF_MONTHS = [f"R8.{month}" for month in range(1, 7)]
 PDF_DIR = Path("data/road_pdfs")
 IMAGE_CROP_DIR = Path("data/road_image_crops")
 DEFAULT_CSV_PATH = Path("csv_events/road.csv")
@@ -39,6 +38,19 @@ CSV_FIELDS = [
     "note",
     "url",
 ]
+
+
+def reiwa_year_for_date(value: date) -> int:
+    return value.year - 2018
+
+
+def pdf_months(today: date | None = None) -> list[str]:
+    current = today or date.today()
+    reiwa_year = reiwa_year_for_date(current)
+    return [f"R{reiwa_year}.{month}" for month in range(1, current.month + 1)]
+
+
+PDF_MONTHS = pdf_months()
 
 
 def pdf_url(month_key: str) -> str:
