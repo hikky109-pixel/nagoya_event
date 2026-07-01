@@ -22,6 +22,7 @@ except ModuleNotFoundError:
 
 
 DEFAULT_STATE_PATH = ROOT / "data" / "ai" / "weather_state.json"
+JMA_WARNING_URL = "https://www.jma.go.jp/bosai/warning/data/warning/230000.json"
 COOLDOWN_MINUTES = 30
 RECOVERY_MINUTES = 30
 JST = timezone(timedelta(hours=9))
@@ -258,6 +259,23 @@ def _jma_raw(snapshot: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _nagoya_warning_items(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    warning = raw.get("warning")
+    if not isinstance(warning, dict):
+        return []
+    for area_type in warning.get("areaTypes", []):
+        if not isinstance(area_type, dict):
+            continue
+        for area in area_type.get("areas", []):
+            if not isinstance(area, dict) or str(area.get("code")) != NAGOYA_CITY_CODE:
+                continue
+            warnings = area.get("warnings")
+            if isinstance(warnings, list):
+                return [item for item in warnings if isinstance(item, dict)]
+            return []
+    return []
+
+
 def _warning_name(warning: dict[str, Any]) -> str:
     name = str(warning.get("name") or "").strip()
     if name:
@@ -392,6 +410,27 @@ def jma_active_advisories_from_snapshot(
         if key:
             unique[key] = advisory
     return list(unique.values())
+
+
+def jma_debug_logs_from_snapshot(
+    snapshot: dict[str, Any],
+    advisories: list[dict[str, str]],
+) -> list[str]:
+    raw = _jma_raw(snapshot)
+    warning_items = _nagoya_warning_items(raw)
+    parsed = [str(advisory.get("label") or "") for advisory in advisories if advisory.get("label")]
+    logs = [
+        f"jma_fetch_url: {JMA_WARNING_URL}",
+        f"jma_area_code: {NAGOYA_CITY_CODE}",
+        f"jma_raw_count: {len(warning_items)}",
+        "jma_raw_head20: "
+        + json.dumps(warning_items[:20], ensure_ascii=False, separators=(",", ":")),
+        "jma_parsed: "
+        + json.dumps(parsed, ensure_ascii=False, separators=(",", ":")),
+    ]
+    if not advisories:
+        logs.append("jma_warning: no active advisories parsed")
+    return logs
 
 
 def get_current_values() -> tuple[float, float, dict[str, Any], list[str]]:

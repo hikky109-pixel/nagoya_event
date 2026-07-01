@@ -93,6 +93,7 @@ try:
     from tools.weather.weather_state import (
         evaluate_weather_state,
         jma_active_advisories_from_snapshot,
+        jma_debug_logs_from_snapshot,
         load_state as load_weather_alert_state,
         max_precipitation_from_snapshot,
         max_wind_from_forecast,
@@ -103,6 +104,7 @@ except ModuleNotFoundError:
     from tools.weather.weather_state import (
         evaluate_weather_state,
         jma_active_advisories_from_snapshot,
+        jma_debug_logs_from_snapshot,
         load_state as load_weather_alert_state,
         max_precipitation_from_snapshot,
         max_wind_from_forecast,
@@ -1403,15 +1405,16 @@ def main() -> int:
         log(f"weather_source_failed: source=Open-Meteo wind error={type(exc).__name__}")
         wind_mps = 0.0
     previous_weather_state = load_weather_alert_state(WEATHER_STATE_PATH)
+    jma_advisories = jma_active_advisories_from_snapshot(weather_snapshot, now_jst)
     next_weather_state, weather_beta_alerts, weather_state_logs = evaluate_weather_state(
         previous_weather_state,
         rain_mm=rain_mm,
         wind_mps=wind_mps,
-        jma_advisories=jma_active_advisories_from_snapshot(weather_snapshot, now_jst),
+        jma_advisories=jma_advisories,
         now=now_jst,
     )
     save_weather_alert_state(next_weather_state, WEATHER_STATE_PATH)
-    for weather_state_log in weather_state_logs:
+    for weather_state_log in jma_debug_logs_from_snapshot(weather_snapshot, jma_advisories) + weather_state_logs:
         log(weather_state_log)
     weather_severity = detect_weather_severity(weather_beta_alerts)
     weather_hash = _json_hash({"state": next_weather_state, "alerts": weather_beta_alerts})

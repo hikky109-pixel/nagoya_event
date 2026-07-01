@@ -21,6 +21,7 @@ try:
         evaluate_weather_state,
         get_current_values,
         jma_active_advisories_from_snapshot,
+        jma_debug_logs_from_snapshot,
         load_state,
         save_state,
     )
@@ -30,6 +31,7 @@ except ModuleNotFoundError:
         evaluate_weather_state,
         get_current_values,
         jma_active_advisories_from_snapshot,
+        jma_debug_logs_from_snapshot,
         load_state,
         save_state,
     )
@@ -60,13 +62,14 @@ def post_discord(token: str, channel_id: str, content: str) -> tuple[bool, int, 
 def run(*, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
     state = load_state(STATE_PATH)
     rain_mm, wind_mps, snapshot, source_logs = get_current_values()
+    jma_advisories = jma_active_advisories_from_snapshot(snapshot)
     updated_state, messages, decision_logs = evaluate_weather_state(
         state,
         rain_mm=rain_mm,
         wind_mps=wind_mps,
-        jma_advisories=jma_active_advisories_from_snapshot(snapshot),
+        jma_advisories=jma_advisories,
     )
-    logs = source_logs + decision_logs
+    logs = source_logs + jma_debug_logs_from_snapshot(snapshot, jma_advisories) + decision_logs
     for message in logs:
         print(message, flush=True)
 
