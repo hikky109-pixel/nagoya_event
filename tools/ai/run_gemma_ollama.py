@@ -108,6 +108,31 @@ RAILWAY_BETA_EXCLUDE_MARKERS = (
     "運行情報提供停止",
 )
 AONAMI_DEMAND_REASON = "金城ふ頭方面は代替交通が少ない"
+SHINKANSEN_NO_OFFICIAL_CHANGE_TARGET_MARKERS = (
+    "shinkansen",
+    "新幹線",
+    "東海道新幹線",
+    "山陽新幹線",
+)
+SHINKANSEN_NO_OFFICIAL_CHANGE_AREA_MARKERS = (
+    "名古屋",
+    "東京",
+    "新大阪",
+    "静岡",
+    "京都",
+    "新横浜",
+    "三河安城",
+    "豊橋",
+    "米原",
+)
+SHINKANSEN_NO_OFFICIAL_CHANGE_INCIDENT_MARKERS = (
+    "遅れ",
+    "遅延",
+    "急病",
+    "救護",
+    "安全確認",
+    "車両点検",
+)
 RAILWAY_BETA_FORBIDDEN_OUTPUTS = (
     "おはようございます",
     "本日も",
@@ -509,6 +534,21 @@ def railway_official_hash(
             "structured_events": event_payload,
         }
     )
+
+
+def shinkansen_no_official_change_override_alerts(alerts: list[str]) -> list[str]:
+    matched = []
+    for alert in alerts:
+        text = " ".join(str(alert or "").split())
+        if not text:
+            continue
+        if not any(marker in text for marker in SHINKANSEN_NO_OFFICIAL_CHANGE_TARGET_MARKERS):
+            continue
+        if any(marker in text for marker in SHINKANSEN_NO_OFFICIAL_CHANGE_AREA_MARKERS) or any(
+            marker in text for marker in SHINKANSEN_NO_OFFICIAL_CHANGE_INCIDENT_MARKERS
+        ):
+            matched.append(text)
+    return matched
 
 
 def _weather_history_path(debug_dir: Path, now: datetime) -> Path:
@@ -1400,6 +1440,97 @@ def main() -> int:
         else:
             next_critical_transport_recovered_at = critical_transport_recovered_at
         railway_severity = detect_railway_severity(railway_beta_alerts or previous_railway_alerts)
+        shinkansen_override_alerts = shinkansen_no_official_change_override_alerts(
+            railway_beta_alerts
+        )
+        previous_shinkansen_override_hash = str(
+            state_metadata.get("shinkansen_no_official_change_override_hash") or ""
+        )
+        shinkansen_no_official_change_override = (
+            railway_pre_notify_reason == "no_official_change"
+            and bool(shinkansen_override_alerts)
+            and previous_shinkansen_override_hash != railway_official_current_hash
+        )
+
+        if shinkansen_no_official_change_override:
+            log(
+                "railway_notify_allowed: true "
+                "reason=shinkansen_active_no_official_change_override"
+            )
+            comment = build_railway_beta_comment(
+                shinkansen_override_alerts,
+                now_jst,
+                railway_updated_at_by_alert,
+                railway_source_url_by_alert,
+            )
+            ok, errors = validate_railway_beta_comment(comment)
+            if not ok:
+                log(f"railway_beta_comment_guard: {errors}")
+                comment = ""
+            save_railway_state(
+                RAILWAY_STATE_PATH,
+                railway_beta_alerts,
+                now_jst,
+                railway_level_by_alert,
+                morning_reposted_date,
+                incident_first_seen_at,
+                critical_transport_recovered_at=next_critical_transport_recovered_at,
+                official_hash=railway_official_current_hash,
+                impact=current_railway_impact,
+                shinkansen_no_official_change_override_hash=(
+                    railway_official_current_hash
+                    if comment
+                    else previous_shinkansen_override_hash
+                ),
+            )
+            save_structured_filter_state(
+                RAILWAY_ZAIRAI_FILTER_STATE_PATH,
+                current_zairai_events,
+            )
+            if comment:
+                save_railway_last_notify(
+                    RAILWAY_LAST_NOTIFY_PATH,
+                    railway_severity,
+                    now_jst,
+                )
+            result = {
+                "generated_at": now_iso(),
+                "model": "python:railway_no_official_change_override",
+                "comment": comment,
+                "railway_beta_alerts": railway_beta_alerts,
+                "railway_beta_display_alerts": railway_beta_display_alerts,
+                "railway_beta_previous_alerts": previous_railway_alerts,
+                "railway_beta_previous_display_alerts": [
+                    display_railway_alert(alert) for alert in previous_railway_alerts
+                ],
+                "railway_beta_override_alerts": shinkansen_override_alerts,
+                "railway_beta_source_urls": railway_source_url_by_alert,
+                "railway_beta_levels": railway_level_by_alert,
+                "railway_beta_change_type": "no_official_change_override",
+                "railway_beta_change_reason": "shinkansen_active_no_official_change_override",
+                "railway_beta_notification": bool(comment),
+                "railway_notify_allowed": bool(comment),
+                "railway_official_hash": railway_official_current_hash,
+                "severity": railway_severity,
+                "weather_beta_alerts": weather_beta_alerts,
+                "weather_severity": weather_severity,
+                "done": bool(comment),
+                "ollama_skipped": True,
+                "llm_skipped": True,
+            }
+            write_comment_result(result, comment)
+            log("railway_beta_comment: no_official_change_override" if comment else "railway_beta_comment: empty")
+            record_weather_decision(
+                weather_snapshot,
+                now=now_jst,
+                severity=weather_severity,
+                notify_allowed=False,
+                suppress_reason="railway_notification_takes_priority" if comment else "railway_override_empty",
+            )
+            log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+            return 0
 
         if railway_pre_notify_reason in ("no_official_change", "low_impact"):
             save_railway_state(
