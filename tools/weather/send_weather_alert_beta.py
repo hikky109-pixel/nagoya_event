@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -18,14 +17,18 @@ sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 
 try:
-    from tools.ai.weather_severity import detect_weather_severity
     from tools.weather.weather_normalizer import get_all_weather_snapshot
 except ModuleNotFoundError:
-    from weather_severity import detect_weather_severity
     from weather_normalizer import get_all_weather_snapshot
 
 
-STATE_PATH = ROOT / "data" / "weather_alert_beta_state.json"
+STATE_PATH = ROOT / "state" / "weather_alert_state.json"
+WEATHER_ALERT_LEVELS = (
+    (30.0, 4, "🌀 災害警戒"),
+    (20.0, 3, "🚨 豪雨警戒"),
+    (10.0, 2, "⚠️ 大雨注意"),
+    (5.0, 1, "☔ 強雨注意"),
+)
 
 
 def _setting(name: str) -> str:
@@ -33,11 +36,6 @@ def _setting(name: str) -> str:
     if value is None:
         return ""
     return str(value).strip()
-
-
-def _json_hash(value: Any) -> str:
-    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _load_state(path: Path = STATE_PATH) -> dict[str, Any]:
@@ -58,24 +56,55 @@ def _save_state(state: dict[str, Any], path: Path = STATE_PATH) -> None:
     )
 
 
-def build_weather_alert_message(alerts: list[str], *, force: bool = False) -> str:
-    severity = detect_weather_severity(alerts)
-    emoji = {
-        "weather_critical": "🚨",
-        "weather_alert": "⛈️",
-        "weather_info": "☔",
-        "weather_minor": "☔",
-    }.get(severity, "☔")
-    if not alerts and force:
-        return "☔ 天気速報βテスト\n\n気象庁の名古屋向け警報・注意報に、現在送信対象はありません。"
-    if not alerts:
-        return ""
-    uses_yahoo = any(("強雨注意" in alert or "大雨注意" in alert or "雷注意" in alert) for alert in alerts)
-    lines = [f"{emoji} 天気速報β"]
-    lines.extend(f"・{alert}" for alert in alerts[:5])
-    lines.append("")
-    lines.append("※ 気象庁・Yahoo天気データより" if uses_yahoo else "※ 気象庁データより")
-    return "\n".join(lines)
+def _float_value(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def max_precipitation_from_snapshot(snapshot: dict[str, Any]) -> float:
+    raw_yahoo = snapshot.get("raw_yahoo")
+    if isinstance(raw_yahoo, dict):
+        return _float_value(raw_yahoo.get("max_precip_mm"))
+
+    sources = snapshot.get("sources")
+    if isinstance(sources, dict):
+        yahoo = sources.get("YahooWeather")
+        if isinstance(yahoo, dict):
+            return _float_value(yahoo.get("max_precip_mm"))
+    return 0.0
+
+
+def weather_alert_level(rain_mm: float) -> int:
+    for threshold, level, _title in WEATHER_ALERT_LEVELS:
+        if rain_mm >= threshold:
+            return level
+    return 0
+
+
+def weather_alert_title(level: int) -> str:
+    for _threshold, candidate_level, title in WEATHER_ALERT_LEVELS:
+        if candidate_level == level:
+            return title
+    return ""
+
+
+def build_weather_alert_message(level: int, rain_mm: float) -> str:
+    if level <= 0:
+        return "☀️ 雨は弱まりました。\n現在の予測雨量は5mm/h未満です。"
+    title = weather_alert_title(level)
+    return f"{title}\n名古屋中心部で1時間以内に{rain_mm:.1f}mm/h予測。"
+
+
+def should_notify_weather_level(previous_level: int, current_level: int, *, force: bool = False) -> tuple[bool, str]:
+    if force:
+        return True, "force"
+    if previous_level > 0 and current_level == 0:
+        return True, "rain_ended"
+    if current_level > 0 and current_level != previous_level:
+        return True, "level_changed"
+    return False, "same_level" if current_level == previous_level else "below_threshold"
 
 
 def post_discord(token: str, channel_id: str, content: str) -> tuple[bool, int, str]:
@@ -95,48 +124,33 @@ def post_discord(token: str, channel_id: str, content: str) -> tuple[bool, int, 
 
 def run(*, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
     snapshot = get_all_weather_snapshot()
-    alerts = snapshot.get("normalized_alerts")
-    if not isinstance(alerts, list):
-        alerts = []
-    alerts = [" ".join(str(alert or "").split()) for alert in alerts if str(alert or "").strip()]
-    alert_hash = _json_hash({"alerts": alerts})
     state = _load_state()
+    previous_level = int(state.get("level", 0) or 0)
+    rain_mm = max_precipitation_from_snapshot(snapshot)
+    current_level = weather_alert_level(rain_mm)
+    should_notify, reason = should_notify_weather_level(previous_level, current_level, force=force)
 
-    if not force and state.get("last_alert_hash") == alert_hash:
+    if not should_notify:
         return {
             "sent": False,
             "skipped": True,
-            "reason": "duplicate",
-            "alerts": alerts,
-            "hash": alert_hash,
+            "reason": reason,
+            "level": current_level,
+            "previous_level": previous_level,
+            "rain_mm": rain_mm,
         }
 
-    content = build_weather_alert_message(alerts, force=force)
-    if not content:
-        state.update(
-            {
-                "last_alert_hash": alert_hash,
-                "last_checked_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-                "last_sent": False,
-            }
-        )
-        _save_state(state)
-        return {
-            "sent": False,
-            "skipped": True,
-            "reason": "no_alerts",
-            "alerts": alerts,
-            "hash": alert_hash,
-        }
-
+    content = build_weather_alert_message(current_level, rain_mm)
     if dry_run:
         print(content)
         return {
             "sent": False,
             "skipped": True,
             "reason": "dry_run",
-            "alerts": alerts,
-            "hash": alert_hash,
+            "level": current_level,
+            "previous_level": previous_level,
+            "rain_mm": rain_mm,
+            "content": content,
         }
 
     token = _setting("DISCORD_BOT_TOKEN")
@@ -146,28 +160,30 @@ def run(*, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
             "sent": False,
             "skipped": True,
             "reason": "missing_discord_config",
-            "alerts": alerts,
-            "hash": alert_hash,
+            "level": current_level,
+            "previous_level": previous_level,
+            "rain_mm": rain_mm,
             "channel_id_configured": bool(channel_id),
         }
 
     ok, status_code, body = post_discord(token, channel_id, content)
     if ok:
-        state.update(
+        _save_state(
             {
-                "last_alert_hash": alert_hash,
-                "last_sent_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-                "last_sent": True,
+                "level": current_level,
+                "updated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
             }
         )
-        _save_state(state)
     return {
         "sent": ok,
         "skipped": False,
         "status_code": status_code,
         "body": body,
-        "alerts": alerts,
-        "hash": alert_hash,
+        "level": current_level,
+        "previous_level": previous_level,
+        "rain_mm": rain_mm,
+        "reason": reason,
+        "content": content,
     }
 
 
