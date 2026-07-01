@@ -1466,6 +1466,11 @@ def main() -> int:
             and bool(important_override_alerts)
             and previous_important_override_hash != railway_official_current_hash
         )
+        duplicate_important_active_override = (
+            railway_pre_notify_reason in ("no_official_change", "low_impact")
+            and bool(important_override_alerts)
+            and previous_important_override_hash == railway_official_current_hash
+        )
 
         if important_active_no_official_change_override:
             log(
@@ -1551,6 +1556,64 @@ def main() -> int:
                 severity=weather_severity,
                 notify_allowed=False,
                 suppress_reason="railway_notification_takes_priority" if comment else "railway_override_empty",
+            )
+            log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
+            log(f"wrote: {RAILWAY_STATE_PATH.relative_to(ROOT)}")
+            return 0
+
+        if duplicate_important_active_override:
+            save_railway_state(
+                RAILWAY_STATE_PATH,
+                railway_beta_alerts,
+                now_jst,
+                railway_level_by_alert,
+                morning_reposted_date,
+                incident_first_seen_at,
+                critical_transport_recovered_at=next_critical_transport_recovered_at,
+                official_hash=railway_official_current_hash,
+                impact=current_railway_impact,
+            )
+            save_structured_filter_state(
+                RAILWAY_ZAIRAI_FILTER_STATE_PATH,
+                current_zairai_events,
+            )
+            result = {
+                "generated_at": now_iso(),
+                "model": "python:railway_pre_llm_filter",
+                "comment": "",
+                "railway_beta_alerts": railway_beta_alerts,
+                "railway_beta_display_alerts": railway_beta_display_alerts,
+                "railway_beta_previous_alerts": previous_railway_alerts,
+                "railway_beta_previous_display_alerts": [
+                    display_railway_alert(alert) for alert in previous_railway_alerts
+                ],
+                "railway_beta_override_alerts": important_override_alerts,
+                "railway_beta_source_urls": railway_source_url_by_alert,
+                "railway_beta_levels": railway_level_by_alert,
+                "railway_beta_change_type": "duplicate_important_active_override",
+                "railway_beta_change_reason": "duplicate_important_active_override",
+                "railway_beta_comment": "duplicate_important_active_override",
+                "railway_beta_notification": False,
+                "railway_notify_allowed": False,
+                "railway_official_hash": railway_official_current_hash,
+                "severity": railway_severity,
+                "weather_beta_alerts": weather_beta_alerts,
+                "weather_severity": weather_severity,
+                "done": False,
+                "ollama_skipped": True,
+                "llm_skipped": True,
+                "silent_reason": "duplicate_important_active_override",
+            }
+            write_comment_result(result, "")
+            log("railway_notify_suppressed: duplicate_important_active_override")
+            log("railway_beta_comment: duplicate_important_active_override")
+            record_weather_decision(
+                weather_snapshot,
+                now=now_jst,
+                severity=weather_severity,
+                notify_allowed=False,
+                suppress_reason="duplicate_important_active_override",
             )
             log(f"wrote: {TEXT_OUTPUT_PATH.relative_to(ROOT)}")
             log(f"wrote: {JSON_OUTPUT_PATH.relative_to(ROOT)}")
