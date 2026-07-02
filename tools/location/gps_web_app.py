@@ -51,6 +51,19 @@ GPS_HTML = """<!doctype html>
     }
     h1 { font-size: 28px; margin: 0 0 16px; }
     p { line-height: 1.7; margin: 0 0 20px; }
+    .actions {
+      display: grid;
+      gap: 10px;
+    }
+    .actions[data-state="ready"] .after-success,
+    .actions[data-state="done"] #gpsButton {
+      display: none;
+    }
+    .after-success {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
     button {
       width: 100%;
       border: 0;
@@ -60,7 +73,10 @@ GPS_HTML = """<!doctype html>
       color: #fff;
       font-size: 17px;
       font-weight: 700;
+      min-height: 52px;
     }
+    #closeButton { background: #5f6368; }
+    #refreshButton { background: #0b57d0; }
     button:disabled { opacity: .65; }
     #status {
       margin-top: 18px;
@@ -73,6 +89,17 @@ GPS_HTML = """<!doctype html>
     @media (prefers-color-scheme: dark) {
       body { background: #171717; color: #f2f2f2; }
       button { background: #8ab4f8; color: #0b1b32; }
+      #closeButton { background: #9aa0a6; color: #111; }
+      #refreshButton { background: #8ab4f8; color: #0b1b32; }
+    }
+    @media (max-width: 420px) {
+      main {
+        width: min(100% - 24px, 720px);
+        padding: 28px 0;
+      }
+      .after-success {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -80,22 +107,57 @@ GPS_HTML = """<!doctype html>
   <main>
     <h1>📍 現在地テスト</h1>
     <p>位置情報を許可してください。<br>取得した座標から近くのランドマーク候補を表示します。</p>
-    <button id="gpsButton" type="button">現在地を取得</button>
+    <div id="actions" class="actions" data-state="ready">
+      <button id="gpsButton" type="button">📍 現在地を取得</button>
+      <div class="after-success">
+        <button id="closeButton" type="button">❌ 閉じる</button>
+        <button id="refreshButton" type="button">🔄 現在地を更新</button>
+      </div>
+    </div>
     <div id="status"></div>
     <ol id="candidates"></ol>
   </main>
   <script>
+    const actions = document.getElementById("actions");
     const button = document.getElementById("gpsButton");
+    const closeButton = document.getElementById("closeButton");
+    const refreshButton = document.getElementById("refreshButton");
     const statusBox = document.getElementById("status");
     const list = document.getElementById("candidates");
+    let hasSuccessfulPosition = false;
 
     function setStatus(text) {
       statusBox.textContent = text;
     }
 
+    function setBusy(isBusy) {
+      button.disabled = isBusy;
+      closeButton.disabled = isBusy;
+      refreshButton.disabled = isBusy;
+      if (isBusy) {
+        button.textContent = "📡 現在地を更新しています...";
+        refreshButton.textContent = "📡 現在地を更新しています...";
+      } else {
+        button.textContent = "📍 現在地を取得";
+        refreshButton.textContent = "🔄 現在地を更新";
+      }
+    }
+
+    function showInitialActions() {
+      actions.dataset.state = "ready";
+    }
+
+    function showPostSuccessActions() {
+      actions.dataset.state = "done";
+    }
+
     function enableRetry() {
-      button.disabled = false;
-      button.textContent = "もう一度取得";
+      setBusy(false);
+      if (hasSuccessfulPosition) {
+        showPostSuccessActions();
+      } else {
+        showInitialActions();
+      }
     }
 
     function geolocationErrorMessage(error) {
@@ -136,6 +198,8 @@ GPS_HTML = """<!doctype html>
       const discordStatus = data.discord_posted ? "\\nDiscordへ送信しました😇" : "\\nDiscord送信は確認できませんでした";
       setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
       renderCandidates(candidates);
+      hasSuccessfulPosition = true;
+      showPostSuccessActions();
     }
 
     function getCurrentPosition() {
@@ -144,7 +208,7 @@ GPS_HTML = """<!doctype html>
         enableRetry();
         return;
       }
-      button.disabled = true;
+      setBusy(true);
       setStatus("GPS許可を確認しています...");
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -152,19 +216,38 @@ GPS_HTML = """<!doctype html>
             setStatus(`位置情報テストを開始できませんでした: ${error.message}`);
             enableRetry();
           }).then(() => {
-            button.disabled = false;
+            setBusy(false);
           });
         },
         (error) => {
           setStatus(`${geolocationErrorMessage(error)}\\nうまく動かない場合はSafariで開いてください😇`);
           enableRetry();
         },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     }
 
+    function closePage() {
+      setStatus("");
+      if (window.history.length > 1) {
+        window.history.back();
+        window.setTimeout(() => {
+          window.close();
+          window.setTimeout(() => {
+            setStatus("ブラウザの×で閉じてください");
+          }, 300);
+        }, 300);
+        return;
+      }
+      window.close();
+      window.setTimeout(() => {
+        setStatus("ブラウザの×で閉じてください");
+      }, 300);
+    }
+
     button.addEventListener("click", getCurrentPosition);
-    window.addEventListener("load", getCurrentPosition);
+    refreshButton.addEventListener("click", getCurrentPosition);
+    closeButton.addEventListener("click", closePage);
   </script>
 </body>
 </html>
