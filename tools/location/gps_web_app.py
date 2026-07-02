@@ -178,17 +178,7 @@ GPS_HTML = """<!doctype html>
       for (const item of items.slice(0, 5)) {
         const li = document.createElement("li");
         if (item && typeof item === "object") {
-          const details = [];
-          if (item.category) {
-            details.push(`Category: ${item.category}`);
-          }
-          if (typeof item.score === "number") {
-            details.push(`Score: ${item.score.toFixed(2)}`);
-          }
-          if (item.roadname) {
-            details.push(`Roadname: ${item.roadname}`);
-          }
-          li.textContent = `${item.name || ""}${details.length ? `（${details.join(" / ")}）` : ""}`;
+          li.textContent = item.name || "";
         } else {
           li.textContent = String(item);
         }
@@ -210,9 +200,8 @@ GPS_HTML = """<!doctype html>
       }
       const candidates = data.result.candidates || [];
       const taxiLabel = data.result.taxi_label && data.result.taxi_label.label ? data.result.taxi_label.label : "";
-      const taxiSupplement = data.result.taxi_label && data.result.taxi_label.supplement ? data.result.taxi_label.supplement : "";
       const discordStatus = data.discord_posted ? "\\nDiscordへ送信しました😇" : "\\nDiscord送信は確認できませんでした";
-      const labelStatus = taxiLabel ? `推定: ${taxiLabel}${taxiSupplement ? `\\n補足: ${taxiSupplement}` : ""}\\n` : "";
+      const labelStatus = taxiLabel ? `推定: ${taxiLabel}\\n` : "";
       setStatus(`${labelStatus}座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
       renderCandidates(candidates);
       hasSuccessfulPosition = true;
@@ -287,25 +276,16 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     taxi_label = result.get("taxi_label") if isinstance(result.get("taxi_label"), dict) else {}
     label = str(taxi_label.get("label") or "").strip()
-    supplement = str(taxi_label.get("supplement") or "").strip()
-    address = result.get("address") if isinstance(result.get("address"), list) else []
-    roadname = str(result.get("roadname") or "").strip()
     lines = [
         "🚕 現在地テスト結果",
         "",
     ]
     if label:
         lines.extend(["推定:", label, ""])
-    if supplement:
-        lines.extend(["補足:", supplement, ""])
     lines.extend(
         [
             "座標:",
             f"{lat:.6f}, {lon:.6f}",
-            "",
-            "デバッグ:",
-            f"Address: {' / '.join(str(part) for part in address) if address else 'なし'}",
-            f"Roadname: {roadname or 'なし'}",
             "",
             "候補:",
         ]
@@ -315,16 +295,8 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
     for index, item in enumerate(candidates[:5], start=1):
         if isinstance(item, dict):
             name = str(item.get("name") or "").strip()
-            category = str(item.get("category") or "").strip()
-            score = item.get("score")
-            detail = []
-            if category:
-                detail.append(f"Category: {category}")
-            if isinstance(score, (int, float)):
-                detail.append(f"Score: {score:.2f}")
             if name:
-                suffix = f"（{' / '.join(detail)}）" if detail else ""
-                lines.append(f"{index}. {name}{suffix}")
+                lines.append(f"{index}. {name}")
         else:
             name = str(item).strip()
             if name:
