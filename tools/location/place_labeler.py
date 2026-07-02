@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import re
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +29,7 @@ UNDERGROUND_WORDS = (
 )
 
 CONVENIENCE_CATEGORIES = {"ローソン", "ファミリーマート", "デイリーヤマザキ", "セブン-イレブン"}
-LARGE_LANDMARK_WORDS = ("ショッピングセンター", "複合商業施設", "タワー", "百貨店")
+LARGE_LANDMARK_WORDS = ("ショッピングセンター", "複合商業施設", "タワー", "百貨店", "家電量販店")
 STORE_PENALTY_CATEGORIES = {
     "その他のファミリーレストラン",
     "大型専門店（スポーツ・アウトドア）",
@@ -251,13 +250,37 @@ def _best_nishiki_convenience(candidates: list[dict[str, Any]]) -> tuple[str, di
 
 def _label_result(label: str, source: str, zone: str, debug: dict[str, Any]) -> dict[str, Any]:
     label = _text(label) or "現在地付近"
-    return {
+    result = {
         "label": label,
         "busy_label": f"{label}繁忙",
         "source": source,
         "zone": zone,
         "debug": debug,
     }
+    supplement = _text(debug.get("supplement"))
+    if supplement:
+        result["supplement"] = supplement
+    return result
+
+
+def _best_candidate(candidates: list[dict[str, Any]], zone: str, kind: str) -> dict[str, Any] | None:
+    matches = [candidate for candidate in candidates if candidate_kind(candidate) == kind]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: rank_candidate(item, zone), reverse=True)
+    return matches[0]
+
+
+def _best_large_landmark(candidates: list[dict[str, Any]], zone: str) -> dict[str, Any] | None:
+    return _best_candidate(candidates, zone, "large_landmark")
+
+
+def _landmark_supplement(candidates: list[dict[str, Any]], zone: str) -> str:
+    landmark = _best_large_landmark(candidates, zone)
+    if landmark is None:
+        return ""
+    name = _normalize_landmark(_text(landmark.get("name")))
+    return f"{name}近く" if name else ""
 
 
 def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
@@ -279,8 +302,23 @@ def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
         )
 
     roadname = _text(result.get("roadname"))
-    if zone in {"nishiki_core", "sakae_joshidai"} and roadname:
-        return _label_result(f"{address_label} {roadname}".strip(), "roadname", zone, {"roadname": roadname})
+    intersection = _best_candidate(candidates, zone, "intersection")
+    if intersection is not None:
+        debug = _candidate_debug(intersection, zone)
+        if roadname:
+            debug["roadname"] = roadname
+        supplement = _landmark_supplement(candidates, zone)
+        if supplement:
+            debug["supplement"] = supplement
+        return _label_result(_intersection_label(_text(intersection.get("name"))), "intersection", zone, debug)
+
+    if roadname:
+        label = f"{address_label}・{roadname}" if address_label else roadname
+        debug = {"roadname": roadname}
+        supplement = _landmark_supplement(candidates, zone)
+        if supplement:
+            debug["supplement"] = supplement
+        return _label_result(label, "roadname", zone, debug)
 
     if zone == "nishiki_core":
         nishiki_convenience = _best_nishiki_convenience(candidates)
@@ -303,8 +341,6 @@ def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
         return _label_result(address_label or "現在地付近", "address", zone, {})
 
     kind = candidate_kind(best)
-    if kind == "intersection":
-        return _label_result(_intersection_label(_text(best.get("name"))), "intersection", zone, _candidate_debug(best, zone))
     if kind == "large_landmark":
         label = _normalize_landmark(_text(best.get("name")))
         return _label_result(

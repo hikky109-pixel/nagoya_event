@@ -210,8 +210,9 @@ GPS_HTML = """<!doctype html>
       }
       const candidates = data.result.candidates || [];
       const taxiLabel = data.result.taxi_label && data.result.taxi_label.label ? data.result.taxi_label.label : "";
+      const taxiSupplement = data.result.taxi_label && data.result.taxi_label.supplement ? data.result.taxi_label.supplement : "";
       const discordStatus = data.discord_posted ? "\\nDiscordへ送信しました😇" : "\\nDiscord送信は確認できませんでした";
-      const labelStatus = taxiLabel ? `推定: ${taxiLabel}\\n` : "";
+      const labelStatus = taxiLabel ? `推定: ${taxiLabel}${taxiSupplement ? `\\n補足: ${taxiSupplement}` : ""}\\n` : "";
       setStatus(`${labelStatus}座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
       renderCandidates(candidates);
       hasSuccessfulPosition = true;
@@ -286,6 +287,7 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     taxi_label = result.get("taxi_label") if isinstance(result.get("taxi_label"), dict) else {}
     label = str(taxi_label.get("label") or "").strip()
+    supplement = str(taxi_label.get("supplement") or "").strip()
     address = result.get("address") if isinstance(result.get("address"), list) else []
     roadname = str(result.get("roadname") or "").strip()
     lines = [
@@ -294,6 +296,8 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
     ]
     if label:
         lines.extend(["推定:", label, ""])
+    if supplement:
+        lines.extend(["補足:", supplement, ""])
     lines.extend(
         [
             "座標:",

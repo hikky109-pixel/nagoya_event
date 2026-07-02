@@ -57,15 +57,34 @@ def test_hataedori_synthetic_intersection_is_preferred():
     result = {
         "lat": 35.0,
         "lon": 136.0,
-        "address": ["愛知県", "名古屋市中村区", "畑江通", "８丁目"],
-        "roadname": None,
+        "address": ["愛知県", "名古屋市中村区", "沖田町"],
+        "roadname": "畑江通",
         "candidates": [
             {"name": "ケーズデンキ岩塚店", "category": "家電量販店", "score": 80.0},
             {"name": "畑江通八交差点", "category": "地点名", "score": 50.0},
         ],
     }
 
-    assert build_taxi_place_label(result)["label"] == "畑江通八交差点付近"
+    label = build_taxi_place_label(result)
+    assert label["label"] == "畑江通八交差点付近"
+    assert label["supplement"] == "ケーズデンキ岩塚店近く"
+
+
+def test_roadname_is_used_when_intersection_is_missing():
+    result = {
+        "lat": 35.0,
+        "lon": 136.0,
+        "address": ["愛知県", "名古屋市中村区", "沖田町"],
+        "roadname": "畑江通",
+        "candidates": [
+            {"name": "ケーズデンキ岩塚店", "category": "家電量販店", "score": 80.0},
+            {"name": "ローソン中村区沖田町店", "category": "ローソン", "score": 50.0},
+        ],
+    }
+
+    label = build_taxi_place_label(result)
+    assert label["label"] == "沖田町・畑江通"
+    assert label["supplement"] == "ケーズデンキ岩塚店近く"
 
 
 def test_underground_candidate_is_not_primary_label():
