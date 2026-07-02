@@ -1,0 +1,17 @@
+version: 1
+spots:
+  - id: sakae4_ikeda_park
+    lat: 35.166337
+    lon: 136.912610
+    radius_m: 80
+    label: 栄4丁目 池田公園付近
+    source: user_corrected
+    confidence: confirmed
+
+  - id: nishiki_odori_otsu_sunshine
+    lat: 35.169973
+    lon: 136.906720
+    radius_m: 60
+    label: 錦通大津（サンシャイン栄付近）
+    source: user_corrected
+    confidence: confirmed

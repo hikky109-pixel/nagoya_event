@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from config import YAHOO_CLIENT_ID  # noqa: E402
+from tools.location.place_labeler import build_taxi_place_label  # noqa: E402
 
 
 YAHOO_PLACEINFO_URL = "https://map.yahooapis.jp/placeinfo/V1/get"
@@ -95,20 +96,52 @@ def _feature_address(feature: dict[str, Any]) -> str:
     return ""
 
 
-def extract_candidates(payload: dict[str, Any], limit: int = 5) -> list[dict[str, Any]]:
+def _feature_value(feature: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = feature.get(key)
+        if value is not None:
+            return value
+    prop = feature.get("Property")
+    if isinstance(prop, dict):
+        for key in keys:
+            value = prop.get(key)
+            if value is not None:
+                return value
+    return None
+
+
+def _score(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _result_set(payload: dict[str, Any]) -> dict[str, Any]:
+    result_set = payload.get("ResultSet")
+    return result_set if isinstance(result_set, dict) else {}
+
+
+def _area_list(result_set: dict[str, Any]) -> list[dict[str, Any]]:
+    area = result_set.get("Area")
+    if not isinstance(area, list):
+        return []
+    return [item for item in area if isinstance(item, dict)]
+
+
+def extract_candidates(payload: dict[str, Any], limit: int = 12) -> list[dict[str, Any]]:
+    result_set = _result_set(payload)
+    address = result_set.get("Address") if isinstance(result_set.get("Address"), list) else []
+    roadname = result_set.get("Roadname")
+    area = _area_list(result_set)
     features = payload.get("Feature")
     if not isinstance(features, list):
-        result_set = payload.get("ResultSet")
-        if isinstance(result_set, dict):
-            result = result_set.get("Result")
-            area = result_set.get("Area")
-            features = []
-            if isinstance(result, list):
-                features.extend(result)
-            if isinstance(area, list):
-                features.extend(area)
-        else:
-            features = []
+        result = result_set.get("Result")
+        features = []
+        if isinstance(result, list):
+            features.extend(result)
+        if area:
+            features.extend(area)
 
     candidates: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -119,10 +152,23 @@ def extract_candidates(payload: dict[str, Any], limit: int = 5) -> list[dict[str
         if not name or name in seen:
             continue
         seen.add(name)
+        label = str(_feature_value(feature, "Label", "label") or "").strip()
+        category = str(_feature_value(feature, "Category", "category") or "").strip()
+        where = str(_feature_value(feature, "Where", "where") or "").strip()
+        combined = str(_feature_value(feature, "Combined", "combined") or "").strip()
+        uid = str(_feature_value(feature, "Uid", "uid", "Id", "id") or "").strip()
         candidates.append(
             {
                 "name": name,
+                "label": label,
+                "category": category,
+                "where": where,
+                "combined": combined,
+                "score": _score(_feature_value(feature, "Score", "score")),
+                "uid": uid,
                 "address": _feature_address(feature),
+                "roadname": roadname,
+                "area": area,
             }
         )
         if len(candidates) >= limit:
@@ -140,16 +186,22 @@ def build_placeinfo_result(
 ) -> dict[str, Any]:
     saved_at = saved_at or now_jst()
     raw_path = save_raw_payload(payload, area=area, saved_at=saved_at)
-    return {
+    result_set = _result_set(payload)
+    result = {
         "source": "YahooPlaceInfo",
         "area": area,
         "lat": lat,
         "lon": lon,
         "saved_at": saved_at.isoformat(timespec="seconds"),
         "raw_path": str(raw_path.relative_to(ROOT)),
+        "address": result_set.get("Address") if isinstance(result_set.get("Address"), list) else [],
+        "roadname": result_set.get("Roadname"),
+        "place_area": _area_list(result_set),
         "candidates": extract_candidates(payload),
         "error": payload.get("error", ""),
     }
+    result["taxi_label"] = build_taxi_place_label(result)
+    return result
 
 
 def get_yahoo_placeinfo(lat: float, lon: float, *, area: str = "point") -> dict[str, Any]:

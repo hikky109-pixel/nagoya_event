@@ -27,6 +27,9 @@ data/*.json
 # Runtime/generated data
 data/*
 !data/.gitkeep
+!data/location/
+data/location/*
+!data/location/place_label_overrides.yml
 !data/ai/
 data/ai/*
 !data/ai/topic_scope.yml

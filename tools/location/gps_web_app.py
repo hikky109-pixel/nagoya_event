@@ -177,7 +177,21 @@ GPS_HTML = """<!doctype html>
       list.innerHTML = "";
       for (const item of items.slice(0, 5)) {
         const li = document.createElement("li");
-        li.textContent = item.name || String(item);
+        if (item && typeof item === "object") {
+          const details = [];
+          if (item.category) {
+            details.push(`Category: ${item.category}`);
+          }
+          if (typeof item.score === "number") {
+            details.push(`Score: ${item.score.toFixed(2)}`);
+          }
+          if (item.roadname) {
+            details.push(`Roadname: ${item.roadname}`);
+          }
+          li.textContent = `${item.name || ""}${details.length ? `（${details.join(" / ")}）` : ""}`;
+        } else {
+          li.textContent = String(item);
+        }
         list.appendChild(li);
       }
     }
@@ -195,8 +209,10 @@ GPS_HTML = """<!doctype html>
         throw new Error(data.error || "placeinfo_failed");
       }
       const candidates = data.result.candidates || [];
+      const taxiLabel = data.result.taxi_label && data.result.taxi_label.label ? data.result.taxi_label.label : "";
       const discordStatus = data.discord_posted ? "\\nDiscordへ送信しました😇" : "\\nDiscord送信は確認できませんでした";
-      setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
+      const labelStatus = taxiLabel ? `推定: ${taxiLabel}\\n` : "";
+      setStatus(`${labelStatus}座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
       renderCandidates(candidates);
       hasSuccessfulPosition = true;
       showPostSuccessActions();
@@ -268,23 +284,53 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
     lat = float(result.get("lat") or 0)
     lon = float(result.get("lon") or 0)
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
+    taxi_label = result.get("taxi_label") if isinstance(result.get("taxi_label"), dict) else {}
+    label = str(taxi_label.get("label") or "").strip()
+    address = result.get("address") if isinstance(result.get("address"), list) else []
+    roadname = str(result.get("roadname") or "").strip()
     lines = [
-        "📍 現在地テスト結果",
+        "🚕 現在地テスト結果",
         "",
-        "座標:",
-        f"{lat:.6f}, {lon:.6f}",
-        "",
-        "候補:",
     ]
+    if label:
+        lines.extend(["推定:", label, ""])
+    lines.extend(
+        [
+            "座標:",
+            f"{lat:.6f}, {lon:.6f}",
+            "",
+            "デバッグ:",
+            f"Address: {' / '.join(str(part) for part in address) if address else 'なし'}",
+            f"Roadname: {roadname or 'なし'}",
+            "",
+            "候補:",
+        ]
+    )
     if not candidates:
         lines.append("取得候補なし")
     for index, item in enumerate(candidates[:5], start=1):
         if isinstance(item, dict):
             name = str(item.get("name") or "").strip()
+            category = str(item.get("category") or "").strip()
+            score = item.get("score")
+            detail = []
+            if category:
+                detail.append(f"Category: {category}")
+            if isinstance(score, (int, float)):
+                detail.append(f"Score: {score:.2f}")
+            if name:
+                suffix = f"（{' / '.join(detail)}）" if detail else ""
+                lines.append(f"{index}. {name}{suffix}")
         else:
             name = str(item).strip()
-        if name:
-            lines.append(f"{index}. {name}")
+            if name:
+                lines.append(f"{index}. {name}")
+    lines.extend(
+        [
+            "",
+            "結果が違う場合は、この投稿にリプライで正解を教えてください😇",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -313,6 +359,9 @@ def save_discord_post_result(result: dict[str, Any], *, metadata: dict[str, str]
         "placeinfo_raw_path": result.get("raw_path", ""),
         "lat": result.get("lat"),
         "lon": result.get("lon"),
+        "taxi_label": result.get("taxi_label", {}),
+        "address": result.get("address", []),
+        "roadname": result.get("roadname", ""),
         "candidates": result.get("candidates", []),
     }
     path = PLACEINFO_DIR / f"{saved_at:%Y%m%d_%H%M%S}_gps_discord.json"
