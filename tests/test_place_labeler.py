@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from tools.location.get_yahoo_placeinfo import extract_candidates
-from tools.location.place_labeler import build_taxi_place_label
+from tools.location.place_labeler import build_taxi_place_label, normalize_short_address
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,6 +85,12 @@ def test_roadname_is_used_when_intersection_is_missing():
     label = build_taxi_place_label(result)
     assert label["label"] == "沖田町・畑江通"
     assert label["supplement"] == "ケーズデンキ岩塚店近く"
+
+
+def test_short_address_omits_prefecture_and_city():
+    assert normalize_short_address(["愛知県", "名古屋市中区", "錦", "３丁目", "12"]) == "中区錦3丁目"
+    assert normalize_short_address(["愛知県", "名古屋市熱田区", "金山町", "１丁目"]) == "熱田区金山町1丁目"
+    assert normalize_short_address(["愛知県", "名古屋市中村区", "沖田町"]) == "中村区沖田町"
 
 
 def test_underground_candidate_is_not_primary_label():

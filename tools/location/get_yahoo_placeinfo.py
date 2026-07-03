@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from config import YAHOO_CLIENT_ID  # noqa: E402
-from tools.location.place_labeler import build_taxi_place_label  # noqa: E402
+from tools.location.place_labeler import build_taxi_place_label, normalize_short_address  # noqa: E402
 
 
 YAHOO_PLACEINFO_URL = "https://map.yahooapis.jp/placeinfo/V1/get"
@@ -187,6 +187,7 @@ def build_placeinfo_result(
     saved_at = saved_at or now_jst()
     raw_path = save_raw_payload(payload, area=area, saved_at=saved_at)
     result_set = _result_set(payload)
+    address = result_set.get("Address") if isinstance(result_set.get("Address"), list) else []
     result = {
         "source": "YahooPlaceInfo",
         "area": area,
@@ -194,7 +195,8 @@ def build_placeinfo_result(
         "lon": lon,
         "saved_at": saved_at.isoformat(timespec="seconds"),
         "raw_path": str(raw_path.relative_to(ROOT)),
-        "address": result_set.get("Address") if isinstance(result_set.get("Address"), list) else [],
+        "address": address,
+        "short_address": normalize_short_address(address),
         "roadname": result_set.get("Roadname"),
         "place_area": _area_list(result_set),
         "candidates": extract_candidates(payload),

@@ -200,9 +200,11 @@ GPS_HTML = """<!doctype html>
       }
       const candidates = data.result.candidates || [];
       const taxiLabel = data.result.taxi_label && data.result.taxi_label.label ? data.result.taxi_label.label : "";
+      const shortAddress = data.result.short_address || "";
       const discordStatus = data.discord_posted ? "\\nDiscordへ送信しました😇" : "\\nDiscord送信は確認できませんでした";
+      const addressStatus = shortAddress ? `📍 ${shortAddress}\\n` : "";
       const labelStatus = taxiLabel ? `推定: ${taxiLabel}\\n` : "";
-      setStatus(`${labelStatus}座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
+      setStatus(`${addressStatus}${labelStatus}座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
       renderCandidates(candidates);
       hasSuccessfulPosition = true;
       showPostSuccessActions();
@@ -276,10 +278,13 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     taxi_label = result.get("taxi_label") if isinstance(result.get("taxi_label"), dict) else {}
     label = str(taxi_label.get("label") or "").strip()
+    short_address = str(result.get("short_address") or "").strip()
     lines = [
         "🚕 現在地テスト結果",
         "",
     ]
+    if short_address:
+        lines.extend([f"📍 {short_address}", ""])
     if label:
         lines.extend(["推定:", label, ""])
     lines.extend(
@@ -337,6 +342,7 @@ def save_discord_post_result(result: dict[str, Any], *, metadata: dict[str, str]
         "lon": result.get("lon"),
         "taxi_label": result.get("taxi_label", {}),
         "address": result.get("address", []),
+        "short_address": result.get("short_address", ""),
         "roadname": result.get("roadname", ""),
         "candidates": result.get("candidates", []),
     }

@@ -10,8 +10,10 @@ import sys
 import traceback
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,6 +27,9 @@ WEATHER_PATH = AI_DIR / "weather_summary.json"
 DRAGONS_PATH = AI_DIR / "dragons_log.yml"
 RAILWAY_PATH = AI_DIR / "railway_summary.json"
 INCIDENTS_DIR = DATA_DIR / "incidents"
+LOCATION_DIR = DATA_DIR / "location"
+PLACEINFO_REPLY_PENDING_PATH = LOCATION_DIR / "placeinfo_reply_pending.jsonl"
+JST = ZoneInfo("Asia/Tokyo")
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "gemma3:4b"
 SUBPROCESS_TIMEOUT_SECONDS = 45
@@ -34,6 +39,7 @@ THINKING_NOTICE_SECONDS = 30
 COMMANDS = {"!brief", "!weather", "!dragons", "!incident", "!road"}
 IGNORE_CHANNELS = {"利用規約", "自己紹介"}
 LISTEN_ONLY_CHANNELS = {"バーボンハウス"}
+PLACEINFO_SILENT_CHANNEL_TOKENS = ("位置情報確認",)
 CHAT_CLASSIFICATIONS = {"weather", "road", "railway", "event", "food", "unknown"}
 BOT_NAME_MENTION_TOKENS = (
     "@ジェンマ課長",
@@ -364,6 +370,50 @@ def channel_rule(channel_name: str) -> str:
     if any(name in channel_name for name in LISTEN_ONLY_CHANNELS):
         return "listen_only"
     return "normal"
+
+
+def is_placeinfo_silent_channel(channel_name: str) -> bool:
+    return any(token in str(channel_name or "") for token in PLACEINFO_SILENT_CHANNEL_TOKENS)
+
+
+def message_reference_id(message: Any) -> str:
+    reference = getattr(message, "reference", None)
+    if reference is None:
+        return ""
+    message_id = getattr(reference, "message_id", None)
+    if message_id:
+        return str(message_id)
+    resolved = getattr(reference, "resolved", None)
+    if resolved is not None:
+        resolved_id = getattr(resolved, "id", None)
+        if resolved_id:
+            return str(resolved_id)
+    return ""
+
+
+def save_placeinfo_reply_pending(message: Any, *, channel_name: str) -> bool:
+    content = str(getattr(message, "content", "") or "").strip()
+    reference_id = message_reference_id(message)
+    if not content or not reference_id:
+        return False
+    author = getattr(message, "author", None)
+    channel = getattr(message, "channel", None)
+    payload = {
+        "saved_at": datetime.now(JST).isoformat(timespec="seconds"),
+        "status": "pending_review",
+        "source": "discord_placeinfo_reply",
+        "corrected_label": content[:300],
+        "message_id": str(getattr(message, "id", "")),
+        "reply_to_message_id": reference_id,
+        "channel_id": str(getattr(channel, "id", "")),
+        "channel_name": channel_name,
+        "author_id": str(getattr(author, "id", "")),
+        "author_name": str(getattr(author, "display_name", author or "")),
+    }
+    LOCATION_DIR.mkdir(parents=True, exist_ok=True)
+    with PLACEINFO_REPLY_PENDING_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    return True
 
 
 def classify_message_text(message_text: str) -> str | None:
@@ -970,13 +1020,18 @@ def main() -> int:
                 print("reply_path=placeinfo_coordinate", flush=True)
                 return
 
+            channel_name = getattr(message.channel, "name", "")
+            if is_placeinfo_silent_channel(channel_name):
+                saved = save_placeinfo_reply_pending(message, channel_name=channel_name)
+                print(f"return_reason=placeinfo_silent_channel pending_saved={saved}", flush=True)
+                return
+
             blocked = bool(content and content_filter.is_filtered(content))
             print("content_filter_blocked=", blocked)
             if blocked:
                 print("return_reason=content_filter")
                 return
 
-            channel_name = getattr(message.channel, "name", "")
             channel_info = channel_modes.get(
                 getattr(message.channel, "id", 0),
                 {

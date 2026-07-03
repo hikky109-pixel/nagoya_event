@@ -143,6 +143,20 @@ def normalize_address(address_parts: Any) -> str:
     return town
 
 
+def normalize_short_address(address_parts: Any) -> str:
+    if not isinstance(address_parts, list):
+        return ""
+    parts = [_text(part) for part in address_parts]
+    if len(parts) < 3:
+        return ""
+    ward = parts[1].replace("名古屋市", "")
+    town = parts[2]
+    chome = parts[3].translate(FULLWIDTH_DIGITS) if len(parts) >= 4 else ""
+    if "丁目" in chome:
+        town = f"{town}{chome}"
+    return f"{ward}{town}" if ward and town else town or ward
+
+
 def candidate_kind(candidate: dict[str, Any]) -> str:
     name = _text(candidate.get("name"))
     category = _text(candidate.get("category"))
