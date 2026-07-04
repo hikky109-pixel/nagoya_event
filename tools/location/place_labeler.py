@@ -30,6 +30,7 @@ UNDERGROUND_WORDS = (
 
 CONVENIENCE_CATEGORIES = {"ローソン", "ファミリーマート", "デイリーヤマザキ", "セブン-イレブン"}
 LARGE_LANDMARK_WORDS = ("ショッピングセンター", "複合商業施設", "タワー", "百貨店", "家電量販店")
+KNOWN_KINDS = {"road", "intersection", "large_landmark", "landmark", "major_hotel", "station", "chain", "convenience"}
 STORE_PENALTY_CATEGORIES = {
     "その他のファミリーレストラン",
     "大型専門店（スポーツ・アウトドア）",
@@ -158,6 +159,9 @@ def normalize_short_address(address_parts: Any) -> str:
 
 
 def candidate_kind(candidate: dict[str, Any]) -> str:
+    explicit_kind = _text(candidate.get("kind"))
+    if explicit_kind in KNOWN_KINDS:
+        return explicit_kind
     name = _text(candidate.get("name"))
     category = _text(candidate.get("category"))
     if category == "地点名" and "交差点" in name:
@@ -198,25 +202,40 @@ def rank_candidate(candidate: dict[str, Any], zone: str) -> float:
     kind = candidate_kind(candidate)
     if zone == "suburban_intersection":
         bonus = {
+            "road": 115.0,
             "intersection": 120.0,
             "large_landmark": 60.0,
+            "landmark": 55.0,
+            "major_hotel": 50.0,
+            "station": 45.0,
             "hotel": 25.0,
+            "chain": 15.0,
             "convenience": 10.0,
             "store": 0.0,
         }[kind]
     elif zone in {"nishiki_core", "sakae_joshidai"}:
         bonus = {
+            "road": 100.0,
             "intersection": 70.0,
             "large_landmark": 65.0,
+            "landmark": 60.0,
+            "major_hotel": 55.0,
+            "station": 45.0,
             "hotel": 35.0,
+            "chain": 30.0,
             "convenience": 25.0,
             "store": 0.0,
         }[kind]
     else:
         bonus = {
+            "road": 100.0,
             "intersection": 80.0,
             "large_landmark": 60.0,
+            "landmark": 55.0,
+            "major_hotel": 50.0,
+            "station": 45.0,
             "hotel": 40.0,
+            "chain": 30.0,
             "convenience": 30.0,
             "store": 10.0,
         }[kind]
@@ -286,7 +305,15 @@ def _best_candidate(candidates: list[dict[str, Any]], zone: str, kind: str) -> d
 
 
 def _best_large_landmark(candidates: list[dict[str, Any]], zone: str) -> dict[str, Any] | None:
-    return _best_candidate(candidates, zone, "large_landmark")
+    matches = [
+        candidate
+        for candidate in candidates
+        if candidate_kind(candidate) in {"large_landmark", "landmark", "major_hotel"}
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: rank_candidate(item, zone), reverse=True)
+    return matches[0]
 
 
 def _landmark_supplement(candidates: list[dict[str, Any]], zone: str) -> str:
@@ -295,6 +322,15 @@ def _landmark_supplement(candidates: list[dict[str, Any]], zone: str) -> str:
         return ""
     name = _normalize_landmark(_text(landmark.get("name")))
     return f"{name}近く" if name else ""
+
+
+def _road_label(roadname: str, address_label: str, supplement: str, source: str) -> str:
+    if source == "OSMNominatim":
+        if supplement:
+            name = supplement.removesuffix("近く").removesuffix("付近")
+            return f"{roadname}（{name}付近）"
+        return f"{roadname}付近"
+    return f"{address_label}・{roadname}" if address_label else roadname
 
 
 def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
@@ -327,11 +363,11 @@ def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
         return _label_result(_intersection_label(_text(intersection.get("name"))), "intersection", zone, debug)
 
     if roadname:
-        label = f"{address_label}・{roadname}" if address_label else roadname
         debug = {"roadname": roadname}
         supplement = _landmark_supplement(candidates, zone)
         if supplement:
             debug["supplement"] = supplement
+        label = _road_label(roadname, address_label, supplement, _text(result.get("source")))
         return _label_result(label, "roadname", zone, debug)
 
     if zone == "nishiki_core":
@@ -355,7 +391,7 @@ def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
         return _label_result(address_label or "現在地付近", "address", zone, {})
 
     kind = candidate_kind(best)
-    if kind == "large_landmark":
+    if kind in {"large_landmark", "landmark", "major_hotel"}:
         label = _normalize_landmark(_text(best.get("name")))
         return _label_result(
             f"{address_label}（{label}付近）" if address_label else f"{label}付近",
@@ -365,7 +401,9 @@ def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
         )
 
     name = _text(best.get("name"))
-    if address_label and name:
+    if kind in {"road", "station"} and name:
+        label = f"{name}付近"
+    elif address_label and name:
         label = f"{address_label} {name}付近"
     else:
         label = f"{name or '現在地'}付近"

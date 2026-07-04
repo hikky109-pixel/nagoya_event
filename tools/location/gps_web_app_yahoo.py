@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ブラウザGeolocationでOSM+Yahoo PlaceInfoを試す軽量Webアプリ。"""
+"""ブラウザGeolocationでYahoo PlaceInfoを試す軽量Webアプリ。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from config import DISCORD_BOT_TOKEN, GEMMA_DISCORD_WEBHOOK, GEMMA_WEBHOOK_URL, GPS_REPORT_CHANNEL_ID  # noqa: E402
-from tools.location.get_hybrid_placeinfo import get_hybrid_placeinfo  # noqa: E402
+from tools.location.get_yahoo_placeinfo import get_yahoo_placeinfo  # noqa: E402
 
 
 REQUEST_TIMEOUT_SECONDS = 10
@@ -189,7 +189,7 @@ GPS_HTML = """<!doctype html>
     async function sendPosition(position) {
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
-      setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\nOSM + Yahoo PlaceInfoを確認しています...`);
+      setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\nYahoo PlaceInfoを確認しています...`);
       const params = new URLSearchParams(window.location.search);
       params.set("lat", lat);
       params.set("lon", lon);
@@ -341,7 +341,6 @@ def save_discord_post_result(result: dict[str, Any], *, metadata: dict[str, str]
         "lat": result.get("lat"),
         "lon": result.get("lon"),
         "taxi_label": result.get("taxi_label", {}),
-        "comparison": result.get("comparison", {}),
         "address": result.get("address", []),
         "short_address": result.get("short_address", ""),
         "roadname": result.get("roadname", ""),
@@ -442,7 +441,7 @@ class GPSRequestHandler(BaseHTTPRequestHandler):
             return
 
         metadata = request_metadata(query)
-        result = get_hybrid_placeinfo(lat, lon, area="gps_hybrid")
+        result = get_yahoo_placeinfo(lat, lon, area="gps")
         if metadata:
             result["request"] = metadata
         posted = post_discord_report(placeinfo_summary(result))
@@ -460,7 +459,7 @@ class GPSRequestHandler(BaseHTTPRequestHandler):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="GPS OSM + Yahoo PlaceInfoテスト用の軽量Webサーバー。")
+    parser = argparse.ArgumentParser(description="GPS PlaceInfoテスト用の軽量Webサーバー。")
     parser.add_argument("--host", default="127.0.0.1", help="待ち受けホスト。")
     parser.add_argument("--port", type=int, default=8787, help="待ち受けポート。")
     return parser.parse_args()

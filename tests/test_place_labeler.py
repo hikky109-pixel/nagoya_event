@@ -37,6 +37,35 @@ def test_override_labels_for_ikeda_park_and_nishiki_odori_otsu():
     assert build_taxi_place_label(otsu)["label"] == "錦通大津（サンシャイン栄付近）"
 
 
+def test_seeded_major_landmark_and_hotel_overrides():
+    cases = [
+        (35.1673355, 136.8970318, "伏見通（御園座付近）"),
+        (35.1639900, 136.9099183, "矢場町通（TIAD付近）"),
+        (35.185363, 136.895871, "名古屋キャッスル付近"),
+        (35.167543, 136.894610, "広小路伏見（ヒルトン名古屋付近）"),
+        (35.1704487, 136.8830090, "名古屋駅（マリオットアソシア付近）"),
+        (35.1698452, 136.8852305, "名駅4丁目（ミッドランドスクエア付近）"),
+        (35.1650308, 136.9076450, "大津通（松坂屋名古屋店付近）"),
+    ]
+
+    for lat, lon, expected in cases:
+        result = {"lat": lat, "lon": lon, "address": [], "roadname": "", "candidates": []}
+        assert build_taxi_place_label(result)["label"] == expected
+
+
+def test_seeded_taxi_operation_overrides():
+    cases = [
+        (35.171361, 136.883249, "名古屋駅 桜通口タクシーのりば"),
+        (35.170062, 136.880962, "名古屋駅 太閤通口タクシーのりば"),
+        (35.1439454, 136.9005594, "アスナル金山タクシーのりば"),
+        (35.142328, 136.901075, "金山駅南口タクシーのりば"),
+    ]
+
+    for lat, lon, expected in cases:
+        result = {"lat": lat, "lon": lon, "address": [], "roadname": "", "candidates": []}
+        assert build_taxi_place_label(result)["label"] == expected
+
+
 def test_suburban_intersections_are_preferred():
     shinonome = _result_from_raw(
         "data/location/placeinfo/20260703_050110_shinonomebashi_west.json",

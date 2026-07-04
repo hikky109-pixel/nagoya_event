@@ -7,6 +7,7 @@ spots:
     label: 栄4丁目 池田公園付近
     source: user_corrected
     confidence: confirmed
+    priority: 100
 
   - id: nishiki_odori_otsu_sunshine
     lat: 35.169973
@@ -15,3 +16,148 @@ spots:
     label: 錦通大津（サンシャイン栄付近）
     source: user_corrected
     confidence: confirmed
+    priority: 100
+
+  - id: nagoya_station_sakuradori_taxi_stand
+    lat: 35.171361
+    lon: 136.883249
+    radius_m: 60
+    label: 名古屋駅 桜通口タクシーのりば
+    source: seeded_taxi_ops
+    confidence: provisional
+    priority: 200
+
+  - id: nagoya_station_taikodori_taxi_stand
+    lat: 35.170062
+    lon: 136.880962
+    radius_m: 60
+    label: 名古屋駅 太閤通口タクシーのりば
+    source: seeded_taxi_ops
+    confidence: provisional
+    priority: 200
+
+  - id: asunal_kanayama_taxi_stand
+    lat: 35.1439454
+    lon: 136.9005594
+    radius_m: 70
+    label: アスナル金山タクシーのりば
+    source: seeded_taxi_ops
+    confidence: provisional
+    priority: 200
+
+  - id: kanayama_station_south_taxi_stand
+    lat: 35.142328
+    lon: 136.901075
+    radius_m: 60
+    label: 金山駅南口タクシーのりば
+    source: seeded_taxi_ops
+    confidence: provisional
+    priority: 200
+
+  - id: sakae3_misonoza
+    lat: 35.1673355
+    lon: 136.8970318
+    radius_m: 70
+    label: 伏見通（御園座付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: sakae5_tiad
+    lat: 35.1639900
+    lon: 136.9099183
+    radius_m: 70
+    label: 矢場町通（TIAD付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: nishiki1_hilton_nagoya
+    lat: 35.167543
+    lon: 136.894610
+    radius_m: 70
+    label: 広小路伏見（ヒルトン名古屋付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: sakae1_nagoya_kanko_hotel
+    lat: 35.1686469
+    lon: 136.8952683
+    radius_m: 70
+    label: 広小路伏見（名古屋観光ホテル付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: sakae4_nagoya_tokyu_hotel
+    lat: 35.168657
+    lon: 136.913555
+    radius_m: 70
+    label: 栄4丁目（名古屋東急ホテル付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: aoi3_mielparque_nagoya
+    lat: 35.171249
+    lon: 136.928771
+    radius_m: 70
+    label: 千種駅前（ホテルメルパルク名古屋付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: sakae1_courtyard_marriott_nagoya
+    lat: 35.1656142
+    lon: 136.8930069
+    radius_m: 70
+    label: 三蔵通（コートヤード・バイ・マリオット名古屋付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: meieki1_marriott_associa
+    lat: 35.1704487
+    lon: 136.8830090
+    radius_m: 80
+    label: 名古屋駅（マリオットアソシア付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: hinokuchicho_nagoya_castle
+    lat: 35.185363
+    lon: 136.895871
+    radius_m: 90
+    label: 名古屋キャッスル付近
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: meieki4_midland_square
+    lat: 35.1698452
+    lon: 136.8852305
+    radius_m: 70
+    label: 名駅4丁目（ミッドランドスクエア付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: sakae3_matsuzakaya
+    lat: 35.1650308
+    lon: 136.9076450
+    radius_m: 80
+    label: 大津通（松坂屋名古屋店付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
+
+  - id: sakae3_lachic
+    lat: 35.1675339
+    lon: 136.9077215
+    radius_m: 60
+    label: 大津通（ラシック付近）
+    source: seeded_landmark
+    confidence: provisional
+    priority: 500
