@@ -28,6 +28,7 @@ def test_hybrid_uses_yahoo_intersection_when_osm_has_no_road():
 
     assert result["comparison"]["osm_label"] == "乾出町1丁目付近"
     assert result["comparison"]["yahoo_label"] == "畑江通八交差点付近"
+    assert result["short_address"] == "中村区沖田町"
     assert result["taxi_label"]["label"] == "畑江通八交差点付近"
 
 
