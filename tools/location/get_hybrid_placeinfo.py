@@ -179,19 +179,6 @@ def _hybrid_label(osm: dict[str, Any], yahoo: dict[str, Any], merged_candidates:
     osm_road = _text(osm.get("roadname"))
     yahoo_candidates = [_with_source(candidate, "Yahoo") for candidate in yahoo.get("candidates", []) if isinstance(candidate, dict)]
     yahoo_intersection = _best_candidate(yahoo_candidates, {"intersection"})
-    all_landmark = _best_candidate(merged_candidates, {"large_landmark", "major_hotel"})
-    road_hint = osm_road or _road_hint_from_candidates(yahoo_candidates)
-
-    if road_hint and all_landmark is not None:
-        landmark = _landmark_label(all_landmark)
-        label = f"{road_hint}（{landmark}付近）"
-        source = "road_landmark"
-        return {"label": label, "busy_label": f"{label}繁忙", "source": source}
-
-    if osm_road:
-        label = f"{osm_road}付近"
-        return {"label": label, "busy_label": f"{label}繁忙", "source": "osm_road"}
-
     if yahoo_intersection is not None:
         name = _candidate_name(yahoo_intersection)
         label = f"{name}付近" if name.endswith("交差点") else f"{name}交差点付近"
@@ -202,17 +189,31 @@ def _hybrid_label(osm: dict[str, Any], yahoo: dict[str, Any], merged_candidates:
             "debug": {"candidate": name},
         }
 
-    if all_landmark is not None:
-        name = _candidate_name(all_landmark)
+    yahoo_landmark = _best_candidate(yahoo_candidates, {"large_landmark", "major_hotel"})
+    if yahoo_landmark is not None:
+        name = _candidate_name(yahoo_landmark)
         label = f"{name}付近"
         return {
             "label": label,
             "busy_label": f"{label}繁忙",
-            "source": "landmark",
+            "source": "yahoo_landmark",
             "debug": {"candidate": name},
         }
 
-    label = _text((osm.get("taxi_label") or {}).get("label")) or _text((yahoo.get("taxi_label") or {}).get("label")) or "現在地付近"
+    yahoo_label = _text((yahoo.get("taxi_label") or {}).get("label"))
+    if yahoo_label:
+        return {"label": yahoo_label, "busy_label": f"{yahoo_label}繁忙", "source": "yahoo_label"}
+
+    road_hint = _road_hint_from_candidates(yahoo_candidates)
+    if road_hint:
+        label = f"{road_hint}付近"
+        return {"label": label, "busy_label": f"{label}繁忙", "source": "yahoo_road_hint"}
+
+    if osm_road:
+        label = f"{osm_road}付近"
+        return {"label": label, "busy_label": f"{label}繁忙", "source": "osm_road_low_priority"}
+
+    label = _text((osm.get("taxi_label") or {}).get("label")) or "現在地付近"
     return {"label": label, "busy_label": f"{label}繁忙", "source": "fallback"}
 
 

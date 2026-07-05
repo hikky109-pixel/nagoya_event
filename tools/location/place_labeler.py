@@ -36,6 +36,15 @@ STORE_PENALTY_CATEGORIES = {
     "大型専門店（スポーツ・アウトドア）",
     "大型専門店（衣料品）",
 }
+HIGHWAY_PENALTY_WORDS = (
+    "名古屋高速",
+    "高速",
+    "IC",
+    "ＩＣ",
+    "JCT",
+    "ＪＣＴ",
+    "インター",
+)
 
 NISHIKI_STREET_WORDS = (
     "袋町通",
@@ -183,6 +192,8 @@ def place_penalty(candidate: dict[str, Any]) -> float:
     penalty = 0.0
     if any(word in text for word in UNDERGROUND_WORDS):
         penalty += 80.0
+    if any(word in text for word in HIGHWAY_PENALTY_WORDS):
+        penalty += 140.0
     if _text(candidate.get("category")) in STORE_PENALTY_CATEGORIES:
         penalty += 20.0
     return penalty

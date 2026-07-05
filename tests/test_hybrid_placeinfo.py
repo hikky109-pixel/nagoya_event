@@ -34,8 +34,8 @@ def test_hybrid_uses_yahoo_intersection_when_osm_has_no_road():
 
 def test_hybrid_uses_osm_road_with_yahoo_landmark():
     osm = {
-        "lat": 35.165145,
-        "lon": 136.907102,
+        "lat": 35.0,
+        "lon": 136.0,
         "address": ["日本", "名古屋市中区", "栄3丁目"],
         "short_address": "中区栄3丁目",
         "roadname": "大津通",
@@ -43,8 +43,8 @@ def test_hybrid_uses_osm_road_with_yahoo_landmark():
         "taxi_label": {"label": "大津通付近"},
     }
     yahoo = {
-        "lat": 35.165145,
-        "lon": 136.907102,
+        "lat": 35.0,
+        "lon": 136.0,
         "address": ["愛知県", "名古屋市中区", "栄", "３丁目"],
         "short_address": "中区栄3丁目",
         "roadname": "",
@@ -59,7 +59,7 @@ def test_hybrid_uses_osm_road_with_yahoo_landmark():
 
     assert result["comparison"]["osm_label"] == "大津通付近"
     assert result["comparison"]["yahoo_label"] == "栄3丁目 松坂屋名古屋店付近"
-    assert result["taxi_label"]["label"] == "大津通（松坂屋名古屋店付近）"
+    assert result["taxi_label"]["label"] == "松坂屋名古屋店付近"
 
 
 def test_hybrid_does_not_promote_tenant_containing_landmark_name():
@@ -87,7 +87,8 @@ def test_hybrid_does_not_promote_tenant_containing_landmark_name():
 
     result = build_hybrid_result(osm, yahoo)
 
-    assert result["taxi_label"]["label"] == "パルコ付近"
+    assert result["taxi_label"]["label"] == "名古屋パルコ西館付近"
+    assert "サブウェイ" not in result["taxi_label"]["label"]
 
 
 def test_hybrid_prefers_named_landmark_over_building_name():
@@ -112,4 +113,86 @@ def test_hybrid_prefers_named_landmark_over_building_name():
 
     result = build_hybrid_result(osm, yahoo)
 
-    assert result["taxi_label"]["label"] == "白川通（松坂屋名古屋店付近）"
+    assert result["taxi_label"]["label"] == "松坂屋名古屋店付近"
+
+
+def test_hybrid_yahoo_intersection_beats_osm_road():
+    osm = {
+        "lat": 35.173,
+        "lon": 136.904,
+        "address": ["日本", "名古屋市中区", "錦3丁目"],
+        "short_address": "中区錦3丁目",
+        "roadname": "桜通",
+        "candidates": [{"name": "桜通", "kind": "road", "score": 100.0}],
+        "taxi_label": {"label": "桜通付近"},
+    }
+    yahoo = {
+        "lat": 35.173,
+        "lon": 136.904,
+        "address": ["愛知県", "名古屋市中区", "錦", "３丁目"],
+        "short_address": "中区錦3丁目",
+        "roadname": "",
+        "candidates": [
+            {"name": "桜通呉服交差点", "category": "地点名", "score": 50.0},
+            {"name": "ローソン錦三丁目店", "category": "ローソン", "score": 90.0},
+        ],
+        "taxi_label": {"label": "ローソン錦三丁目店付近"},
+    }
+
+    result = build_hybrid_result(osm, yahoo)
+
+    assert result["taxi_label"]["label"] == "桜通呉服交差点付近"
+    assert result["taxi_label"]["source"] == "yahoo_intersection"
+
+
+def test_hybrid_yahoo_intersection_beats_landmark_and_road():
+    osm = {
+        "lat": 35.158953,
+        "lon": 136.856430,
+        "address": ["日本", "名古屋市中村区", "乾出町1丁目"],
+        "short_address": "中村区乾出町1丁目",
+        "roadname": "畑江通",
+        "candidates": [{"name": "畑江通", "kind": "road", "score": 100.0}],
+        "taxi_label": {"label": "畑江通付近"},
+    }
+    yahoo = {
+        "lat": 35.158953,
+        "lon": 136.856430,
+        "address": ["愛知県", "名古屋市中村区", "沖田町"],
+        "short_address": "中村区沖田町",
+        "roadname": "",
+        "candidates": [
+            {"name": "ケーズデンキ岩塚店", "category": "家電量販店", "score": 95.0},
+            {"name": "畑江通八交差点", "category": "地点名", "score": 40.0},
+        ],
+        "taxi_label": {"label": "ケーズデンキ岩塚店付近"},
+    }
+
+    result = build_hybrid_result(osm, yahoo)
+
+    assert result["taxi_label"]["label"] == "畑江通八交差点付近"
+
+
+def test_hybrid_osm_taikodori_does_not_override_yahoo_intersection():
+    osm = {
+        "lat": 35.0,
+        "lon": 136.0,
+        "address": ["日本", "名古屋市中村区", "太閤1丁目"],
+        "short_address": "中村区太閤1丁目",
+        "roadname": "太閤通",
+        "candidates": [{"name": "太閤通", "kind": "road", "score": 100.0}],
+        "taxi_label": {"label": "太閤通付近"},
+    }
+    yahoo = {
+        "lat": 35.0,
+        "lon": 136.0,
+        "address": ["愛知県", "名古屋市中村区", "太閤", "１丁目"],
+        "short_address": "中村区太閤1丁目",
+        "roadname": "",
+        "candidates": [{"name": "笹島交差点", "category": "地点名", "score": 50.0}],
+        "taxi_label": {"label": "笹島交差点付近"},
+    }
+
+    result = build_hybrid_result(osm, yahoo)
+
+    assert result["taxi_label"]["label"] == "笹島交差点付近"

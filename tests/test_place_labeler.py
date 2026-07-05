@@ -116,6 +116,24 @@ def test_roadname_is_used_when_intersection_is_missing():
     assert label["supplement"] == "ケーズデンキ岩塚店近く"
 
 
+def test_highway_candidate_is_penalized_below_normal_road():
+    result = {
+        "lat": 35.0,
+        "lon": 136.0,
+        "address": ["愛知県", "名古屋市中村区", "岩塚町"],
+        "roadname": "",
+        "candidates": [
+            {"name": "名古屋高速5号万場線", "kind": "road", "score": 99.0},
+            {"name": "畑江通", "kind": "road", "score": 60.0},
+        ],
+    }
+
+    label = build_taxi_place_label(result)
+
+    assert label["label"] == "畑江通付近"
+    assert label["debug"]["name"] == "畑江通"
+
+
 def test_short_address_omits_prefecture_and_city():
     assert normalize_short_address(["愛知県", "名古屋市中区", "錦", "３丁目", "12"]) == "中区錦3丁目"
     assert normalize_short_address(["愛知県", "名古屋市熱田区", "金山町", "１丁目"]) == "熱田区金山町1丁目"
