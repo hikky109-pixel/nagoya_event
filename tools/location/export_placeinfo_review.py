@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.error import HTTPError, URLError
@@ -84,16 +85,11 @@ def discord_authorization_header(token: str) -> str:
     return f"Bot {token}"
 
 
-def fetch_discord_messages(channel_id: str, token: str, limit: int = 100) -> list[dict[str, Any]]:
-    channel_id = channel_id.strip()
-    token = token.strip()
-    if not channel_id:
-        raise RuntimeError("GPS_REPORT_CHANNEL_ID or YAHOO_PLACEINFO_TEST_CHANNEL_ID is not configured")
-    if not token:
-        raise RuntimeError("DISCORD_BOT_TOKEN is not configured")
-
-    safe_limit = max(1, min(int(limit or 100), 100))
-    query = urlencode({"limit": safe_limit})
+def _request_discord_messages(channel_id: str, token: str, *, limit: int, before: str = "") -> list[dict[str, Any]]:
+    query_params: dict[str, int | str] = {"limit": limit}
+    if before:
+        query_params["before"] = before
+    query = urlencode(query_params)
     url = f"{DISCORD_API_BASE}/channels/{channel_id}/messages?{query}"
     request = Request(
         url,
@@ -114,6 +110,51 @@ def fetch_discord_messages(channel_id: str, token: str, limit: int = 100) -> lis
     if not isinstance(payload, list):
         raise RuntimeError("Discord API returned unexpected payload")
     return [item for item in payload if isinstance(item, dict)]
+
+
+def fetch_discord_messages(
+    channel_id: str,
+    token: str,
+    limit: int = 100,
+    *,
+    fetch_all: bool = False,
+    page_sleep: float = 0.35,
+) -> list[dict[str, Any]]:
+    channel_id = channel_id.strip()
+    token = token.strip()
+    if not channel_id:
+        raise RuntimeError("GPS_REPORT_CHANNEL_ID or YAHOO_PLACEINFO_TEST_CHANNEL_ID is not configured")
+    if not token:
+        raise RuntimeError("DISCORD_BOT_TOKEN is not configured")
+
+    unlimited = fetch_all or int(limit or 0) <= 0
+    remaining = None if unlimited else max(1, int(limit))
+    messages: list[dict[str, Any]] = []
+    before = ""
+
+    while remaining is None or remaining > 0:
+        page_limit = 100 if remaining is None else min(remaining, 100)
+        page = _request_discord_messages(channel_id, token, limit=page_limit, before=before)
+        if not page:
+            break
+
+        messages.extend(page)
+        if remaining is not None:
+            remaining -= len(page)
+
+        last_id = _text(page[-1].get("id"))
+        if not last_id:
+            break
+        before = last_id
+
+        if len(page) < page_limit:
+            break
+        if remaining is not None and remaining <= 0:
+            break
+        if page_sleep > 0:
+            time.sleep(page_sleep)
+
+    return messages
 
 
 def configured_discord_source() -> tuple[str, str]:
@@ -225,6 +266,18 @@ def dedupe_rows(rows: Iterable[dict[str, str]]) -> list[dict[str, str]]:
     return result
 
 
+def read_review_tsv(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        return [
+            {column: _text(row.get(column)) for column in REVIEW_COLUMNS}
+            for row in reader
+            if any(_text(value) for value in row.values())
+        ]
+
+
 def write_review_tsv(rows: list[dict[str, str]], output_path: Path = DEFAULT_OUTPUT) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as f:
@@ -251,10 +304,17 @@ def export_review_tsv(input_path: Path = DEFAULT_INPUT, output_path: Path = DEFA
     return rows
 
 
-def export_review_tsv_from_discord(output_path: Path = DEFAULT_OUTPUT, limit: int = 100) -> list[dict[str, str]]:
+def export_review_tsv_from_discord(
+    output_path: Path = DEFAULT_OUTPUT,
+    limit: int = 100,
+    *,
+    fetch_all: bool = False,
+) -> list[dict[str, str]]:
     channel_id, token = configured_discord_source()
-    messages = fetch_discord_messages(channel_id, token, limit=limit)
-    rows = rows_from_messages(messages)
+    messages = fetch_discord_messages(channel_id, token, limit=limit, fetch_all=fetch_all)
+    existing_rows = read_review_tsv(output_path)
+    fetched_rows = rows_from_messages(messages)
+    rows = dedupe_rows([*existing_rows, *fetched_rows])
     write_review_tsv(rows, output_path)
     return rows
 
@@ -264,14 +324,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT, help="Discord履歴JSONLファイルまたはディレクトリ。")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="出力TSVパス。")
     parser.add_argument("--fetch-discord", action="store_true", help="Discord APIから直近メッセージを取得する。")
-    parser.add_argument("--limit", type=int, default=100, help="Discord API取得件数。最大100。")
+    parser.add_argument("--limit", type=int, default=100, help="走査するDiscordメッセージ最大件数。0なら取得できる限り遡る。")
+    parser.add_argument("--all", action="store_true", help="取得できる限りDiscord履歴を遡る。")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     if args.fetch_discord:
-        rows = export_review_tsv_from_discord(args.output, limit=args.limit)
+        rows = export_review_tsv_from_discord(args.output, limit=args.limit, fetch_all=args.all)
     else:
         rows = export_review_tsv(args.input, args.output)
     print(f"PlaceInfoレビューTSV出力完了: {args.output} ({len(rows)}件)")
