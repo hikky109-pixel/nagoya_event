@@ -110,6 +110,37 @@ def _feature_value(feature: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _feature_coordinates(feature: dict[str, Any]) -> tuple[float | None, float | None]:
+    candidates = [
+        feature.get("Geometry"),
+        feature.get("geometry"),
+        feature.get("Coordinates"),
+        feature.get("coordinates"),
+    ]
+    prop = feature.get("Property")
+    if isinstance(prop, dict):
+        candidates.extend([prop.get("Geometry"), prop.get("geometry"), prop.get("Coordinates"), prop.get("coordinates")])
+    for value in candidates:
+        if isinstance(value, dict):
+            value = value.get("Coordinates") or value.get("coordinates")
+        if isinstance(value, str) and "," in value:
+            first, second = [part.strip() for part in value.split(",", 1)]
+            try:
+                lon = float(first)
+                lat = float(second)
+            except ValueError:
+                continue
+            return lat, lon
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            try:
+                lon = float(value[0])
+                lat = float(value[1])
+            except (TypeError, ValueError):
+                continue
+            return lat, lon
+    return None, None
+
+
 def _score(value: Any) -> float | None:
     try:
         return float(value)
@@ -157,6 +188,7 @@ def extract_candidates(payload: dict[str, Any], limit: int = 12) -> list[dict[st
         where = str(_feature_value(feature, "Where", "where") or "").strip()
         combined = str(_feature_value(feature, "Combined", "combined") or "").strip()
         uid = str(_feature_value(feature, "Uid", "uid", "Id", "id") or "").strip()
+        candidate_lat, candidate_lon = _feature_coordinates(feature)
         candidates.append(
             {
                 "name": name,
@@ -167,6 +199,8 @@ def extract_candidates(payload: dict[str, Any], limit: int = 12) -> list[dict[st
                 "score": _score(_feature_value(feature, "Score", "score")),
                 "uid": uid,
                 "address": _feature_address(feature),
+                "lat": candidate_lat,
+                "lon": candidate_lon,
                 "roadname": roadname,
                 "area": area,
             }

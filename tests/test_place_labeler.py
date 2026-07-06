@@ -115,7 +115,7 @@ def test_placeinfo_display_lines_use_yahoo_address_intersection_and_landmark():
 
     display = build_placeinfo_display_lines(result)
 
-    assert display["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n🏢 ラシック"
+    assert display["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n🏢 ラシック\n座標: 35.000000, 136.000000"
 
 
 def test_placeinfo_display_lines_omit_weak_landmark_row():
@@ -132,7 +132,46 @@ def test_placeinfo_display_lines_omit_weak_landmark_row():
 
     display = build_placeinfo_display_lines(result)
 
-    assert display["text"] == "📍 中区錦3丁目\n🚥 桜通"
+    assert display["text"] == "📍 中区錦3丁目\n🚥 桜通\n座標: 35.000000, 136.000000"
+
+
+def test_placeinfo_display_lines_do_not_use_intersection_as_landmark():
+    result = {
+        "lat": 35.158786,
+        "lon": 136.856260,
+        "address": ["愛知県", "名古屋市中村区", "沖田町", ""],
+        "short_address": "中村区沖田町",
+        "roadname": "",
+        "candidates": [
+            {"name": "畑江通八交差点", "category": "地点名", "score": 90.0},
+            {"name": "鈍池町3交差点", "category": "地点名", "score": 80.0},
+            {"name": "ケーズデンキ岩塚店", "category": "大型専門店（電化・家電）", "score": 70.0},
+        ],
+    }
+
+    display = build_placeinfo_display_lines(result)
+
+    assert display["landmark"] == "ケーズデンキ岩塚店"
+    assert "🏢 畑江通八交差点" not in display["text"]
+
+
+def test_placeinfo_display_lines_prioritize_landmark_within_30m_of_intersection():
+    result = {
+        "lat": 35.158786,
+        "lon": 136.856260,
+        "address": ["愛知県", "名古屋市中村区", "沖田町", ""],
+        "short_address": "中村区沖田町",
+        "roadname": "",
+        "candidates": [
+            {"name": "遠い大型店", "category": "大型専門店", "score": 99.0, "lat": 35.160000, "lon": 136.856260},
+            {"name": "畑江通八交差点", "category": "地点名", "score": 90.0, "lat": 35.158786, "lon": 136.856260},
+            {"name": "近い大型店", "category": "大型専門店", "score": 50.0, "lat": 35.158900, "lon": 136.856260},
+        ],
+    }
+
+    display = build_placeinfo_display_lines(result)
+
+    assert display["landmark"] == "近い大型店"
 
 
 def test_roadname_is_used_when_intersection_is_missing():

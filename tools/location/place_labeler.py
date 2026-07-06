@@ -293,10 +293,7 @@ def _intersection_label(name: str) -> str:
 
 
 def _intersection_display(name: str) -> str:
-    name = _text(name)
-    if name.endswith("交差点"):
-        return name.removesuffix("交差点")
-    return name
+    return _text(name)
 
 
 def _normalize_landmark(name: str) -> str:
@@ -319,6 +316,8 @@ def _is_strong_landmark(candidate: dict[str, Any]) -> bool:
         return False
     kind = candidate_kind(candidate)
     name = candidate_display_name(candidate)
+    if kind == "intersection" or "交差点" in name:
+        return False
     category = _text(candidate.get("category"))
     text = f"{name} {category}"
     if kind in {"large_landmark", "major_hotel", "station"}:
@@ -338,10 +337,33 @@ def _best_intersection(candidates: list[dict[str, Any]]) -> dict[str, Any] | Non
     return matches[0]
 
 
-def _best_display_landmark(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _candidate_lat_lon(candidate: dict[str, Any]) -> tuple[float | None, float | None]:
+    lat = _float(candidate.get("lat"), default=999.0)
+    lon = _float(candidate.get("lon"), default=999.0)
+    if -90 <= lat <= 90 and -180 <= lon <= 180:
+        return lat, lon
+    return None, None
+
+
+def _best_display_landmark(candidates: list[dict[str, Any]], intersection: dict[str, Any] | None = None) -> dict[str, Any] | None:
     matches = [candidate for candidate in candidates if _is_strong_landmark(candidate)]
     if not matches:
         return None
+    if intersection is not None:
+        intersection_lat, intersection_lon = _candidate_lat_lon(intersection)
+        if intersection_lat is not None and intersection_lon is not None:
+            nearby: list[tuple[float, int, dict[str, Any]]] = []
+            for index, candidate in enumerate(matches):
+                candidate_lat, candidate_lon = _candidate_lat_lon(candidate)
+                if candidate_lat is None or candidate_lon is None:
+                    continue
+                distance = distance_m(intersection_lat, intersection_lon, candidate_lat, candidate_lon)
+                if distance <= 30:
+                    nearby.append((distance, index, candidate))
+            if nearby:
+                nearby.sort(key=lambda item: (item[0], item[1]))
+                return nearby[0][2]
+        return matches[0]
     matches.sort(key=lambda item: rank_candidate(item, "default"), reverse=True)
     return matches[0]
 
@@ -361,8 +383,11 @@ def build_placeinfo_display_lines(result: dict[str, Any]) -> dict[str, Any]:
     else:
         intersection_text = _text(result.get("roadname"))
 
-    landmark = _best_display_landmark(candidates)
+    landmark = _best_display_landmark(candidates, intersection)
     landmark_text = _normalize_landmark(candidate_display_name(landmark)) if landmark is not None else ""
+    lat = _float(result.get("lat"), default=999.0)
+    lon = _float(result.get("lon"), default=999.0)
+    coordinate_text = f"{lat:.6f}, {lon:.6f}" if -90 <= lat <= 90 and -180 <= lon <= 180 else ""
 
     lines = []
     if short_address:
@@ -371,11 +396,14 @@ def build_placeinfo_display_lines(result: dict[str, Any]) -> dict[str, Any]:
         lines.append(f"🚥 {intersection_text}")
     if landmark_text:
         lines.append(f"🏢 {landmark_text}")
+    if coordinate_text:
+        lines.append(f"座標: {coordinate_text}")
 
     return {
         "address": short_address,
         "intersection": intersection_text,
         "landmark": landmark_text,
+        "coordinate": coordinate_text,
         "lines": lines,
         "text": "\n".join(lines),
         "debug": {

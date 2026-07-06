@@ -202,7 +202,7 @@ GPS_HTML = """<!doctype html>
       const displayText = data.result.display_lines && data.result.display_lines.text ? data.result.display_lines.text : "";
       const discordStatus = data.discord_posted ? "\\nDiscordへ送信しました😇" : "\\nDiscord送信は確認できませんでした";
       const displayStatus = displayText ? `${displayText}\\n` : "";
-      setStatus(`${displayStatus}座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
+      setStatus(`${displayStatus}候補: ${candidates.length}件${discordStatus}`);
       renderCandidates(candidates);
       hasSuccessfulPosition = true;
       showPostSuccessActions();
@@ -451,9 +451,6 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
         lines.extend([display_text, ""])
     lines.extend(
         [
-            "座標:",
-            f"{lat:.6f}, {lon:.6f}",
-            "",
             "候補:",
         ]
     )
