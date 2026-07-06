@@ -298,7 +298,12 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       background: #fff;
       color: #202124;
     }
-    .actions { margin-top: 16px; }
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 16px;
+    }
     button {
       border: 0;
       border-radius: 8px;
@@ -361,6 +366,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     }
     @media (max-width: 460px) {
       main { width: min(100% - 24px, 900px); }
+      .actions { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -371,6 +377,8 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     <label>Longitude<input id="lonInput" inputmode="decimal" autocomplete="off"></label>
     <div class="actions">
       <button id="searchButton" type="button">検索</button>
+      <button id="copySummaryButton" type="button">📋 4行コピー</button>
+      <button id="copyAllButton" type="button">📋 全件コピー</button>
     </div>
     <section>
       <h2>Labeler処理結果</h2>
@@ -398,6 +406,8 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     const latInput = document.getElementById("latInput");
     const lonInput = document.getElementById("lonInput");
     const searchButton = document.getElementById("searchButton");
+    const copySummaryButton = document.getElementById("copySummaryButton");
+    const copyAllButton = document.getElementById("copyAllButton");
     const summaryBox = document.getElementById("summary");
     const yahooBox = document.getElementById("yahoo");
     const candidatesBox = document.getElementById("candidates");
@@ -407,7 +417,42 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
 
     function setBusy(isBusy) {
       searchButton.disabled = isBusy;
+      copySummaryButton.disabled = isBusy;
+      copyAllButton.disabled = isBusy;
       searchButton.textContent = isBusy ? "検索中..." : "検索";
+    }
+
+    async function copyText(text, emptyMessage) {
+      const value = (text || "").trim();
+      if (!value) {
+        statusBox.textContent = emptyMessage;
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(value);
+        statusBox.textContent = "コピーしました";
+      } catch (error) {
+        statusBox.textContent = "コピーできませんでした。表示内容を長押しでコピーしてください";
+      }
+    }
+
+    function buildAllText() {
+      return [
+        "Labeler処理結果",
+        summaryBox.textContent.trim(),
+        "",
+        "Yahoo API取得結果",
+        yahooBox.textContent.trim(),
+        "",
+        "候補一覧",
+        candidatesBox.textContent.trim(),
+        "",
+        "採用理由",
+        reasonsBox.textContent.trim(),
+        "",
+        "Raw JSON",
+        rawJson.textContent.trim(),
+      ].join("\\n").trim();
     }
 
     function renderCandidates(items) {
@@ -464,6 +509,8 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     }
 
     searchButton.addEventListener("click", search);
+    copySummaryButton.addEventListener("click", () => copyText(summaryBox.textContent, "4行コピーする内容がありません"));
+    copyAllButton.addEventListener("click", () => copyText(buildAllText(), "全件コピーする内容がありません"));
   </script>
 </body>
 </html>
