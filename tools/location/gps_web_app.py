@@ -589,6 +589,16 @@ def _candidate_coordinate_text(candidate: dict[str, Any]) -> str:
     return f"{lat:.6f}, {lon:.6f}"
 
 
+def _candidate_score_text(candidate: dict[str, Any]) -> str:
+    value = candidate.get("score")
+    if value in (None, ""):
+        return ""
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return _text(value)
+
+
 def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     candidates = [candidate for candidate in candidates if isinstance(candidate, dict)]
@@ -606,7 +616,7 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
                 "index": index,
                 "name": _candidate_name(candidate),
                 "category": _text(candidate.get("category")),
-                "score": _text(candidate.get("score")),
+                "score": _candidate_score_text(candidate),
                 "distance_m": _candidate_distance_from_result(result, candidate),
                 "coordinate": _candidate_coordinate_text(candidate),
                 "where": _text(candidate.get("where")),
@@ -659,7 +669,10 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
     if landmark_candidate is not None:
         reason = "🏢 強ランドマーク"
         category = _text(landmark_candidate.get("category"))
-        reasons[3] = f"🏢 取得元: Yahoo候補(Category={category or '不明'})"
+        landmark_source = f"Yahoo候補(Category={category or '不明'})"
+        if taxi_source == "override":
+            landmark_source = f"秘伝のタレ + {landmark_source}"
+        reasons[3] = f"🏢 取得元: {landmark_source}"
         if intersection_candidate is not None:
             intersection_lat, intersection_lon = _candidate_coordinate(intersection_candidate)
             landmark_lat, landmark_lon = _candidate_coordinate(landmark_candidate)
@@ -670,7 +683,10 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
                 reason = f"{reason}\n交差点距離は取得不可、Yahoo候補順で採用"
         reasons.append(reason)
     else:
-        reasons[3] = "🏢 取得元: 候補なし"
+        if taxi_source == "override":
+            reasons[3] = "🏢 取得元: 秘伝のタレ"
+        else:
+            reasons[3] = "🏢 取得元: 候補なし"
         reasons.append("🏢 強ランドマークなし")
 
     return {"yahoo": "\n".join(yahoo_lines), "candidates": candidate_rows, "reasons": reasons}

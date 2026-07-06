@@ -220,7 +220,7 @@ def build_hybrid_result(osm: dict[str, Any], yahoo: dict[str, Any]) -> dict[str,
     # Keep the legacy shape, but do not use OSM candidates for the user-facing display.
     merged_candidates = [_with_source(candidate, "Yahoo") for candidate in yahoo.get("candidates", []) if isinstance(candidate, dict)]
     result = {
-        "source": "HybridOSMYahoo",
+        "source": "YahooPrimaryPlaceInfo",
         "lat": yahoo.get("lat", osm.get("lat")),
         "lon": yahoo.get("lon", osm.get("lon")),
         "area": "hybrid",
