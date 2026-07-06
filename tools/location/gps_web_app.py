@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ブラウザGeolocationでOSM+Yahoo PlaceInfoを試す軽量Webアプリ。"""
+"""ブラウザGeolocationでYahoo PlaceInfoを試す軽量Webアプリ。"""
 
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ GPS_HTML = """<!doctype html>
     async function sendPosition(position) {
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
-      setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\nOSM + Yahoo PlaceInfoを確認しています...`);
+      setStatus(`座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\nYahoo PlaceInfoを確認しています...`);
       const params = new URLSearchParams(window.location.search);
       params.set("lat", lat);
       params.set("lon", lon);
@@ -199,12 +199,10 @@ GPS_HTML = """<!doctype html>
         throw new Error(data.error || "placeinfo_failed");
       }
       const candidates = data.result.candidates || [];
-      const taxiLabel = data.result.taxi_label && data.result.taxi_label.label ? data.result.taxi_label.label : "";
-      const shortAddress = data.result.short_address || "";
+      const displayText = data.result.display_lines && data.result.display_lines.text ? data.result.display_lines.text : "";
       const discordStatus = data.discord_posted ? "\\nDiscordへ送信しました😇" : "\\nDiscord送信は確認できませんでした";
-      const addressStatus = shortAddress ? `📍 ${shortAddress}\\n` : "";
-      const labelStatus = taxiLabel ? `推定: ${taxiLabel}\\n` : "";
-      setStatus(`${addressStatus}${labelStatus}座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
+      const displayStatus = displayText ? `${displayText}\\n` : "";
+      setStatus(`${displayStatus}座標: ${lat.toFixed(6)}, ${lon.toFixed(6)}\\n候補: ${candidates.length}件${discordStatus}`);
       renderCandidates(candidates);
       hasSuccessfulPosition = true;
       showPostSuccessActions();
@@ -262,6 +260,162 @@ GPS_HTML = """<!doctype html>
 """
 
 
+ADMIN_PLACEINFO_HTML = """<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PlaceInfo Test</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      background: #f6f7f8;
+      color: #202124;
+    }
+    main {
+      width: min(680px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0;
+    }
+    h1 { font-size: 24px; margin: 0 0 18px; }
+    label {
+      display: grid;
+      gap: 6px;
+      margin: 0 0 12px;
+      font-weight: 700;
+    }
+    input {
+      box-sizing: border-box;
+      width: 100%;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 17px;
+      background: #fff;
+      color: #202124;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 14px 16px;
+      background: #0b57d0;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      min-height: 52px;
+    }
+    #copyButton { background: #5f6368; }
+    button:disabled { opacity: .6; }
+    #output {
+      margin-top: 22px;
+      padding: 16px;
+      min-height: 84px;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      background: #fff;
+      white-space: pre-wrap;
+      font-size: 18px;
+      line-height: 1.7;
+    }
+    #status {
+      margin-top: 10px;
+      min-height: 24px;
+      color: #5f6368;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #171717; color: #f2f2f2; }
+      input, #output { background: #202124; color: #f2f2f2; border-color: #3c4043; }
+      button { background: #8ab4f8; color: #0b1b32; }
+      #copyButton { background: #9aa0a6; color: #111; }
+      #status { color: #bdc1c6; }
+    }
+    @media (max-width: 460px) {
+      main { width: min(100% - 24px, 680px); }
+      .actions { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>PlaceInfo Test</h1>
+    <label>Latitude<input id="latInput" inputmode="decimal" autocomplete="off"></label>
+    <label>Longitude<input id="lonInput" inputmode="decimal" autocomplete="off"></label>
+    <div class="actions">
+      <button id="searchButton" type="button">検索</button>
+      <button id="copyButton" type="button">📋 出力をコピー</button>
+    </div>
+    <div id="output"></div>
+    <div id="status"></div>
+  </main>
+  <script>
+    const latInput = document.getElementById("latInput");
+    const lonInput = document.getElementById("lonInput");
+    const searchButton = document.getElementById("searchButton");
+    const copyButton = document.getElementById("copyButton");
+    const output = document.getElementById("output");
+    const statusBox = document.getElementById("status");
+
+    function setBusy(isBusy) {
+      searchButton.disabled = isBusy;
+      copyButton.disabled = isBusy;
+      searchButton.textContent = isBusy ? "検索中..." : "検索";
+    }
+
+    async function search() {
+      const lat = latInput.value.trim();
+      const lon = lonInput.value.trim();
+      if (!lat || !lon) {
+        statusBox.textContent = "Latitude / Longitude を入力してください";
+        return;
+      }
+      setBusy(true);
+      statusBox.textContent = "";
+      try {
+        const params = new URLSearchParams({ lat, lon });
+        const response = await fetch(`/api/admin/placeinfo-test?${params.toString()}`);
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || "placeinfo_failed");
+        }
+        output.textContent = data.text || "";
+        statusBox.textContent = output.textContent ? "" : "表示できる候補がありません";
+      } catch (error) {
+        statusBox.textContent = `検索できませんでした: ${error.message}`;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function copyOutput() {
+      const text = output.textContent.trim();
+      if (!text) {
+        statusBox.textContent = "コピーする出力がありません";
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        statusBox.textContent = "コピーしました";
+      } catch (error) {
+        statusBox.textContent = "コピーできませんでした。出力を長押しでコピーしてください";
+      }
+    }
+
+    searchButton.addEventListener("click", search);
+    copyButton.addEventListener("click", copyOutput);
+  </script>
+</body>
+</html>
+"""
+
+
 def parse_coordinate(value: str, *, lower: float, upper: float) -> float | None:
     try:
         number = float(value)
@@ -272,21 +426,29 @@ def parse_coordinate(value: str, *, lower: float, upper: float) -> float | None:
     return None
 
 
+def placeinfo_display_text(result: dict[str, Any]) -> str:
+    display = result.get("display_lines") if isinstance(result.get("display_lines"), dict) else {}
+    text = str(display.get("text") or "").strip()
+    if text:
+        return text
+    lines = display.get("lines")
+    if isinstance(lines, list):
+        return "\n".join(str(line).strip() for line in lines if str(line).strip())
+    short_address = str(result.get("short_address") or "").strip()
+    return f"📍 {short_address}" if short_address else ""
+
+
 def placeinfo_summary(result: dict[str, Any]) -> str:
     lat = float(result.get("lat") or 0)
     lon = float(result.get("lon") or 0)
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
-    taxi_label = result.get("taxi_label") if isinstance(result.get("taxi_label"), dict) else {}
-    label = str(taxi_label.get("label") or "").strip()
-    short_address = str(result.get("short_address") or "").strip()
+    display_text = placeinfo_display_text(result)
     lines = [
         "🚕 現在地テスト結果",
         "",
     ]
-    if short_address:
-        lines.extend([f"📍 {short_address}", ""])
-    if label:
-        lines.extend(["推定:", label, ""])
+    if display_text:
+        lines.extend([display_text, ""])
     lines.extend(
         [
             "座標:",
@@ -408,8 +570,14 @@ class GPSRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/gps":
             self.send_html(GPS_HTML)
             return
+        if parsed.path == "/admin/placeinfo-test":
+            self.send_html(ADMIN_PLACEINFO_HTML)
+            return
         if parsed.path == "/api/placeinfo":
             self.handle_placeinfo(parse_qs(parsed.query))
+            return
+        if parsed.path == "/api/admin/placeinfo-test":
+            self.handle_admin_placeinfo_test(parse_qs(parsed.query))
             return
         self.send_json({"ok": False, "error": "not_found"}, status=HTTPStatus.NOT_FOUND)
 
@@ -455,6 +623,27 @@ class GPSRequestHandler(BaseHTTPRequestHandler):
                 "result": result,
                 "discord_posted": posted,
                 "discord_post_result_path": post_result_path,
+            }
+        )
+
+    def handle_admin_placeinfo_test(self, query: dict[str, list[str]]) -> None:
+        lat = parse_coordinate((query.get("lat") or [""])[0], lower=-90, upper=90)
+        lon = parse_coordinate((query.get("lon") or [""])[0], lower=-180, upper=180)
+        if lat is None or lon is None:
+            self.send_json({"ok": False, "error": "invalid_lat_lon"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        result = get_hybrid_placeinfo(lat, lon, area="admin_placeinfo_test")
+        self.send_json(
+            {
+                "ok": True,
+                "text": placeinfo_display_text(result),
+                "result": {
+                    "display_lines": result.get("display_lines", {}),
+                    "short_address": result.get("short_address", ""),
+                    "lat": result.get("lat"),
+                    "lon": result.get("lon"),
+                },
             }
         )
 

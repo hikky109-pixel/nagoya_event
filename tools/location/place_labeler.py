@@ -31,6 +31,32 @@ UNDERGROUND_WORDS = (
 CONVENIENCE_CATEGORIES = {"ローソン", "ファミリーマート", "デイリーヤマザキ", "セブン-イレブン"}
 LARGE_LANDMARK_WORDS = ("ショッピングセンター", "複合商業施設", "タワー", "百貨店", "家電量販店")
 KNOWN_KINDS = {"road", "intersection", "large_landmark", "landmark", "major_hotel", "station", "chain", "convenience"}
+STRONG_LANDMARK_WORDS = (
+    "ラシック",
+    "松坂屋",
+    "三越",
+    "パルコ",
+    "PARCO",
+    "サンシャイン栄",
+    "SUNSHINE SAKAE",
+    "ショッピングセンター",
+    "複合商業施設",
+    "タワー",
+    "百貨店",
+    "デパート",
+    "家電量販店",
+    "大型専門店",
+    "駅",
+    "ホテル",
+    "病院",
+    "市役所",
+    "区役所",
+    "県庁",
+    "官公庁",
+    "ホール",
+    "劇場",
+    "公園",
+)
 STORE_PENALTY_CATEGORIES = {
     "その他のファミリーレストラン",
     "大型専門店（スポーツ・アウトドア）",
@@ -173,7 +199,7 @@ def candidate_kind(candidate: dict[str, Any]) -> str:
         return explicit_kind
     name = _text(candidate.get("name"))
     category = _text(candidate.get("category"))
-    if category == "地点名" and "交差点" in name:
+    if category == "地点名":
         return "intersection"
     if category in CONVENIENCE_CATEGORIES:
         return "convenience"
@@ -182,6 +208,10 @@ def candidate_kind(candidate: dict[str, Any]) -> str:
     if any(word in category for word in LARGE_LANDMARK_WORDS):
         return "large_landmark"
     return "store"
+
+
+def candidate_display_name(candidate: dict[str, Any]) -> str:
+    return _text(candidate.get("name") or candidate.get("label"))
 
 
 def place_penalty(candidate: dict[str, Any]) -> float:
@@ -262,11 +292,97 @@ def _intersection_label(name: str) -> str:
     return f"{name}付近"
 
 
+def _intersection_display(name: str) -> str:
+    name = _text(name)
+    if name.endswith("交差点"):
+        return name.removesuffix("交差点")
+    return name
+
+
 def _normalize_landmark(name: str) -> str:
     value = _text(name)
     if value == "SUNSHINE SAKAE":
         return "サンシャイン栄"
     return value
+
+
+def _is_indoor_or_underground(candidate: dict[str, Any]) -> bool:
+    text = " ".join(
+        _text(candidate.get(key))
+        for key in ("name", "label", "category", "where", "combined", "address")
+    )
+    return any(word in text for word in UNDERGROUND_WORDS)
+
+
+def _is_strong_landmark(candidate: dict[str, Any]) -> bool:
+    if _is_indoor_or_underground(candidate):
+        return False
+    kind = candidate_kind(candidate)
+    name = candidate_display_name(candidate)
+    category = _text(candidate.get("category"))
+    text = f"{name} {category}"
+    if kind in {"large_landmark", "major_hotel", "station"}:
+        return True
+    if kind == "hotel":
+        return True
+    if kind == "convenience":
+        return False
+    return any(word in text for word in STRONG_LANDMARK_WORDS)
+
+
+def _best_intersection(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    matches = [candidate for candidate in candidates if candidate_kind(candidate) == "intersection"]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: rank_candidate(item, "default"), reverse=True)
+    return matches[0]
+
+
+def _best_display_landmark(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    matches = [candidate for candidate in candidates if _is_strong_landmark(candidate)]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: rank_candidate(item, "default"), reverse=True)
+    return matches[0]
+
+
+def build_placeinfo_display_lines(result: dict[str, Any]) -> dict[str, Any]:
+    """Build the short taxi-facing 3-line PlaceInfo display from Yahoo-style fields."""
+
+    address_parts = result.get("address") if isinstance(result.get("address"), list) else []
+    short_address = _text(result.get("short_address")) or normalize_short_address(address_parts)
+    candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
+    candidates = [item for item in candidates if isinstance(item, dict)]
+
+    intersection = _best_intersection(candidates)
+    intersection_text = ""
+    if intersection is not None:
+        intersection_text = _intersection_display(candidate_display_name(intersection))
+    else:
+        intersection_text = _text(result.get("roadname"))
+
+    landmark = _best_display_landmark(candidates)
+    landmark_text = _normalize_landmark(candidate_display_name(landmark)) if landmark is not None else ""
+
+    lines = []
+    if short_address:
+        lines.append(f"📍 {short_address}")
+    if intersection_text:
+        lines.append(f"🚥 {intersection_text}")
+    if landmark_text:
+        lines.append(f"🏢 {landmark_text}")
+
+    return {
+        "address": short_address,
+        "intersection": intersection_text,
+        "landmark": landmark_text,
+        "lines": lines,
+        "text": "\n".join(lines),
+        "debug": {
+            "intersection": candidate_display_name(intersection) if intersection else "",
+            "landmark": candidate_display_name(landmark) if landmark else "",
+        },
+    }
 
 
 def _nishiki_street_from_candidate(candidate: dict[str, Any]) -> str:

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from tools.location.get_yahoo_placeinfo import extract_candidates
-from tools.location.place_labeler import build_taxi_place_label, normalize_short_address
+from tools.location.place_labeler import build_placeinfo_display_lines, build_taxi_place_label, normalize_short_address
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,6 +97,42 @@ def test_hataedori_synthetic_intersection_is_preferred():
     label = build_taxi_place_label(result)
     assert label["label"] == "畑江通八交差点付近"
     assert label["supplement"] == "ケーズデンキ岩塚店近く"
+
+
+def test_placeinfo_display_lines_use_yahoo_address_intersection_and_landmark():
+    result = {
+        "lat": 35.0,
+        "lon": 136.0,
+        "address": ["愛知県", "名古屋市中区", "栄", "３丁目"],
+        "short_address": "中区栄3丁目",
+        "roadname": "",
+        "candidates": [
+            {"name": "三蔵通久屋西", "category": "地点名", "score": 50.0},
+            {"name": "ラシック", "category": "ショッピングセンター・モール、複合商業施設", "score": 80.0},
+            {"name": "ローソン栄三丁目店", "category": "ローソン", "score": 99.0},
+        ],
+    }
+
+    display = build_placeinfo_display_lines(result)
+
+    assert display["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n🏢 ラシック"
+
+
+def test_placeinfo_display_lines_omit_weak_landmark_row():
+    result = {
+        "lat": 35.0,
+        "lon": 136.0,
+        "address": ["愛知県", "名古屋市中区", "錦", "３丁目"],
+        "short_address": "中区錦3丁目",
+        "roadname": "桜通",
+        "candidates": [
+            {"name": "ローソン錦三丁目店", "category": "ローソン", "score": 99.0},
+        ],
+    }
+
+    display = build_placeinfo_display_lines(result)
+
+    assert display["text"] == "📍 中区錦3丁目\n🚥 桜通"
 
 
 def test_roadname_is_used_when_intersection_is_missing():

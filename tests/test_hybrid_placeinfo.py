@@ -30,6 +30,39 @@ def test_hybrid_uses_yahoo_intersection_when_osm_has_no_road():
     assert result["comparison"]["yahoo_label"] == "畑江通八交差点付近"
     assert result["short_address"] == "中村区沖田町"
     assert result["taxi_label"]["label"] == "畑江通八交差点付近"
+    assert result["display_lines"]["text"] == "📍 中村区沖田町\n🚥 畑江通八\n🏢 ケーズデンキ岩塚店"
+
+
+def test_hybrid_display_ignores_osm_candidates():
+    osm = {
+        "lat": 35.0,
+        "lon": 136.0,
+        "address": ["日本", "名古屋市中区", "栄3丁目"],
+        "short_address": "中区栄3丁目",
+        "roadname": "OSM通り",
+        "candidates": [
+            {"name": "OSMだけの大型施設", "kind": "large_landmark", "score": 100.0},
+            {"name": "OSM通り", "kind": "road", "score": 100.0},
+        ],
+        "taxi_label": {"label": "OSM通り（OSMだけの大型施設付近）"},
+    }
+    yahoo = {
+        "lat": 35.0,
+        "lon": 136.0,
+        "address": ["愛知県", "名古屋市中区", "栄", "３丁目"],
+        "short_address": "中区栄3丁目",
+        "roadname": "",
+        "candidates": [
+            {"name": "三蔵通久屋西", "category": "地点名", "score": 50.0},
+            {"name": "ラシック", "category": "ショッピングセンター・モール、複合商業施設", "score": 80.0},
+        ],
+        "taxi_label": {"label": "三蔵通久屋西付近"},
+    }
+
+    result = build_hybrid_result(osm, yahoo)
+
+    assert result["display_lines"]["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n🏢 ラシック"
+    assert "OSM" not in result["display_lines"]["text"]
 
 
 def test_hybrid_uses_osm_road_with_yahoo_landmark():

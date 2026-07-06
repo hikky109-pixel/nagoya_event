@@ -14,9 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.location.get_osm_placeinfo import get_osm_placeinfo  # noqa: E402
 from tools.location.get_yahoo_placeinfo import get_yahoo_placeinfo  # noqa: E402
-from tools.location.place_labeler import build_taxi_place_label, find_override  # noqa: E402
+from tools.location.place_labeler import build_placeinfo_display_lines, build_taxi_place_label, find_override  # noqa: E402
 
 
 LARGE_LANDMARK_NAMES = (
@@ -73,7 +72,7 @@ def _kind(candidate: dict[str, Any]) -> str:
     text = f"{name} {category}"
     if kind:
         return kind
-    if category == "地点名" and "交差点" in name:
+    if category == "地点名":
         return "intersection"
     if any(word in name for word in LARGE_LANDMARK_NAMES) and (
         any(name.startswith(word) for word in LARGE_LANDMARK_NAMES)
@@ -218,20 +217,22 @@ def _hybrid_label(osm: dict[str, Any], yahoo: dict[str, Any], merged_candidates:
 
 
 def build_hybrid_result(osm: dict[str, Any], yahoo: dict[str, Any]) -> dict[str, Any]:
-    merged_candidates = _merge_candidates(osm, yahoo)
+    # Keep the legacy shape, but do not use OSM candidates for the user-facing display.
+    merged_candidates = [_with_source(candidate, "Yahoo") for candidate in yahoo.get("candidates", []) if isinstance(candidate, dict)]
     result = {
         "source": "HybridOSMYahoo",
-        "lat": osm.get("lat", yahoo.get("lat")),
-        "lon": osm.get("lon", yahoo.get("lon")),
+        "lat": yahoo.get("lat", osm.get("lat")),
+        "lon": yahoo.get("lon", osm.get("lon")),
         "area": "hybrid",
-        "saved_at": osm.get("saved_at") or yahoo.get("saved_at"),
-        "raw_path": osm.get("raw_path", ""),
-        "address": osm.get("address") or yahoo.get("address") or [],
+        "saved_at": yahoo.get("saved_at") or osm.get("saved_at"),
+        "raw_path": yahoo.get("raw_path") or osm.get("raw_path", ""),
+        "address": yahoo.get("address") or [],
         "short_address": yahoo.get("short_address") or osm.get("short_address") or "",
-        "roadname": osm.get("roadname") or yahoo.get("roadname") or "",
-        "place_area": osm.get("place_area") or yahoo.get("place_area") or [],
+        "roadname": yahoo.get("roadname") or "",
+        "place_area": yahoo.get("place_area") or [],
         "candidates": merged_candidates,
         "taxi_label": {},
+        "display_lines": {},
         "osm_result": osm,
         "yahoo_result": yahoo,
         "comparison": {
@@ -241,6 +242,7 @@ def build_hybrid_result(osm: dict[str, Any], yahoo: dict[str, Any]) -> dict[str,
         "error": osm.get("error") or yahoo.get("error", ""),
     }
     result["taxi_label"] = _hybrid_label(osm, yahoo, merged_candidates)
+    result["display_lines"] = build_placeinfo_display_lines(result)
     result["comparison"]["hybrid_label"] = result["taxi_label"].get("label", "")
     # Keep the existing labeler output for comparison when all candidates are merged.
     result["comparison"]["merged_labeler_label"] = build_taxi_place_label(result).get("label", "")
@@ -248,7 +250,14 @@ def build_hybrid_result(osm: dict[str, Any], yahoo: dict[str, Any]) -> dict[str,
 
 
 def get_hybrid_placeinfo(lat: float, lon: float, *, area: str = "hybrid") -> dict[str, Any]:
-    osm = get_osm_placeinfo(lat, lon, area=f"{area}_osm")
+    osm: dict[str, Any] = {
+        "source": "OSMDisabled",
+        "lat": lat,
+        "lon": lon,
+        "candidates": [],
+        "taxi_label": {},
+        "error": "",
+    }
     yahoo = get_yahoo_placeinfo(lat, lon, area=f"{area}_yahoo")
     return build_hybrid_result(osm, yahoo)
 
