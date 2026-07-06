@@ -266,7 +266,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PlaceInfo Test</title>
+  <title>PlaceInfo Review</title>
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -276,11 +276,12 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       color: #202124;
     }
     main {
-      width: min(680px, calc(100% - 32px));
+      width: min(900px, calc(100% - 32px));
       margin: 0 auto;
       padding: 32px 0;
     }
     h1 { font-size: 24px; margin: 0 0 18px; }
+    h2 { font-size: 17px; margin: 0 0 12px; }
     label {
       display: grid;
       gap: 6px;
@@ -297,12 +298,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       background: #fff;
       color: #202124;
     }
-    .actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-top: 16px;
-    }
+    .actions { margin-top: 16px; }
     button {
       border: 0;
       border-radius: 8px;
@@ -312,29 +308,44 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       font-size: 16px;
       font-weight: 700;
       min-height: 52px;
+      width: 100%;
     }
-    #copyButton { background: #5f6368; }
     button:disabled { opacity: .6; }
-    #output {
-      margin-top: 22px;
+    section, details {
+      margin-top: 18px;
       padding: 16px;
-      min-height: 84px;
       border: 1px solid #dadce0;
       border-radius: 8px;
       background: #fff;
+    }
+    #summary, #yahoo, #reasons, pre {
       white-space: pre-wrap;
-      font-size: 18px;
       line-height: 1.7;
     }
-    #debug {
-      margin-top: 16px;
-      padding: 16px;
-      border: 1px solid #dadce0;
-      border-radius: 8px;
-      background: #fff;
+    #summary { font-size: 15px; }
+    #candidates {
+      display: grid;
+      gap: 10px;
+    }
+    .candidate {
+      border-top: 1px solid #dadce0;
+      padding-top: 10px;
       white-space: pre-wrap;
+      line-height: 1.6;
       font-size: 14px;
-      line-height: 1.7;
+    }
+    .candidate:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+    pre {
+      overflow-x: auto;
+      font-size: 12px;
+      margin: 12px 0 0;
     }
     #status {
       margin-top: 10px;
@@ -343,64 +354,84 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     }
     @media (prefers-color-scheme: dark) {
       body { background: #171717; color: #f2f2f2; }
-      input, #output, #debug { background: #202124; color: #f2f2f2; border-color: #3c4043; }
+      input, section, details { background: #202124; color: #f2f2f2; border-color: #3c4043; }
+      .candidate { border-color: #3c4043; }
       button { background: #8ab4f8; color: #0b1b32; }
-      #copyButton { background: #9aa0a6; color: #111; }
       #status { color: #bdc1c6; }
     }
     @media (max-width: 460px) {
-      main { width: min(100% - 24px, 680px); }
-      .actions { grid-template-columns: 1fr; }
+      main { width: min(100% - 24px, 900px); }
     }
   </style>
 </head>
 <body>
   <main>
-    <h1>PlaceInfo Test</h1>
+    <h1>PlaceInfo Review</h1>
     <label>Latitude<input id="latInput" inputmode="decimal" autocomplete="off"></label>
     <label>Longitude<input id="lonInput" inputmode="decimal" autocomplete="off"></label>
     <div class="actions">
       <button id="searchButton" type="button">検索</button>
-      <button id="copyButton" type="button">📋 出力をコピー</button>
     </div>
-    <div id="output"></div>
-    <div id="debug"></div>
+    <section>
+      <h2>Labeler処理結果</h2>
+      <div id="summary"></div>
+    </section>
+    <section>
+      <h2>Yahoo API取得結果</h2>
+      <div id="yahoo"></div>
+    </section>
+    <section>
+      <h2>候補一覧</h2>
+      <div id="candidates"></div>
+    </section>
+    <section>
+      <h2>採用理由</h2>
+      <div id="reasons"></div>
+    </section>
+    <details>
+      <summary>Raw JSON</summary>
+      <pre id="rawJson"></pre>
+    </details>
     <div id="status"></div>
   </main>
   <script>
     const latInput = document.getElementById("latInput");
     const lonInput = document.getElementById("lonInput");
     const searchButton = document.getElementById("searchButton");
-    const copyButton = document.getElementById("copyButton");
-    const output = document.getElementById("output");
-    const debugBox = document.getElementById("debug");
+    const summaryBox = document.getElementById("summary");
+    const yahooBox = document.getElementById("yahoo");
+    const candidatesBox = document.getElementById("candidates");
+    const reasonsBox = document.getElementById("reasons");
+    const rawJson = document.getElementById("rawJson");
     const statusBox = document.getElementById("status");
-    let copyText = "";
 
     function setBusy(isBusy) {
       searchButton.disabled = isBusy;
-      copyButton.disabled = isBusy;
       searchButton.textContent = isBusy ? "検索中..." : "検索";
     }
 
-    function formatDebug(debug) {
-      if (!debug) {
-        return "";
+    function renderCandidates(items) {
+      candidatesBox.innerHTML = "";
+      if (!items || items.length === 0) {
+        candidatesBox.textContent = "候補なし";
+        return;
       }
-      const lines = ["────────────", "候補一覧"];
-      for (const item of debug.candidates || []) {
-        lines.push(`${item.index}.`);
-        lines.push(`名称: ${item.name || ""}`);
-        lines.push(`Category: ${item.category || ""}`);
-        lines.push(`距離: ${item.distance_m || "取得不可"}`);
-        lines.push(`座標: ${item.coordinate || "取得不可"}`);
-        lines.push("");
+      for (const item of items) {
+        const div = document.createElement("div");
+        div.className = "candidate";
+        div.textContent = [
+          `${item.index}.`,
+          `名称: ${item.name || ""}`,
+          `Category: ${item.category || ""}`,
+          `Score: ${item.score || ""}`,
+          `距離: ${item.distance_m || "取得不可"}`,
+          `座標: ${item.coordinate || "取得不可"}`,
+          `Where: ${item.where || ""}`,
+          `Combined: ${item.combined || ""}`,
+          `UID: ${item.uid || ""}`,
+        ].join("\\n");
+        candidatesBox.appendChild(div);
       }
-      lines.push("採用理由");
-      for (const reason of debug.reasons || []) {
-        lines.push(reason);
-      }
-      return lines.join("\\n").trim();
     }
 
     async function search() {
@@ -419,10 +450,12 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
         if (!response.ok || !data.ok) {
           throw new Error(data.error || "placeinfo_failed");
         }
-        copyText = data.copy_text || data.text || "";
-        output.textContent = data.text || "";
-        debugBox.textContent = formatDebug(data.debug);
-        statusBox.textContent = output.textContent ? "" : "表示できる候補がありません";
+        summaryBox.textContent = data.text || "";
+        yahooBox.textContent = data.debug && data.debug.yahoo ? data.debug.yahoo : "";
+        renderCandidates(data.debug && data.debug.candidates ? data.debug.candidates : []);
+        reasonsBox.textContent = data.debug && data.debug.reasons ? data.debug.reasons.join("\\n") : "";
+        rawJson.textContent = JSON.stringify(data.result || {}, null, 2);
+        statusBox.textContent = data.text ? "" : "表示できる候補がありません";
       } catch (error) {
         statusBox.textContent = `検索できませんでした: ${error.message}`;
       } finally {
@@ -430,22 +463,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       }
     }
 
-    async function copyOutput() {
-      const text = copyText.trim();
-      if (!text) {
-        statusBox.textContent = "コピーする出力がありません";
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(text);
-        statusBox.textContent = "コピーしました";
-      } catch (error) {
-        statusBox.textContent = "コピーできませんでした。出力を長押しでコピーしてください";
-      }
-    }
-
     searchButton.addEventListener("click", search);
-    copyButton.addEventListener("click", copyOutput);
   </script>
 </body>
 </html>
@@ -538,10 +556,23 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
                 "index": index,
                 "name": _candidate_name(candidate),
                 "category": _text(candidate.get("category")),
+                "score": _text(candidate.get("score")),
                 "distance_m": _candidate_distance_from_result(result, candidate),
                 "coordinate": _candidate_coordinate_text(candidate),
+                "where": _text(candidate.get("where")),
+                "combined": _text(candidate.get("combined")),
+                "uid": _text(candidate.get("uid")),
             }
         )
+
+    yahoo_lines = [
+        f"source: {_text(result.get('source'))}",
+        f"raw_path: {_text(result.get('raw_path'))}",
+        f"address: {' > '.join(str(part) for part in result.get('address', []) if str(part).strip())}",
+        f"short_address: {_text(result.get('short_address'))}",
+        f"roadname: {_text(result.get('roadname')) or 'なし'}",
+        f"candidate_count: {len(candidates)}",
+    ]
 
     reasons = ["📍 Yahoo住所採用"]
     if intersection_candidate is not None:
@@ -569,7 +600,7 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
     else:
         reasons.append("🏢 強ランドマークなし")
 
-    return {"candidates": candidate_rows, "reasons": reasons}
+    return {"yahoo": "\n".join(yahoo_lines), "candidates": candidate_rows, "reasons": reasons}
 
 
 def placeinfo_summary(result: dict[str, Any]) -> str:
