@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT))
 
 from config import DISCORD_BOT_TOKEN, GEMMA_DISCORD_WEBHOOK, GEMMA_WEBHOOK_URL, GPS_REPORT_CHANNEL_ID  # noqa: E402
 from tools.location.get_hybrid_placeinfo import get_hybrid_placeinfo  # noqa: E402
+from tools.location.place_labeler import distance_m  # noqa: E402
 
 
 REQUEST_TIMEOUT_SECONDS = 10
@@ -325,6 +326,16 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       font-size: 18px;
       line-height: 1.7;
     }
+    #debug {
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      background: #fff;
+      white-space: pre-wrap;
+      font-size: 14px;
+      line-height: 1.7;
+    }
     #status {
       margin-top: 10px;
       min-height: 24px;
@@ -332,7 +343,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     }
     @media (prefers-color-scheme: dark) {
       body { background: #171717; color: #f2f2f2; }
-      input, #output { background: #202124; color: #f2f2f2; border-color: #3c4043; }
+      input, #output, #debug { background: #202124; color: #f2f2f2; border-color: #3c4043; }
       button { background: #8ab4f8; color: #0b1b32; }
       #copyButton { background: #9aa0a6; color: #111; }
       #status { color: #bdc1c6; }
@@ -353,6 +364,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       <button id="copyButton" type="button">📋 出力をコピー</button>
     </div>
     <div id="output"></div>
+    <div id="debug"></div>
     <div id="status"></div>
   </main>
   <script>
@@ -361,12 +373,33 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     const searchButton = document.getElementById("searchButton");
     const copyButton = document.getElementById("copyButton");
     const output = document.getElementById("output");
+    const debugBox = document.getElementById("debug");
     const statusBox = document.getElementById("status");
 
     function setBusy(isBusy) {
       searchButton.disabled = isBusy;
       copyButton.disabled = isBusy;
       searchButton.textContent = isBusy ? "検索中..." : "検索";
+    }
+
+    function formatDebug(debug) {
+      if (!debug) {
+        return "";
+      }
+      const lines = ["────────────", "候補一覧"];
+      for (const item of debug.candidates || []) {
+        lines.push(`${item.index}.`);
+        lines.push(`名称: ${item.name || ""}`);
+        lines.push(`Category: ${item.category || ""}`);
+        lines.push(`距離: ${item.distance_m || "取得不可"}`);
+        lines.push(`座標: ${item.coordinate || "取得不可"}`);
+        lines.push("");
+      }
+      lines.push("採用理由");
+      for (const reason of debug.reasons || []) {
+        lines.push(reason);
+      }
+      return lines.join("\\n").trim();
     }
 
     async function search() {
@@ -386,6 +419,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
           throw new Error(data.error || "placeinfo_failed");
         }
         output.textContent = data.text || "";
+        debugBox.textContent = formatDebug(data.debug);
         statusBox.textContent = output.textContent ? "" : "表示できる候補がありません";
       } catch (error) {
         statusBox.textContent = `検索できませんでした: ${error.message}`;
@@ -436,6 +470,104 @@ def placeinfo_display_text(result: dict[str, Any]) -> str:
         return "\n".join(str(line).strip() for line in lines if str(line).strip())
     short_address = str(result.get("short_address") or "").strip()
     return f"📍 {short_address}" if short_address else ""
+
+
+def _text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _candidate_name(candidate: dict[str, Any]) -> str:
+    return _text(candidate.get("name") or candidate.get("label"))
+
+
+def _candidate_coordinate(candidate: dict[str, Any]) -> tuple[float | None, float | None]:
+    try:
+        lat = float(candidate.get("lat"))
+        lon = float(candidate.get("lon"))
+    except (TypeError, ValueError):
+        return None, None
+    if -90 <= lat <= 90 and -180 <= lon <= 180:
+        return lat, lon
+    return None, None
+
+
+def _find_candidate_by_name(candidates: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    if not name:
+        return None
+    for candidate in candidates:
+        if _candidate_name(candidate) == name:
+            return candidate
+    return None
+
+
+def _candidate_distance_from_result(result: dict[str, Any], candidate: dict[str, Any]) -> str:
+    candidate_lat, candidate_lon = _candidate_coordinate(candidate)
+    if candidate_lat is None or candidate_lon is None:
+        return ""
+    try:
+        lat = float(result.get("lat"))
+        lon = float(result.get("lon"))
+    except (TypeError, ValueError):
+        return ""
+    return f"{round(distance_m(lat, lon, candidate_lat, candidate_lon))}m"
+
+
+def _candidate_coordinate_text(candidate: dict[str, Any]) -> str:
+    lat, lon = _candidate_coordinate(candidate)
+    if lat is None or lon is None:
+        return ""
+    return f"{lat:.6f}, {lon:.6f}"
+
+
+def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
+    candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
+    candidates = [candidate for candidate in candidates if isinstance(candidate, dict)]
+    display = result.get("display_lines") if isinstance(result.get("display_lines"), dict) else {}
+    debug = display.get("debug") if isinstance(display.get("debug"), dict) else {}
+    intersection_name = _text(debug.get("intersection"))
+    landmark_name = _text(debug.get("landmark"))
+    intersection_candidate = _find_candidate_by_name(candidates, intersection_name)
+    landmark_candidate = _find_candidate_by_name(candidates, landmark_name)
+
+    candidate_rows = []
+    for index, candidate in enumerate(candidates[:12], start=1):
+        candidate_rows.append(
+            {
+                "index": index,
+                "name": _candidate_name(candidate),
+                "category": _text(candidate.get("category")),
+                "distance_m": _candidate_distance_from_result(result, candidate),
+                "coordinate": _candidate_coordinate_text(candidate),
+            }
+        )
+
+    reasons = ["📍 Yahoo住所採用"]
+    if intersection_candidate is not None:
+        category = _text(intersection_candidate.get("category"))
+        if category == "地点名":
+            reasons.append("🚥 Yahoo地点名(Category=地点名)")
+        else:
+            reasons.append(f"🚥 Yahoo候補(Category={category or '不明'})")
+    elif display.get("intersection"):
+        reasons.append("🚥 Yahoo道路名採用")
+    else:
+        reasons.append("🚥 候補なし")
+
+    if landmark_candidate is not None:
+        reason = "🏢 強ランドマーク"
+        if intersection_candidate is not None:
+            intersection_lat, intersection_lon = _candidate_coordinate(intersection_candidate)
+            landmark_lat, landmark_lon = _candidate_coordinate(landmark_candidate)
+            if None not in (intersection_lat, intersection_lon, landmark_lat, landmark_lon):
+                distance = distance_m(intersection_lat, intersection_lon, landmark_lat, landmark_lon)
+                reason = f"{reason}\n交差点から{round(distance)}m"
+            else:
+                reason = f"{reason}\n交差点距離は取得不可、Yahoo候補順で採用"
+        reasons.append(reason)
+    else:
+        reasons.append("🏢 強ランドマークなし")
+
+    return {"candidates": candidate_rows, "reasons": reasons}
 
 
 def placeinfo_summary(result: dict[str, Any]) -> str:
@@ -635,6 +767,7 @@ class GPSRequestHandler(BaseHTTPRequestHandler):
             {
                 "ok": True,
                 "text": placeinfo_display_text(result),
+                "debug": placeinfo_admin_debug(result),
                 "result": {
                     "display_lines": result.get("display_lines", {}),
                     "short_address": result.get("short_address", ""),
