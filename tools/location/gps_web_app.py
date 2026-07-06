@@ -375,6 +375,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     const output = document.getElementById("output");
     const debugBox = document.getElementById("debug");
     const statusBox = document.getElementById("status");
+    let copyText = "";
 
     function setBusy(isBusy) {
       searchButton.disabled = isBusy;
@@ -418,6 +419,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
         if (!response.ok || !data.ok) {
           throw new Error(data.error || "placeinfo_failed");
         }
+        copyText = data.copy_text || data.text || "";
         output.textContent = data.text || "";
         debugBox.textContent = formatDebug(data.debug);
         statusBox.textContent = output.textContent ? "" : "表示できる候補がありません";
@@ -429,7 +431,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     }
 
     async function copyOutput() {
-      const text = output.textContent.trim();
+      const text = copyText.trim();
       if (!text) {
         statusBox.textContent = "コピーする出力がありません";
         return;
@@ -765,8 +767,9 @@ class GPSRequestHandler(BaseHTTPRequestHandler):
         result = get_hybrid_placeinfo(lat, lon, area="admin_placeinfo_test")
         self.send_json(
             {
-                "ok": True,
+        "ok": True,
                 "text": placeinfo_display_text(result),
+                "copy_text": placeinfo_display_text(result),
                 "debug": placeinfo_admin_debug(result),
                 "result": {
                     "display_lines": result.get("display_lines", {}),
