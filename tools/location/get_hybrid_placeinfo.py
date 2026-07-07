@@ -173,7 +173,7 @@ def _hybrid_label(osm: dict[str, Any], yahoo: dict[str, Any], merged_candidates:
             "label": label,
             "busy_label": f"{label}繁忙",
             "source": "override",
-            "debug": {"override_id": override.get("id")},
+            "debug": {"override_id": override.get("id"), "override_source": override.get("source")},
         }
 
     osm_road = _text(osm.get("roadname"))
@@ -242,9 +242,9 @@ def build_hybrid_result(osm: dict[str, Any], yahoo: dict[str, Any]) -> dict[str,
         },
         "error": osm.get("error") or yahoo.get("error", ""),
     }
+    result["road_alias"] = infer_road_alias_from_result(result)
     result["taxi_label"] = _hybrid_label(osm, yahoo, merged_candidates)
     result["display_lines"] = build_placeinfo_display_lines(result)
-    result["road_alias"] = infer_road_alias_from_result(result)
     result["comparison"]["hybrid_label"] = result["taxi_label"].get("label", "")
     # Keep the existing labeler output for comparison when all candidates are merged.
     result["comparison"]["merged_labeler_label"] = build_taxi_place_label(result).get("label", "")

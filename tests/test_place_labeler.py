@@ -99,7 +99,7 @@ def test_hataedori_synthetic_intersection_is_preferred():
     assert label["supplement"] == "ケーズデンキ岩塚店近く"
 
 
-def test_placeinfo_display_lines_use_yahoo_address_intersection_and_landmark():
+def test_placeinfo_display_lines_use_yahoo_address_and_intersection_without_auto_landmark():
     result = {
         "lat": 35.0,
         "lon": 136.0,
@@ -115,7 +115,8 @@ def test_placeinfo_display_lines_use_yahoo_address_intersection_and_landmark():
 
     display = build_placeinfo_display_lines(result)
 
-    assert display["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n🏢 ラシック\n座標: 35.000000, 136.000000"
+    assert display["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n座標: 35.000000, 136.000000"
+    assert display["debug"]["yahoo_landmark_auto_disabled"] is True
 
 
 def test_placeinfo_display_lines_omit_weak_landmark_row():
@@ -132,7 +133,7 @@ def test_placeinfo_display_lines_omit_weak_landmark_row():
 
     display = build_placeinfo_display_lines(result)
 
-    assert display["text"] == "📍 中区錦3丁目\n🚥 桜通\n座標: 35.000000, 136.000000"
+    assert display["text"] == "📍 中区錦3丁目\n座標: 35.000000, 136.000000"
 
 
 def test_placeinfo_display_lines_do_not_use_intersection_as_landmark():
@@ -151,11 +152,12 @@ def test_placeinfo_display_lines_do_not_use_intersection_as_landmark():
 
     display = build_placeinfo_display_lines(result)
 
-    assert display["landmark"] == "ケーズデンキ岩塚店"
+    assert display["landmark"] == ""
     assert "🏢 畑江通八交差点" not in display["text"]
+    assert "🏢 ケーズデンキ岩塚店" not in display["text"]
 
 
-def test_placeinfo_display_lines_prioritize_landmark_within_30m_of_intersection():
+def test_placeinfo_display_lines_do_not_auto_promote_nearby_yahoo_landmark():
     result = {
         "lat": 35.158786,
         "lon": 136.856260,
@@ -171,7 +173,47 @@ def test_placeinfo_display_lines_prioritize_landmark_within_30m_of_intersection(
 
     display = build_placeinfo_display_lines(result)
 
-    assert display["landmark"] == "近い大型店"
+    assert display["landmark"] == ""
+    assert "近い大型店" not in display["text"]
+
+
+def test_placeinfo_display_lines_show_dictionary_landmark_only():
+    result = {
+        "lat": 35.185363,
+        "lon": 136.895871,
+        "address": ["愛知県", "名古屋市西区", "樋の口町", ""],
+        "short_address": "西区樋の口町",
+        "roadname": "",
+        "candidates": [
+            {"name": "城西二丁目交差点", "category": "地点名", "score": 80.0},
+            {"name": "エスパシオナゴヤキャッスル", "category": "ホテル", "score": 70.0},
+        ],
+        "taxi_label": {
+            "label": "名古屋キャッスル付近",
+            "source": "override",
+            "debug": {"override_source": "seeded_landmark"},
+        },
+    }
+
+    display = build_placeinfo_display_lines(result)
+
+    assert display["text"] == "📍 西区樋の口町\n🚥 城西二丁目交差点\n🏢 名古屋キャッスル付近\n座標: 35.185363, 136.895871"
+
+
+def test_placeinfo_display_lines_show_road_alias_before_intersection():
+    result = {
+        "lat": 35.168277,
+        "lon": 136.897676,
+        "address": ["愛知県", "名古屋市中区", "栄", "２丁目"],
+        "short_address": "中区栄2丁目",
+        "roadname": "広小路通",
+        "road_alias": {"adopted_roadname": "広小路通"},
+        "candidates": [{"name": "広小路伏見交差点", "category": "地点名", "score": 80.0}],
+    }
+
+    display = build_placeinfo_display_lines(result)
+
+    assert display["text"] == "📍 中区栄2丁目\n🛣️ 広小路通\n🚥 広小路伏見交差点\n座標: 35.168277, 136.897676"
 
 
 def test_roadname_is_used_when_intersection_is_missing():

@@ -82,6 +82,7 @@ def match_road_aliases(intersection_name: str, *, path: Path = DEFAULT_ROAD_ALIA
                 {
                     "id": _text(road.get("id")),
                     "name": _text(road.get("name")),
+                    "aliases": road.get("aliases") if isinstance(road.get("aliases"), list) else [],
                     "matched_intersection": _text(intersection),
                     "source_url": _text(road.get("source_url")),
                     "reason": "intersection_exact_match",
@@ -116,16 +117,32 @@ def infer_road_alias_from_result(result: dict[str, Any], *, path: Path = DEFAULT
             road_matches.append({**match, "yahoo_intersection": intersection})
 
     road_ids = {match["id"] for match in road_matches if match.get("id")}
-    adopted = road_matches[0]["name"] if len(road_ids) == 1 and road_matches else ""
+    yahoo_roadname = _text(result.get("roadname"))
+    yahoo_roadname_normalized = normalize_intersection_name(yahoo_roadname)
+    roadname_matches = [
+        match
+        for match in road_matches
+        if yahoo_roadname_normalized
+        and yahoo_roadname_normalized
+        in {normalize_intersection_name(_text(match.get("name"))), *(normalize_intersection_name(_text(alias)) for alias in match.get("aliases", []))}
+    ]
+    if len(road_ids) == 1 and road_matches:
+        adopted = road_matches[0]["name"]
+    elif len(roadname_matches) == 1:
+        adopted = roadname_matches[0]["name"]
+    else:
+        adopted = ""
     if not road_matches:
         reason = "Yahoo交差点名がroad_aliases.ymlに未登録"
+    elif len(roadname_matches) == 1 and len(road_ids) > 1:
+        reason = "複数道路に一致したがYahoo roadnameと一致する候補を採用"
     elif len(road_ids) == 1:
         reason = "Yahoo交差点名がroad_aliases.ymlのintersectionsに一致"
     else:
         reason = "複数道路に一致したため採用通り名は未確定"
 
     return {
-        "yahoo_roadname": _text(result.get("roadname")),
+        "yahoo_roadname": yahoo_roadname,
         "yahoo_intersections": intersections,
         "road_alias_candidates": road_matches,
         "adopted_roadname": adopted,

@@ -69,3 +69,43 @@ roads:
     assert inferred["adopted_roadname"] == ""
     assert [candidate["name"] for candidate in inferred["road_alias_candidates"]] == ["A通", "B通"]
     assert inferred["reason"] == "複数道路に一致したため採用通り名は未確定"
+
+
+def test_infer_adopts_yahoo_roadname_when_multiple_candidates_match(tmp_path: Path):
+    alias_path = tmp_path / "road_aliases.yml"
+    alias_path.write_text(
+        """version: 1
+roads:
+  - id: hirokoji
+    name: 広小路通
+    aliases: [広小路通]
+    source_url: https://example.com/hirokoji
+    start: 共有交差点
+    end: 広小路終点
+    road_numbers: []
+    intersections: [共有交差点]
+    geometry:
+    note: test
+
+  - id: nishiki
+    name: 錦通
+    aliases: [錦通]
+    source_url: https://example.com/nishiki
+    start: 共有交差点
+    end: 錦終点
+    road_numbers: []
+    intersections: [共有交差点]
+    geometry:
+    note: test
+""",
+        encoding="utf-8",
+    )
+    result = {
+        "roadname": "広小路通",
+        "candidates": [{"name": "共有交差点", "category": "地点名"}],
+    }
+
+    inferred = infer_road_alias_from_result(result, path=alias_path)
+
+    assert inferred["adopted_roadname"] == "広小路通"
+    assert inferred["reason"] == "複数道路に一致したがYahoo roadnameと一致する候補を採用"

@@ -680,50 +680,49 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
         reasons.append(f"辞書適用: 秘伝のタレ{f' ({override_id})' if override_id else ''}")
     else:
         reasons.append("辞書適用: なし")
+    road_alias = result.get("road_alias") if isinstance(result.get("road_alias"), dict) else {}
+    road_text = _text((display.get("debug") or {}).get("road") if isinstance(display.get("debug"), dict) else "")
+    road_text = road_text or _text(display.get("road"))
+    taxi_ops_text = _text(display.get("taxi_ops"))
+    landmark_text = _text(display.get("landmark"))
     reasons.extend(
         [
             "📍 取得元: Yahoo住所",
+            "🛣️ 取得元: 未判定",
             "🚥 取得元: 未判定",
+            "🚖 取得元: 候補なし",
             "🏢 取得元: 未判定",
         ]
     )
+    if road_text:
+        reasons[2] = "🛣️ 取得元: road_alias辞書"
+        reasons.append(f"🛣️ 採用理由: {_text(road_alias.get('reason')) or 'road_alias採用'}")
+    else:
+        reasons[2] = "🛣️ 取得元: 候補なし"
     if intersection_candidate is not None:
         category = _text(intersection_candidate.get("category"))
         if category == "地点名":
-            reasons[2] = "🚥 取得元: Yahoo地点名(Category=地点名)"
+            reasons[3] = "🚥 取得元: Yahoo地点名(Category=地点名)"
             reasons.append("🚥 採用理由: Yahoo地点名(Category=地点名)")
         else:
-            reasons[2] = f"🚥 取得元: Yahoo候補(Category={category or '不明'})"
+            reasons[3] = f"🚥 取得元: Yahoo候補(Category={category or '不明'})"
             reasons.append(f"🚥 採用理由: Yahoo候補(Category={category or '不明'})")
     elif display.get("intersection"):
-        reasons[2] = "🚥 取得元: Yahoo Roadname"
-        reasons.append("🚥 採用理由: Yahoo道路名採用")
+        reasons[3] = "🚥 取得元: Yahoo候補"
+        reasons.append("🚥 採用理由: 表示済み交差点採用")
     else:
-        reasons[2] = "🚥 取得元: 候補なし"
+        reasons[3] = "🚥 取得元: 候補なし"
         reasons.append("🚥 採用理由: 候補なし")
 
-    if landmark_candidate is not None:
-        reason = "🏢 強ランドマーク"
-        category = _text(landmark_candidate.get("category"))
-        landmark_source = f"Yahoo候補(Category={category or '不明'})"
-        if taxi_source == "override":
-            landmark_source = f"秘伝のタレ + {landmark_source}"
-        reasons[3] = f"🏢 取得元: {landmark_source}"
-        if intersection_candidate is not None:
-            intersection_lat, intersection_lon = _candidate_coordinate(intersection_candidate)
-            landmark_lat, landmark_lon = _candidate_coordinate(landmark_candidate)
-            if None not in (intersection_lat, intersection_lon, landmark_lat, landmark_lon):
-                distance = distance_m(intersection_lat, intersection_lon, landmark_lat, landmark_lon)
-                reason = f"{reason}\n交差点から{round(distance)}m"
-            else:
-                reason = f"{reason}\n交差点距離は取得不可、Yahoo候補順で採用"
-        reasons.append(reason)
+    if taxi_ops_text:
+        reasons[4] = "🚖 取得元: 秘伝のタレ"
+        reasons.append("🚖 採用理由: TP/TBまたはタクシー運用系辞書ヒット")
+    if landmark_text:
+        reasons[5] = "🏢 取得元: 秘伝のタレ"
+        reasons.append("🏢 採用理由: 辞書ヒット")
     else:
-        if taxi_source == "override":
-            reasons[3] = "🏢 取得元: 秘伝のタレ"
-        else:
-            reasons[3] = "🏢 取得元: 候補なし"
-        reasons.append("🏢 強ランドマークなし")
+        reasons[5] = "🏢 取得元: 候補なし"
+        reasons.append("🏢 採用理由: Yahooランドマーク自動採用は無効")
 
     return {
         "yahoo": "\n".join(yahoo_lines),

@@ -368,6 +368,23 @@ def _best_display_landmark(candidates: list[dict[str, Any]], intersection: dict[
     return matches[0]
 
 
+def _road_alias_display_name(result: dict[str, Any]) -> str:
+    road_alias = result.get("road_alias") if isinstance(result.get("road_alias"), dict) else {}
+    return _text(road_alias.get("adopted_roadname"))
+
+
+def _dictionary_display_label(result: dict[str, Any]) -> tuple[str, str, str]:
+    taxi_label = result.get("taxi_label") if isinstance(result.get("taxi_label"), dict) else {}
+    if _text(taxi_label.get("source")) != "override":
+        return "", "", ""
+    label = _text(taxi_label.get("label"))
+    debug = taxi_label.get("debug") if isinstance(taxi_label.get("debug"), dict) else {}
+    override_source = _text(debug.get("override_source"))
+    if override_source == "seeded_taxi_ops":
+        return label, "", override_source
+    return "", label, override_source or "override"
+
+
 def build_placeinfo_display_lines(result: dict[str, Any]) -> dict[str, Any]:
     """Build the short taxi-facing 3-line PlaceInfo display from Yahoo-style fields."""
 
@@ -380,11 +397,10 @@ def build_placeinfo_display_lines(result: dict[str, Any]) -> dict[str, Any]:
     intersection_text = ""
     if intersection is not None:
         intersection_text = _intersection_display(candidate_display_name(intersection))
-    else:
-        intersection_text = _text(result.get("roadname"))
 
-    landmark = _best_display_landmark(candidates, intersection)
-    landmark_text = _normalize_landmark(candidate_display_name(landmark)) if landmark is not None else ""
+    road_text = _road_alias_display_name(result)
+    taxi_ops_text, landmark_text, dictionary_source = _dictionary_display_label(result)
+    landmark_text = _normalize_landmark(landmark_text)
     lat = _float(result.get("lat"), default=999.0)
     lon = _float(result.get("lon"), default=999.0)
     coordinate_text = f"{lat:.6f}, {lon:.6f}" if -90 <= lat <= 90 and -180 <= lon <= 180 else ""
@@ -392,8 +408,12 @@ def build_placeinfo_display_lines(result: dict[str, Any]) -> dict[str, Any]:
     lines = []
     if short_address:
         lines.append(f"📍 {short_address}")
+    if road_text:
+        lines.append(f"🛣️ {road_text}")
     if intersection_text:
         lines.append(f"🚥 {intersection_text}")
+    if taxi_ops_text:
+        lines.append(f"🚖 {taxi_ops_text}")
     if landmark_text:
         lines.append(f"🏢 {landmark_text}")
     if coordinate_text:
@@ -401,14 +421,19 @@ def build_placeinfo_display_lines(result: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "address": short_address,
+        "road": road_text,
         "intersection": intersection_text,
+        "taxi_ops": taxi_ops_text,
         "landmark": landmark_text,
         "coordinate": coordinate_text,
         "lines": lines,
         "text": "\n".join(lines),
         "debug": {
+            "road": road_text,
             "intersection": candidate_display_name(intersection) if intersection else "",
-            "landmark": candidate_display_name(landmark) if landmark else "",
+            "landmark": landmark_text,
+            "dictionary_source": dictionary_source,
+            "yahoo_landmark_auto_disabled": True,
         },
     }
 
@@ -503,7 +528,11 @@ def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
             _text(override.get("label")),
             "override",
             zone,
-            {"override_id": override.get("id"), "distance_m": override.get("distance_m")},
+            {
+                "override_id": override.get("id"),
+                "override_source": override.get("source"),
+                "distance_m": override.get("distance_m"),
+            },
         )
 
     roadname = _text(result.get("roadname"))

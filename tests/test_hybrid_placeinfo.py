@@ -30,7 +30,7 @@ def test_hybrid_uses_yahoo_intersection_when_osm_has_no_road():
     assert result["comparison"]["yahoo_label"] == "畑江通八交差点付近"
     assert result["short_address"] == "中村区沖田町"
     assert result["taxi_label"]["label"] == "畑江通八交差点付近"
-    assert result["display_lines"]["text"] == "📍 中村区沖田町\n🚥 畑江通八交差点\n🏢 ケーズデンキ岩塚店\n座標: 35.158953, 136.856430"
+    assert result["display_lines"]["text"] == "📍 中村区沖田町\n🚥 畑江通八交差点\n座標: 35.158953, 136.856430"
 
 
 def test_hybrid_display_ignores_osm_candidates():
@@ -61,7 +61,7 @@ def test_hybrid_display_ignores_osm_candidates():
 
     result = build_hybrid_result(osm, yahoo)
 
-    assert result["display_lines"]["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n🏢 ラシック\n座標: 35.000000, 136.000000"
+    assert result["display_lines"]["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n座標: 35.000000, 136.000000"
     assert "OSM" not in result["display_lines"]["text"]
 
 
@@ -229,3 +229,5 @@ def test_hybrid_osm_taikodori_does_not_override_yahoo_intersection():
     result = build_hybrid_result(osm, yahoo)
 
     assert result["taxi_label"]["label"] == "笹島交差点付近"
+    assert result["road_alias"]["adopted_roadname"] == "広小路通"
+    assert result["display_lines"]["text"] == "📍 中村区太閤1丁目\n🛣️ 広小路通\n🚥 笹島交差点\n座標: 35.000000, 136.000000"
