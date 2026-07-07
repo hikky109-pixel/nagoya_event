@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT))
 from config import DISCORD_BOT_TOKEN, GEMMA_DISCORD_WEBHOOK, GEMMA_WEBHOOK_URL, GPS_REPORT_CHANNEL_ID  # noqa: E402
 from tools.location.get_hybrid_placeinfo import get_hybrid_placeinfo  # noqa: E402
 from tools.location.place_labeler import distance_m  # noqa: E402
+from tools.location.road_aliases import infer_road_alias_from_result  # noqa: E402
 
 
 REQUEST_TIMEOUT_SECONDS = 10
@@ -323,7 +324,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       border-radius: 8px;
       background: #fff;
     }
-    #summary, #yahoo, #reasons, pre {
+    #summary, #yahoo, #roadAlias, #reasons, pre {
       white-space: pre-wrap;
       line-height: 1.7;
     }
@@ -389,6 +390,10 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       <div id="yahoo"></div>
     </section>
     <section>
+      <h2>通り名判定</h2>
+      <div id="roadAlias"></div>
+    </section>
+    <section>
       <h2>候補一覧</h2>
       <div id="candidates"></div>
     </section>
@@ -410,6 +415,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     const copyAllButton = document.getElementById("copyAllButton");
     const summaryBox = document.getElementById("summary");
     const yahooBox = document.getElementById("yahoo");
+    const roadAliasBox = document.getElementById("roadAlias");
     const candidatesBox = document.getElementById("candidates");
     const reasonsBox = document.getElementById("reasons");
     const rawJson = document.getElementById("rawJson");
@@ -443,6 +449,9 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
         "",
         "Yahoo API取得結果",
         yahooBox.textContent.trim(),
+        "",
+        "通り名判定",
+        roadAliasBox.textContent.trim(),
         "",
         "候補一覧",
         candidatesBox.textContent.trim(),
@@ -500,6 +509,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
         }
         summaryBox.textContent = data.text || "";
         yahooBox.textContent = data.debug && data.debug.yahoo ? data.debug.yahoo : "";
+        roadAliasBox.textContent = data.debug && data.debug.road_alias ? data.debug.road_alias : "";
         renderCandidates(data.debug && data.debug.candidates ? data.debug.candidates : []);
         reasonsBox.textContent = data.debug && data.debug.reasons ? data.debug.reasons.join("\\n") : "";
         rawJson.textContent = JSON.stringify(data.result || {}, null, 2);
@@ -599,6 +609,32 @@ def _candidate_score_text(candidate: dict[str, Any]) -> str:
         return _text(value)
 
 
+def _road_alias_debug_text(result: dict[str, Any]) -> str:
+    road_alias = result.get("road_alias") if isinstance(result.get("road_alias"), dict) else infer_road_alias_from_result(result)
+    yahoo_intersections = road_alias.get("yahoo_intersections") if isinstance(road_alias.get("yahoo_intersections"), list) else []
+    candidates = road_alias.get("road_alias_candidates") if isinstance(road_alias.get("road_alias_candidates"), list) else []
+    candidate_lines = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        source_url = _text(candidate.get("source_url"))
+        source_suffix = f" ({source_url})" if source_url else ""
+        candidate_lines.append(
+            f"- {_text(candidate.get('name'))}: {_text(candidate.get('matched_intersection'))}"
+            f" / Yahoo={_text(candidate.get('yahoo_intersection'))}{source_suffix}"
+        )
+    return "\n".join(
+        [
+            f"Yahoo roadname: {_text(road_alias.get('yahoo_roadname')) or 'なし'}",
+            f"Yahoo交差点名: {', '.join(_text(item) for item in yahoo_intersections if _text(item)) or 'なし'}",
+            "road_alias候補:",
+            *(candidate_lines or ["- なし"]),
+            f"採用通り名: {_text(road_alias.get('adopted_roadname')) or 'なし'}",
+            f"判定理由: {_text(road_alias.get('reason')) or 'なし'}",
+        ]
+    )
+
+
 def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     candidates = [candidate for candidate in candidates if isinstance(candidate, dict)]
@@ -689,7 +725,12 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
             reasons[3] = "🏢 取得元: 候補なし"
         reasons.append("🏢 強ランドマークなし")
 
-    return {"yahoo": "\n".join(yahoo_lines), "candidates": candidate_rows, "reasons": reasons}
+    return {
+        "yahoo": "\n".join(yahoo_lines),
+        "road_alias": _road_alias_debug_text(result),
+        "candidates": candidate_rows,
+        "reasons": reasons,
+    }
 
 
 def placeinfo_summary(result: dict[str, Any]) -> str:
@@ -894,6 +935,7 @@ class GPSRequestHandler(BaseHTTPRequestHandler):
                 "result": {
                     "display_lines": result.get("display_lines", {}),
                     "short_address": result.get("short_address", ""),
+                    "road_alias": result.get("road_alias", {}),
                     "lat": result.get("lat"),
                     "lon": result.get("lon"),
                 },

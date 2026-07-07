@@ -30,6 +30,7 @@ data/*
 !data/location/
 data/location/*
 !data/location/place_label_overrides.yml
+!data/location/road_aliases.yml
 !data/ai/
 data/ai/*
 !data/ai/topic_scope.yml

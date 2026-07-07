@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from tools.location.get_yahoo_placeinfo import get_yahoo_placeinfo  # noqa: E402
 from tools.location.place_labeler import build_placeinfo_display_lines, build_taxi_place_label, find_override  # noqa: E402
+from tools.location.road_aliases import infer_road_alias_from_result  # noqa: E402
 
 
 LARGE_LANDMARK_NAMES = (
@@ -243,6 +244,7 @@ def build_hybrid_result(osm: dict[str, Any], yahoo: dict[str, Any]) -> dict[str,
     }
     result["taxi_label"] = _hybrid_label(osm, yahoo, merged_candidates)
     result["display_lines"] = build_placeinfo_display_lines(result)
+    result["road_alias"] = infer_road_alias_from_result(result)
     result["comparison"]["hybrid_label"] = result["taxi_label"].get("label", "")
     # Keep the existing labeler output for comparison when all candidates are merged.
     result["comparison"]["merged_labeler_label"] = build_taxi_place_label(result).get("label", "")

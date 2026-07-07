@@ -1,0 +1,34 @@
+version: 1
+roads:
+  - id: sakuradori
+    name: 桜通
+    aliases: [桜通, 桜通り]
+    source_url: https://ja.wikipedia.org/wiki/%E6%A1%9C%E9%80%9A_%28%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%29
+    start: 名古屋駅交差点
+    end: 内山町交差点
+    road_numbers: [愛知県道68号名古屋津島線, 国道19号, 名古屋市道都通布池線]
+    intersections: [名古屋駅交差点, 泥江町交差点, 日銀前交差点, 桜通本町交差点, 桜通大津交差点, 桜通久屋交差点, 高岳交差点, 小川交差点, 赤萩交差点, 内山町交差点]
+    geometry:
+    note: Wikipedia「桜通 (名古屋市)」の概要・交差する道路に明記された範囲だけを収録。
+
+  - id: nishikidori
+    name: 錦通
+    aliases: [錦通, 錦通り]
+    source_url: https://ja.wikipedia.org/wiki/%E9%8C%A6%E9%80%9A_%28%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%29
+    start: 笹島北交差点
+    end: 池下北交差点
+    road_numbers: [名古屋市道錦通]
+    intersections: [笹島北交差点, 西柳町交差点, 錦橋西交差点, 錦通伏見交差点, 錦通本町交差点, 錦通大津交差点, 錦通久屋交差点, 東新町北交差点, 葵町西交差点, 新千種橋西交差点, 今池北交差点, 池下北交差点]
+    geometry:
+    note: Wikipedia「錦通 (名古屋市)」の概要・交差する道路に明記された範囲だけを収録。
+
+  - id: hirokojidori
+    name: 広小路通
+    aliases: [広小路通, 広小路通り]
+    source_url: https://ja.wikipedia.org/wiki/%E5%BA%83%E5%B0%8F%E8%B7%AF%E9%80%9A_%28%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%29
+    start: 笹島交差点
+    end: 東山公園前交差点
+    road_numbers: [愛知県道60号名古屋長久手線]
+    intersections: [笹島交差点, 柳橋交差点, 広小路伏見交差点, 広小路本町交差点, 栄交差点, 広小路久屋西交差点, 広小路久屋東交差点, 東新町交差点, 広小路葵交差点, 千郷町交差点, 今池交差点, 末盛通交差点, 本山交差点, 東山公園口西交差点]
+    geometry:
+    note: Wikipedia「広小路通 (名古屋市)」の概要・交差する道路に明記された範囲だけを収録。
