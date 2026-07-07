@@ -61,7 +61,7 @@ def test_hybrid_display_ignores_osm_candidates():
 
     result = build_hybrid_result(osm, yahoo)
 
-    assert result["display_lines"]["text"] == "📍 中区栄3丁目\n🚥 三蔵通久屋西\n座標: 35.000000, 136.000000"
+    assert result["display_lines"]["text"] == "📍 中区栄3丁目\n🛣️ 三蔵通\n🚥 三蔵通久屋西\n座標: 35.000000, 136.000000"
     assert "OSM" not in result["display_lines"]["text"]
 
 

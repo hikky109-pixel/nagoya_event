@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from tools.location.road_aliases import infer_road_alias_from_result, match_road_aliases, normalize_intersection_name
+from tools.location.road_aliases import infer_road_alias_from_result, load_road_aliases, match_road_aliases, normalize_intersection_name
 
 
 def test_normalize_intersection_name_accepts_suffix_variants():
@@ -40,10 +40,24 @@ def test_added_major_roads_match_known_intersections():
         ("若宮大通久屋交差点", "若宮大通"),
         ("西大須交差点", "大須通"),
         ("東別院交差点", "山王通"),
+        ("三蔵通本町交差点", "三蔵通"),
+        ("三蔵通大津交差点", "三蔵通"),
+        ("三蔵交差点", "三蔵通"),
+        ("三ッ蔵通久屋西", "三蔵通"),
+        ("三蔵通久屋西", "三蔵通"),
     ]
 
     for intersection, expected in cases:
         assert expected in [match["name"] for match in match_road_aliases(intersection)]
+
+
+def test_mitsukuradori_records_osm_geometry_source():
+    road = next(item for item in load_road_aliases() if item["id"] == "mitsukuradori")
+
+    assert road["source_url"] == "https://www.openstreetmap.org/way/31512981"
+    assert "31512981" in road["geometry"]
+    assert "1448535861" in road["geometry"]
+    assert "OSM Overpass" in road["note"]
 
 
 def test_infer_combines_east_west_and_north_south_roads():
