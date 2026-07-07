@@ -11,19 +11,62 @@ def test_normalize_intersection_name_accepts_suffix_variants():
 def test_sakuradori_known_intersection_matches_sakuradori():
     matches = match_road_aliases("桜通大津交差点")
 
-    assert [match["name"] for match in matches] == ["桜通"]
+    assert "桜通" in [match["name"] for match in matches]
 
 
 def test_nishikidori_known_intersection_matches_nishikidori():
     matches = match_road_aliases("錦通本町")
 
-    assert [match["name"] for match in matches] == ["錦通"]
+    assert "錦通" in [match["name"] for match in matches]
 
 
 def test_hirokojidori_known_intersection_matches_hirokojidori():
     matches = match_road_aliases("広小路伏見交差点")
 
-    assert [match["name"] for match in matches] == ["広小路通"]
+    assert "広小路通" in [match["name"] for match in matches]
+
+
+def test_added_major_roads_match_known_intersections():
+    cases = [
+        ("名古屋駅交差点", "名駅通"),
+        ("柳橋交差点", "江川線"),
+        ("日銀前交差点", "伏見通"),
+        ("若宮大通本町交差点", "本町通"),
+        ("錦通大津交差点", "大津通"),
+        ("錦三丁目交差点", "大津通"),
+        ("錦通久屋交差点", "久屋大通"),
+        ("高岳交差点", "空港線"),
+        ("大津橋交差点", "外堀通"),
+        ("若宮大通久屋交差点", "若宮大通"),
+        ("西大須交差点", "大須通"),
+        ("東別院交差点", "山王通"),
+    ]
+
+    for intersection, expected in cases:
+        assert expected in [match["name"] for match in match_road_aliases(intersection)]
+
+
+def test_infer_combines_east_west_and_north_south_roads():
+    cases = [
+        ("錦通大津交差点", "錦通 × 大津通", "錦通", "大津通"),
+        ("若宮大通久屋交差点", "若宮大通 × 久屋大通", "若宮大通", "久屋大通"),
+        ("高岳交差点", "桜通 × 空港線", "桜通", "空港線"),
+    ]
+
+    for intersection, expected, east_west, north_south in cases:
+        inferred = infer_road_alias_from_result({"roadname": "", "candidates": [{"name": intersection, "category": "地点名"}]})
+        assert inferred["adopted_roadname"] == expected
+        assert inferred["east_west_road"]["name"] == east_west
+        assert inferred["north_south_road"]["name"] == north_south
+        assert inferred["reason"] == "東西道路と南北道路を1本ずつ採用"
+
+
+def test_infer_keeps_single_direction_road_name():
+    inferred = infer_road_alias_from_result({"roadname": "", "candidates": [{"name": "錦三丁目交差点", "category": "地点名"}]})
+
+    assert inferred["adopted_roadname"] == "大津通"
+    assert inferred["east_west_road"] == {}
+    assert inferred["north_south_road"]["name"] == "大津通"
 
 
 def test_unknown_intersection_returns_empty():
@@ -37,6 +80,7 @@ def test_infer_keeps_multiple_road_candidates_without_adopting(tmp_path: Path):
 roads:
   - id: road_a
     name: A通
+    direction: east_west
     aliases: [A通]
     source_url: https://example.com/a
     start: 共有交差点
@@ -48,6 +92,7 @@ roads:
 
   - id: road_b
     name: B通
+    direction: east_west
     aliases: [B通]
     source_url: https://example.com/b
     start: 共有交差点
@@ -68,7 +113,7 @@ roads:
 
     assert inferred["adopted_roadname"] == ""
     assert [candidate["name"] for candidate in inferred["road_alias_candidates"]] == ["A通", "B通"]
-    assert inferred["reason"] == "複数道路に一致したため採用通り名は未確定"
+    assert inferred["reason"] == "同方向の複数道路候補があり未確定"
 
 
 def test_infer_adopts_yahoo_roadname_when_multiple_candidates_match(tmp_path: Path):
@@ -78,6 +123,7 @@ def test_infer_adopts_yahoo_roadname_when_multiple_candidates_match(tmp_path: Pa
 roads:
   - id: hirokoji
     name: 広小路通
+    direction: east_west
     aliases: [広小路通]
     source_url: https://example.com/hirokoji
     start: 共有交差点
@@ -89,6 +135,7 @@ roads:
 
   - id: nishiki
     name: 錦通
+    direction: east_west
     aliases: [錦通]
     source_url: https://example.com/nishiki
     start: 共有交差点
@@ -108,4 +155,5 @@ roads:
     inferred = infer_road_alias_from_result(result, path=alias_path)
 
     assert inferred["adopted_roadname"] == "広小路通"
-    assert inferred["reason"] == "複数道路に一致したがYahoo roadnameと一致する候補を採用"
+    assert inferred["reason"] == "片方向の道路候補を採用"
+    assert inferred["direction_reasons"]["east_west"] == "同方向の複数道路候補からYahoo roadname一致を採用"

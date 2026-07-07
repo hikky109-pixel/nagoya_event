@@ -613,6 +613,9 @@ def _road_alias_debug_text(result: dict[str, Any]) -> str:
     road_alias = result.get("road_alias") if isinstance(result.get("road_alias"), dict) else infer_road_alias_from_result(result)
     yahoo_intersections = road_alias.get("yahoo_intersections") if isinstance(road_alias.get("yahoo_intersections"), list) else []
     candidates = road_alias.get("road_alias_candidates") if isinstance(road_alias.get("road_alias_candidates"), list) else []
+    east_west = road_alias.get("east_west_road") if isinstance(road_alias.get("east_west_road"), dict) else {}
+    north_south = road_alias.get("north_south_road") if isinstance(road_alias.get("north_south_road"), dict) else {}
+    direction_reasons = road_alias.get("direction_reasons") if isinstance(road_alias.get("direction_reasons"), dict) else {}
     candidate_lines = []
     for candidate in candidates:
         if not isinstance(candidate, dict):
@@ -620,16 +623,20 @@ def _road_alias_debug_text(result: dict[str, Any]) -> str:
         source_url = _text(candidate.get("source_url"))
         source_suffix = f" ({source_url})" if source_url else ""
         candidate_lines.append(
-            f"- {_text(candidate.get('name'))}: {_text(candidate.get('matched_intersection'))}"
+            f"- {_text(candidate.get('name'))} [{_text(candidate.get('direction')) or 'direction未設定'}]: {_text(candidate.get('matched_intersection'))}"
             f" / Yahoo={_text(candidate.get('yahoo_intersection'))}{source_suffix}"
         )
     return "\n".join(
         [
             f"Yahoo roadname: {_text(road_alias.get('yahoo_roadname')) or 'なし'}",
             f"Yahoo交差点名: {', '.join(_text(item) for item in yahoo_intersections if _text(item)) or 'なし'}",
+            f"東西道路: {_text(east_west.get('name')) or '未確定'}",
+            f"東西判定理由: {_text(direction_reasons.get('east_west')) or 'なし'}",
+            f"南北道路: {_text(north_south.get('name')) or '未確定'}",
+            f"南北判定理由: {_text(direction_reasons.get('north_south')) or 'なし'}",
             "road_alias候補:",
             *(candidate_lines or ["- なし"]),
-            f"採用通り名: {_text(road_alias.get('adopted_roadname')) or 'なし'}",
+            f"採用通り名: {_text(road_alias.get('road_display_name')) or _text(road_alias.get('adopted_roadname')) or 'なし'}",
             f"判定理由: {_text(road_alias.get('reason')) or 'なし'}",
         ]
     )
@@ -733,9 +740,6 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def placeinfo_summary(result: dict[str, Any]) -> str:
-    lat = float(result.get("lat") or 0)
-    lon = float(result.get("lon") or 0)
-    candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     display_text = placeinfo_display_text(result)
     lines = [
         "🚕 現在地テスト結果",
@@ -745,23 +749,6 @@ def placeinfo_summary(result: dict[str, Any]) -> str:
         lines.extend([display_text, ""])
     lines.extend(
         [
-            "候補:",
-        ]
-    )
-    if not candidates:
-        lines.append("取得候補なし")
-    for index, item in enumerate(candidates[:5], start=1):
-        if isinstance(item, dict):
-            name = str(item.get("name") or "").strip()
-            if name:
-                lines.append(f"{index}. {name}")
-        else:
-            name = str(item).strip()
-            if name:
-                lines.append(f"{index}. {name}")
-    lines.extend(
-        [
-            "",
             "結果が違う場合は、この投稿にリプライで正解を教えてください😇",
         ]
     )

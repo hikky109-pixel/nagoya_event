@@ -229,5 +229,6 @@ def test_hybrid_osm_taikodori_does_not_override_yahoo_intersection():
     result = build_hybrid_result(osm, yahoo)
 
     assert result["taxi_label"]["label"] == "笹島交差点付近"
-    assert result["road_alias"]["adopted_roadname"] == "広小路通"
-    assert result["display_lines"]["text"] == "📍 中村区太閤1丁目\n🛣️ 広小路通\n🚥 笹島交差点\n座標: 35.000000, 136.000000"
+    assert result["road_alias"]["adopted_roadname"] == "広小路通 × 名駅通"
+    assert [candidate["name"] for candidate in result["road_alias"]["road_alias_candidates"]] == ["広小路通", "名駅通"]
+    assert result["display_lines"]["text"] == "📍 中村区太閤1丁目\n🛣️ 広小路通 × 名駅通\n🚥 笹島交差点\n座標: 35.000000, 136.000000"

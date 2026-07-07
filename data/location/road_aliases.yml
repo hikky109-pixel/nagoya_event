@@ -2,6 +2,7 @@ version: 1
 roads:
   - id: sakuradori
     name: 桜通
+    direction: east_west
     aliases: [桜通, 桜通り]
     source_url: https://ja.wikipedia.org/wiki/%E6%A1%9C%E9%80%9A_%28%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%29
     start: 名古屋駅交差点
@@ -13,6 +14,7 @@ roads:
 
   - id: nishikidori
     name: 錦通
+    direction: east_west
     aliases: [錦通, 錦通り]
     source_url: https://ja.wikipedia.org/wiki/%E9%8C%A6%E9%80%9A_%28%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%29
     start: 笹島北交差点
@@ -24,6 +26,7 @@ roads:
 
   - id: hirokojidori
     name: 広小路通
+    direction: east_west
     aliases: [広小路通, 広小路通り]
     source_url: https://ja.wikipedia.org/wiki/%E5%BA%83%E5%B0%8F%E8%B7%AF%E9%80%9A_%28%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%29
     start: 笹島交差点
@@ -32,3 +35,135 @@ roads:
     intersections: [笹島交差点, 柳橋交差点, 広小路伏見交差点, 広小路本町交差点, 栄交差点, 広小路久屋西交差点, 広小路久屋東交差点, 東新町交差点, 広小路葵交差点, 千郷町交差点, 今池交差点, 末盛通交差点, 本山交差点, 東山公園口西交差点]
     geometry:
     note: Wikipedia「広小路通 (名古屋市)」の概要・交差する道路に明記された範囲だけを収録。
+
+  - id: meiekidori
+    name: 名駅通
+    direction: north_south
+    aliases: [名駅通, 名駅通り]
+    source_url: https://ja.wikipedia.org/wiki/%E5%90%8D%E9%A7%85%E9%80%9A
+    start: 名古屋市西区
+    end: 名古屋市中川区
+    road_numbers: [名古屋市道広井町線, 愛知県道68号名古屋津島線, 名古屋市道愛知名駅南線, 名古屋市道山王線]
+    intersections: [栄生駅前交差点, 則武新町交差点, 名古屋駅交差点, 笹島北交差点, 笹島交差点, 下広井町交差点, 六反小学校前交差点, 山王駅東交差点]
+    geometry:
+    note: Wikipedia「名駅通」の概要・接続する道路に明記された交差点だけを収録。
+
+  - id: egawasen
+    name: 江川線
+    direction: north_south
+    aliases: [江川線, 名古屋市道江川線, 浄心通, 西郊通]
+    source_url: https://ja.wikipedia.org/wiki/%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%E9%81%93%E6%B1%9F%E5%B7%9D%E7%B7%9A
+    start: 秩父通交差点
+    end: 名古屋港ガーデン埠頭
+    road_numbers: [名古屋市道江川線]
+    intersections: [秩父通交差点, 浅間町交差点, 明道町交差点, 泥江町交差点, 西柳町交差点, 柳橋交差点, 名駅南3丁目交差点, 水主町交差点, 山王橋交差点, 八熊通交差点, 六番1丁目交差点, 東海通交差点, 港栄4丁目北交差点, 築地口交差点]
+    geometry:
+    note: Wikipedia「名古屋市道江川線」の概要・接続道路に明記された範囲だけを収録。
+
+  - id: fushimidori
+    name: 伏見通
+    direction: north_south
+    aliases: [伏見通, 伏見通り]
+    source_url: https://ja.wikipedia.org/wiki/%E4%BC%8F%E8%A6%8B%E9%80%9A
+    start: 熱田神宮南交差点
+    end: 三の丸1交差点
+    road_numbers: [国道19号, 国道22号]
+    intersections: [熱田神宮南交差点, 旗屋町交差点, 新尾頭交差点, 金山新橋南交差点, 古渡町交差点, 西大須交差点, 若宮南交差点, 若宮北交差点, 広小路伏見交差点, 錦通伏見交差点, 日銀前交差点, 三の丸1交差点]
+    geometry:
+    note: Wikipedia「伏見通」の概要・交差する道路に明記された範囲だけを収録。
+
+  - id: honmachidori
+    name: 本町通
+    direction: north_south
+    aliases: [本町通, 本町通り, 門前町通]
+    source_url: https://ja.wikipedia.org/wiki/%E6%9C%AC%E7%94%BA%E9%80%9A_%28%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%29
+    start: 名古屋城方面
+    end: 熱田方面
+    road_numbers: [名古屋市道本町線]
+    intersections: [本町橋交差点, 桜通本町交差点, 錦通本町交差点, 広小路本町交差点, 若宮大通本町交差点, 大須交差点]
+    geometry:
+    note: Wikipedia「本町通 (名古屋市)」および交差する各道路記事に明記された交差点だけを収録。
+
+  - id: otsudori
+    name: 大津通
+    direction: north_south
+    aliases: [大津通, 大津通り, 南大津通]
+    source_url: https://ja.wikipedia.org/wiki/%E5%A4%A7%E6%B4%A5%E9%80%9A
+    start: 内田橋交差点
+    end: 城見通2丁目交差点
+    road_numbers: [愛知県道225号名古屋東港線, 愛知県道226号熱田停車場伝馬線, 名古屋市道南大津町線, 名古屋市道大津通]
+    intersections: [内田橋北交差点, 伝馬町交差点, 熱田駅前交差点, 沢上交差点, 東別院交差点, 上前津交差点, 矢場町交差点, 栄交差点, 錦三丁目交差点, 錦通大津交差点, 桜通大津交差点, 大津橋交差点, 城見通2丁目交差点]
+    geometry:
+    note: Wikipedia「大津通」の概要・交差する道路に明記された範囲を収録。錦三丁目交差点はWikipedia「錦三丁目」に明記された大津通と袋町通の交点として追加。
+
+  - id: hisayaodori
+    name: 久屋大通
+    direction: north_south
+    aliases: [久屋大通, 久屋大通り]
+    source_url: https://ja.wikipedia.org/wiki/%E4%B9%85%E5%B1%8B%E5%A4%A7%E9%80%9A
+    start: 久屋橋交差点
+    end: 若宮大通久屋交差点
+    road_numbers: [名古屋市道久屋大通]
+    intersections: [久屋橋交差点, 久屋橋西交差点, 桜通久屋東交差点, 桜通久屋西交差点, 錦通久屋交差点, 広小路久屋東交差点, 広小路久屋西交差点, 若宮大通久屋交差点]
+    geometry:
+    note: Wikipedia「久屋大通」の概要・交差する道路に明記された範囲だけを収録。
+
+  - id: kukosen
+    name: 空港線
+    direction: north_south
+    aliases: [空港線, 名古屋市道堀田高岳線, 高岳通, 東郊通, 堀田通]
+    source_url: https://ja.wikipedia.org/wiki/%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%E9%81%93%E5%A0%80%E7%94%B0%E9%AB%98%E5%B2%B3%E7%B7%9A
+    start: 松田橋交差点
+    end: 高岳交差点
+    road_numbers: [名古屋市道堀田高岳線, 国道41号]
+    intersections: [松田橋交差点, 地下鉄堀田交差点, 牛巻交差点, 高辻交差点, 東郊通2丁目交差点, 鶴舞公園前交差点, 丸田町交差点, 東新町交差点, 東新町北交差点, 高岳交差点]
+    geometry:
+    note: Wikipedia「名古屋市道堀田高岳線」の概要・主な接続道路に明記された範囲だけを収録。
+
+  - id: sotoboridori
+    name: 外堀通
+    direction: east_west
+    aliases: [外堀通, 外堀通り]
+    source_url: https://ja.wikipedia.org/wiki/%E5%A4%96%E5%A0%80%E9%80%9A_%28%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%29
+    start: 平田町交差点
+    end: 豊公橋
+    road_numbers: [名古屋市道外堀相生町線, 名古屋市道外堀町線, 愛知県道200号名古屋甚目寺線]
+    intersections: [平田町交差点, 東片端交差点, 久屋橋交差点, 久屋橋西交差点, 大津橋交差点, 本町橋交差点, 新御園橋交差点, 明道町交差点, 菊井町交差点, 則武新町交差点, 本陣通2交差点, 本陣通3交差点, 本陣通4交差点, 豊公橋東交差点]
+    geometry:
+    note: Wikipedia「外堀通 (名古屋市)」の概要・接続道路に明記された範囲だけを収録。
+
+  - id: wakamiyaodori
+    name: 若宮大通
+    direction: east_west
+    aliases: [若宮大通, 若宮大通り]
+    source_url: https://ja.wikipedia.org/wiki/%E8%8B%A5%E5%AE%AE%E5%A4%A7%E9%80%9A
+    start: 新洲崎橋東交差点
+    end: 中道交差点
+    road_numbers: [名古屋市道矢場町線]
+    intersections: [新洲崎橋東交差点, 名駅南3丁目交差点, 若宮北交差点, 若宮南交差点, 若宮大通本町交差点, 矢場町交差点, 若宮大通久屋交差点, 丸太町交差点, 千早交差点, 中道交差点, 吹上公園北交差点, 吹上公園交差点]
+    geometry:
+    note: Wikipedia「若宮大通」の概要・交差接続する一般道路に明記された範囲だけを収録。
+
+  - id: osudori
+    name: 大須通
+    direction: east_west
+    aliases: [大須通, 大須通り, 運河通, 岩井通]
+    source_url: https://ja.wikipedia.org/wiki/%E5%A4%A7%E9%A0%88%E9%80%9A
+    start: 名古屋市中区
+    end: 名古屋市中川区
+    road_numbers: [名古屋市道愛知名駅南線]
+    intersections: [鶴舞公園前交差点, 上前津東交差点, 上前津交差点, 西大須交差点, 水主町交差点, 名駅南五丁目交差点, 黄金跨線橋南交差点]
+    geometry:
+    note: Wikipedia「大須通」の概要・接続する道路に明記された範囲だけを収録。
+
+  - id: sannodori
+    name: 山王通
+    direction: east_west
+    aliases: [山王通, 山王通り, 名古屋市道山王線, 御器所通, 広路通]
+    source_url: https://ja.wikipedia.org/wiki/%E5%90%8D%E5%8F%A4%E5%B1%8B%E5%B8%82%E9%81%93%E5%B1%B1%E7%8E%8B%E7%B7%9A
+    start: 山王駅東交差点
+    end: 山中交差点
+    road_numbers: [名古屋市道山王線]
+    intersections: [下広井町交差点, 山王駅東交差点, 山王橋交差点, 古渡町交差点, 東別院交差点, 東郊通2交差点, 御器所通交差点, 川名交差点, 山中交差点]
+    geometry:
+    note: Wikipedia「名古屋市道山王線」の概要・接続する道路に明記された範囲だけを収録。
