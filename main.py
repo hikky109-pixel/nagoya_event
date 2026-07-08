@@ -48,6 +48,7 @@ from scrapers.utils.google_sheet_events import (
     sync_csv_to_sheet,
     sync_road_csv_to_sheet,
 )
+from tools.location.sync_placeinfo_review_sheet import sync_placeinfo_review_sheet
 
 JST = timezone(timedelta(hours=9))
 DRY_RUN = False
@@ -821,6 +822,12 @@ def main():
     except Exception:
         print("[WARN] アジア大会シート削除失敗")
         logging.exception("アジア大会シート削除失敗")
+
+    try:
+        sync_placeinfo_review_sheet()
+    except Exception as exc:
+        print(f"[WARN] PlaceInfoレビューGoogle Sheets同期失敗: {exc}")
+        logging.exception("PlaceInfoレビューGoogle Sheets同期失敗")
 
 
 if __name__ == "__main__":
