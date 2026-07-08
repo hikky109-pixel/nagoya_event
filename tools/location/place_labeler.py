@@ -337,6 +337,13 @@ def _best_intersection(candidates: list[dict[str, Any]]) -> dict[str, Any] | Non
     return matches[0]
 
 
+def select_display_intersection_name(result: dict[str, Any]) -> str:
+    candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
+    candidates = [item for item in candidates if isinstance(item, dict)]
+    intersection = _best_intersection(candidates)
+    return candidate_display_name(intersection) if intersection else ""
+
+
 def _candidate_lat_lon(candidate: dict[str, Any]) -> tuple[float | None, float | None]:
     lat = _float(candidate.get("lat"), default=999.0)
     lon = _float(candidate.get("lon"), default=999.0)

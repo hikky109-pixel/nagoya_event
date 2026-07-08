@@ -182,9 +182,17 @@ def _build_direction_result(matches: list[dict[str, Any]], yahoo_roadname: str) 
     }
 
 
-def infer_road_alias_from_result(result: dict[str, Any], *, path: Path = DEFAULT_ROAD_ALIASES_PATH) -> dict[str, Any]:
+def infer_road_alias_from_result(
+    result: dict[str, Any],
+    *,
+    path: Path = DEFAULT_ROAD_ALIASES_PATH,
+    adopted_intersection: str = "",
+) -> dict[str, Any]:
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     intersections = [_candidate_name(candidate) for candidate in candidates if isinstance(candidate, dict) and _is_yahoo_intersection(candidate)]
+    display_intersection = _text(adopted_intersection or result.get("display_intersection") or result.get("selected_intersection"))
+    if not display_intersection and intersections:
+        display_intersection = intersections[0]
 
     yahoo_roadname = _text(result.get("roadname"))
     road_matches: list[dict[str, Any]] = []
@@ -203,22 +211,18 @@ def infer_road_alias_from_result(result: dict[str, Any], *, path: Path = DEFAULT
         if group_matches:
             intersection_groups.append({"yahoo_intersection": intersection, "matches": group_matches})
 
-    selected_group = {}
-    direction_result = {}
+    selected_group = {"yahoo_intersection": display_intersection, "matches": []} if display_intersection else {}
     for group in intersection_groups:
-        result_for_group = _build_direction_result(group["matches"], yahoo_roadname)
-        if result_for_group["adopted_roadname"]:
+        if normalize_intersection_name(_text(group.get("yahoo_intersection"))) == normalize_intersection_name(display_intersection):
             selected_group = group
-            direction_result = result_for_group
             break
-        if not selected_group:
-            selected_group = group
-            direction_result = result_for_group
+
+    selected_matches = selected_group.get("matches", []) if isinstance(selected_group, dict) else []
+    direction_result = _build_direction_result(selected_matches, yahoo_roadname) if selected_matches else {}
 
     fallback_roadname = _yahoo_roadname_fallback(yahoo_roadname)
     if not direction_result and fallback_roadname:
-        reason = "Yahoo交差点名がroad_aliases.ymlに未登録のためYahoo roadnameを採用"
-        selected_matches: list[dict[str, Any]] = []
+        reason = "表示用交差点がroad_aliases.ymlに未登録のためYahoo roadnameを採用"
         direction_result = {
             "road_alias_by_direction": {"east_west": [], "north_south": [], "unknown": []},
             "east_west_road": {},
@@ -234,7 +238,6 @@ def infer_road_alias_from_result(result: dict[str, Any], *, path: Path = DEFAULT
         direction_result["adopted_roadname"] = fallback_roadname
         direction_result["reason"] = "road_alias未確定のためYahoo roadnameを採用"
     else:
-        selected_matches = selected_group.get("matches", []) if isinstance(selected_group, dict) else []
         if not direction_result:
             direction_result = {
                 "road_alias_by_direction": {"east_west": [], "north_south": [], "unknown": []},
@@ -243,7 +246,7 @@ def infer_road_alias_from_result(result: dict[str, Any], *, path: Path = DEFAULT
                 "direction_reasons": {"east_west": "候補なし", "north_south": "候補なし"},
                 "road_display_name": "",
                 "adopted_roadname": "",
-                "reason": "Yahoo交差点名がroad_aliases.ymlに未登録",
+                "reason": "表示用交差点がroad_aliases.ymlに未登録",
             }
 
     return {

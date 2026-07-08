@@ -321,18 +321,20 @@ tools/location/road_aliases.py
 
 判定仕様:
 
-1. Yahoo候補のうち `Category=地点名` の候補名を交差点名として扱う
-2. 交差点名を正規化する
-3. `road_aliases.yml` の `intersections` と完全一致照合する
-4. 照合結果はYahoo交差点候補ごとにグルーピングする
-5. 同一Yahoo交差点内で `direction` が `east_west` と `north_south` に分かれる
-6. 同一Yahoo交差点内で東西道路と南北道路が1本ずつ確定できた場合は `東西道路 × 南北道路`
-7. 同一Yahoo交差点内で片方のみ確定できた場合はその通り名
+1. Yahoo候補のうち `Category=地点名` の候補から、表示用の🚥交差点を先に確定する
+2. road_aliasの表示判定には、表示用に採用したYahoo交差点だけを使う
+3. 採用交差点名を正規化する
+4. 採用交差点名を `road_aliases.yml` の `intersections` と完全一致照合する
+5. 採用交差点内で `direction` が `east_west` と `north_south` に分かれる
+6. 採用交差点内で東西道路と南北道路が1本ずつ確定できた場合は `東西道路 × 南北道路`
+7. 採用交差点内で片方のみ確定できた場合はその通り名
 8. 同方向で複数候補がある場合は、Yahoo `roadname` が辞書の `name` または `aliases` と一致するものを優先
-9. それでも確定できなければ未確定
-10. road_aliasで未確定かつYahoo `roadname` が人間向け通り名として使える場合はfallbackとして採用する
+9. 採用交差点でroad_alias未確定かつYahoo `roadname` が人間向け通り名として使える場合はfallbackとして採用する
+10. Yahoo `roadname` も空またはfallback不適格なら🛣️行は表示しない
 
-複数のYahoo交差点候補をまたいで `東西道路 × 南北道路` を合成しない。たとえば1件目の候補から東西道路、2件目の候補から南北道路が出ても、別地点の情報が混ざる可能性があるため交差点単位で判定する。
+表示用に採用した交差点以外のYahoo地点名候補から、表示用road_aliasを採用しない。たとえば🚥が `丸の内オフランプ交差点` の場合、2位以下の `新御園橋交差点` から `外堀通` を採用しない。
+
+adminデバッグでは、表示判定に使ったroad_alias候補と、参考用の全road_alias候補を分けて表示する。これにより、2位以下のYahoo交差点候補の辞書ヒットはレビュー材料として残しつつ、本番表示には混ぜない。
 
 Yahoo `roadname` fallback:
 

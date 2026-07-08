@@ -232,3 +232,33 @@ def test_hybrid_osm_taikodori_does_not_override_yahoo_intersection():
     assert result["road_alias"]["adopted_roadname"] == "広小路通 × 名駅通"
     assert [candidate["name"] for candidate in result["road_alias"]["road_alias_candidates"]] == ["広小路通", "名駅通"]
     assert result["display_lines"]["text"] == "📍 中村区太閤1丁目\n🛣️ 広小路通 × 名駅通\n🚥 笹島交差点\n座標: 35.000000, 136.000000"
+
+
+def test_hybrid_road_alias_uses_display_intersection_only():
+    osm = {
+        "lat": 35.176371,
+        "lon": 136.896264,
+        "candidates": [],
+        "taxi_label": {},
+    }
+    yahoo = {
+        "lat": 35.176371,
+        "lon": 136.896264,
+        "address": ["愛知県", "名古屋市中区", "丸の内", "１丁目"],
+        "short_address": "中区丸の内1丁目",
+        "roadname": "",
+        "candidates": [
+            {"name": "丸の内オフランプ交差点", "category": "地点名", "score": 90.0},
+            {"name": "新御園橋交差点", "category": "地点名", "score": 70.0},
+            {"name": "伏見魚ノ棚交差点", "category": "地点名", "score": 60.0},
+        ],
+        "taxi_label": {"label": "丸の内オフランプ交差点付近"},
+    }
+
+    result = build_hybrid_result(osm, yahoo)
+
+    assert result["display_intersection"] == "丸の内オフランプ交差点"
+    assert result["road_alias"]["adopted_roadname"] == ""
+    assert result["road_alias"]["selected_yahoo_intersection"] == "丸の内オフランプ交差点"
+    assert [candidate["name"] for candidate in result["road_alias"]["all_road_alias_candidates"]] == ["外堀通", "伏見通"]
+    assert result["display_lines"]["text"] == "📍 中区丸の内1丁目\n🚥 丸の内オフランプ交差点\n座標: 35.176371, 136.896264"

@@ -15,7 +15,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools.location.get_yahoo_placeinfo import get_yahoo_placeinfo  # noqa: E402
-from tools.location.place_labeler import build_placeinfo_display_lines, build_taxi_place_label, find_override  # noqa: E402
+from tools.location.place_labeler import (  # noqa: E402
+    build_placeinfo_display_lines,
+    build_taxi_place_label,
+    find_override,
+    select_display_intersection_name,
+)
 from tools.location.road_aliases import infer_road_alias_from_result  # noqa: E402
 
 
@@ -242,7 +247,8 @@ def build_hybrid_result(osm: dict[str, Any], yahoo: dict[str, Any]) -> dict[str,
         },
         "error": osm.get("error") or yahoo.get("error", ""),
     }
-    result["road_alias"] = infer_road_alias_from_result(result)
+    result["display_intersection"] = select_display_intersection_name(result)
+    result["road_alias"] = infer_road_alias_from_result(result, adopted_intersection=result["display_intersection"])
     result["taxi_label"] = _hybrid_label(osm, yahoo, merged_candidates)
     result["display_lines"] = build_placeinfo_display_lines(result)
     result["comparison"]["hybrid_label"] = result["taxi_label"].get("label", "")

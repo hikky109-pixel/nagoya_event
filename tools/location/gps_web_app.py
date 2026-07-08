@@ -613,29 +613,40 @@ def _road_alias_debug_text(result: dict[str, Any]) -> str:
     road_alias = result.get("road_alias") if isinstance(result.get("road_alias"), dict) else infer_road_alias_from_result(result)
     yahoo_intersections = road_alias.get("yahoo_intersections") if isinstance(road_alias.get("yahoo_intersections"), list) else []
     candidates = road_alias.get("road_alias_candidates") if isinstance(road_alias.get("road_alias_candidates"), list) else []
+    all_candidates = road_alias.get("all_road_alias_candidates") if isinstance(road_alias.get("all_road_alias_candidates"), list) else []
     east_west = road_alias.get("east_west_road") if isinstance(road_alias.get("east_west_road"), dict) else {}
     north_south = road_alias.get("north_south_road") if isinstance(road_alias.get("north_south_road"), dict) else {}
     direction_reasons = road_alias.get("direction_reasons") if isinstance(road_alias.get("direction_reasons"), dict) else {}
-    candidate_lines = []
-    for candidate in candidates:
-        if not isinstance(candidate, dict):
-            continue
-        source_url = _text(candidate.get("source_url"))
-        source_suffix = f" ({source_url})" if source_url else ""
-        candidate_lines.append(
-            f"- {_text(candidate.get('name'))} [{_text(candidate.get('direction')) or 'direction未設定'}]: {_text(candidate.get('matched_intersection'))}"
-            f" / Yahoo={_text(candidate.get('yahoo_intersection'))}{source_suffix}"
-        )
+    def _candidate_lines(items: list[Any]) -> list[str]:
+        lines: list[str] = []
+        for candidate in items:
+            if not isinstance(candidate, dict):
+                continue
+            source_url = _text(candidate.get("source_url"))
+            source_suffix = f" ({source_url})" if source_url else ""
+            lines.append(
+                f"- {_text(candidate.get('name'))} [{_text(candidate.get('direction')) or 'direction未設定'}]: {_text(candidate.get('matched_intersection'))}"
+                f" / Yahoo={_text(candidate.get('yahoo_intersection'))}{source_suffix}"
+            )
+        return lines
+
+    candidate_lines = _candidate_lines(candidates)
+    all_candidate_lines = _candidate_lines(all_candidates)
+    if all_candidate_lines == candidate_lines:
+        all_candidate_lines = []
     return "\n".join(
         [
             f"Yahoo roadname: {_text(road_alias.get('yahoo_roadname')) or 'なし'}",
+            f"表示用交差点: {_text(road_alias.get('selected_yahoo_intersection')) or 'なし'}",
             f"Yahoo交差点名: {', '.join(_text(item) for item in yahoo_intersections if _text(item)) or 'なし'}",
             f"東西道路: {_text(east_west.get('name')) or '未確定'}",
             f"東西判定理由: {_text(direction_reasons.get('east_west')) or 'なし'}",
             f"南北道路: {_text(north_south.get('name')) or '未確定'}",
             f"南北判定理由: {_text(direction_reasons.get('north_south')) or 'なし'}",
-            "road_alias候補:",
+            "表示判定road_alias候補:",
             *(candidate_lines or ["- なし"]),
+            "参考: 全road_alias候補:",
+            *(all_candidate_lines or ["- 表示判定候補と同じ"]),
             f"採用通り名: {_text(road_alias.get('road_display_name')) or _text(road_alias.get('adopted_roadname')) or 'なし'}",
             f"判定理由: {_text(road_alias.get('reason')) or 'なし'}",
         ]
