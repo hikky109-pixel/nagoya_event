@@ -142,6 +142,29 @@ YAHOO_PLACEINFO_TEST_CHANNEL_ID = _channel_id_env("YAHOO_PLACEINFO_TEST_CHANNEL_
 GPS_WEB_BASE_URL = os.getenv("GPS_WEB_BASE_URL", "").strip().rstrip("/") or None
 GPS_REPORT_CHANNEL_ID = _channel_id_env("GPS_REPORT_CHANNEL_ID") or None
 
+# ==========================
+# Google Sheets DB設定
+# ==========================
+# イベントDBと場所辞書DBを分離する。
+# PlaceInfoレビューは PLACE_DICT_SHEET_ID / LOCATION_SHEET_ID を優先し、
+# 未設定時のみ従来のイベントDB設定へフォールバックする。
+PLACE_DICT_SHEET_ID = os.getenv("PLACE_DICT_SHEET_ID", "").strip() or None
+LOCATION_SHEET_ID = os.getenv("LOCATION_SHEET_ID", "").strip() or None
+EVENT_SHEET_ID = os.getenv("EVENT_SHEET_ID", "").strip() or os.getenv("GOOGLE_SHEET_ID", "").strip() or None
+
+PLACEINFO_REVIEW_SHEET_NAME = "PlaceInfo_Review"
+TB_TP_SHEET_NAME = "TB_TP"
+LANDMARKS_SHEET_NAME = "Landmarks"
+ROAD_OVERRIDES_SHEET_NAME = "Road_Overrides"
+SEEDED_TAXI_OPS_SHEET_NAME = "Seeded_Taxi_Ops"
+PLACE_DICT_SHEET_NAMES = [
+    PLACEINFO_REVIEW_SHEET_NAME,
+    TB_TP_SHEET_NAME,
+    LANDMARKS_SHEET_NAME,
+    ROAD_OVERRIDES_SHEET_NAME,
+    SEEDED_TAXI_OPS_SHEET_NAME,
+]
+
 # Webhook版を使う場合のみ環境変数で設定。
 GEMMA_DISCORD_WEBHOOK = os.getenv("GEMMA_DISCORD_WEBHOOK", "")
 GEMMA_WEBHOOK_URL = os.getenv("GEMMA_WEBHOOK_URL", "")

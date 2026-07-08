@@ -12,9 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+import config
+
 
 DEFAULT_TSV = ROOT / "data" / "location" / "placeinfo_review.tsv"
-SHEET_NAME = "PlaceInfo_Review"
+SHEET_NAME = getattr(config, "PLACEINFO_REVIEW_SHEET_NAME", "PlaceInfo_Review")
 
 
 def read_tsv_rows(path: Path) -> list[list[str]]:
@@ -22,6 +24,23 @@ def read_tsv_rows(path: Path) -> list[list[str]]:
         raise FileNotFoundError(f"TSV not found: {path}")
     with path.open(newline="", encoding="utf-8-sig") as f:
         return list(csv.reader(f, delimiter="\t"))
+
+
+def default_place_dict_spreadsheet_id() -> str:
+    """Return the Google Sheets ID for the location dictionary DB.
+
+    PlaceInfo_Review now belongs to the location dictionary DB.  When that
+    database is not configured yet, keep the previous event DB behavior.
+    """
+
+    for attr in ("PLACE_DICT_SHEET_ID", "LOCATION_SHEET_ID", "EVENT_SHEET_ID"):
+        value = str(getattr(config, attr, "") or "").strip()
+        if value:
+            return value
+
+    from scrapers.utils.google_sheet_events import _default_spreadsheet_id
+
+    return _default_spreadsheet_id()
 
 
 def sync_placeinfo_review_sheet(tsv_path: Path = DEFAULT_TSV, sheet_name: str = SHEET_NAME) -> bool:
@@ -35,12 +54,11 @@ def sync_placeinfo_review_sheet(tsv_path: Path = DEFAULT_TSV, sheet_name: str = 
 
     from scrapers.utils.google_sheet_events import (
         _create_sheet,
-        _default_spreadsheet_id,
         _sheet_exists,
         _sheets_service,
     )
 
-    spreadsheet_id = _default_spreadsheet_id()
+    spreadsheet_id = default_place_dict_spreadsheet_id()
     if not spreadsheet_id:
         raise RuntimeError("Google spreadsheet ID is not configured")
 
