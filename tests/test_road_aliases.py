@@ -45,6 +45,10 @@ def test_added_major_roads_match_known_intersections():
         ("三蔵交差点", "三蔵通"),
         ("三ッ蔵通久屋西", "三蔵通"),
         ("三蔵通久屋西", "三蔵通"),
+        ("錦通伊勢町交差点", "錦通"),
+        ("天王崎橋東交差点", "三蔵通"),
+        ("天王崎橋交差点", "三蔵通"),
+        ("伏見魚ノ棚交差点", "伏見通"),
     ]
 
     for intersection, expected in cases:
@@ -72,7 +76,7 @@ def test_infer_combines_east_west_and_north_south_roads():
         assert inferred["adopted_roadname"] == expected
         assert inferred["east_west_road"]["name"] == east_west
         assert inferred["north_south_road"]["name"] == north_south
-        assert inferred["reason"] == "東西道路と南北道路を1本ずつ採用"
+        assert inferred["reason"] == "同一Yahoo交差点から東西道路と南北道路を1本ずつ採用"
 
 
 def test_infer_keeps_single_direction_road_name():
@@ -127,7 +131,7 @@ roads:
 
     assert inferred["adopted_roadname"] == ""
     assert [candidate["name"] for candidate in inferred["road_alias_candidates"]] == ["A通", "B通"]
-    assert inferred["reason"] == "同方向の複数道路候補があり未確定"
+    assert inferred["reason"] == "同一Yahoo交差点内で同方向の複数道路候補があり未確定"
 
 
 def test_infer_adopts_yahoo_roadname_when_multiple_candidates_match(tmp_path: Path):
@@ -169,5 +173,89 @@ roads:
     inferred = infer_road_alias_from_result(result, path=alias_path)
 
     assert inferred["adopted_roadname"] == "広小路通"
-    assert inferred["reason"] == "片方向の道路候補を採用"
+    assert inferred["reason"] == "同一Yahoo交差点から片方向の道路候補を採用"
     assert inferred["direction_reasons"]["east_west"] == "同方向の複数道路候補からYahoo roadname一致を採用"
+
+
+def test_infer_uses_yahoo_roadname_fallback_when_alias_is_missing():
+    result = {
+        "roadname": "伏見通",
+        "candidates": [{"name": "丸の内オフランプ交差点", "category": "地点名"}],
+    }
+
+    inferred = infer_road_alias_from_result(result)
+
+    assert inferred["adopted_roadname"] == "伏見通"
+    assert inferred["road_alias_candidates"] == []
+    assert inferred["reason"] == "Yahoo交差点名がroad_aliases.ymlに未登録のためYahoo roadnameを採用"
+
+
+def test_infer_canonicalizes_yahoo_roadname_fallback():
+    result = {
+        "roadname": "伊勢町通り",
+        "candidates": [{"name": "未登録交差点", "category": "地点名"}],
+    }
+
+    inferred = infer_road_alias_from_result(result)
+
+    assert inferred["adopted_roadname"] == "伊勢町通"
+
+
+def test_infer_does_not_mix_road_aliases_from_different_intersections(tmp_path: Path):
+    alias_path = tmp_path / "road_aliases.yml"
+    alias_path.write_text(
+        """version: 1
+roads:
+  - id: east_road
+    name: 東西通
+    direction: east_west
+    aliases: [東西通]
+    source_url: https://example.com/east
+    start: A交差点
+    end: 東西終点
+    road_numbers: []
+    intersections: [A交差点]
+    geometry:
+    note: test
+
+  - id: north_road
+    name: 南北通
+    direction: north_south
+    aliases: [南北通]
+    source_url: https://example.com/north
+    start: B交差点
+    end: 南北終点
+    road_numbers: []
+    intersections: [B交差点]
+    geometry:
+    note: test
+""",
+        encoding="utf-8",
+    )
+    result = {
+        "roadname": "",
+        "candidates": [
+            {"name": "A交差点", "category": "地点名"},
+            {"name": "B交差点", "category": "地点名"},
+        ],
+    }
+
+    inferred = infer_road_alias_from_result(result, path=alias_path)
+
+    assert inferred["adopted_roadname"] == "東西通"
+    assert inferred["selected_yahoo_intersection"] == "A交差点"
+    assert [candidate["name"] for candidate in inferred["road_alias_candidates"]] == ["東西通"]
+    assert [candidate["name"] for candidate in inferred["all_road_alias_candidates"]] == ["東西通", "南北通"]
+
+
+def test_infer_known_added_intersections():
+    cases = [
+        ("錦通伊勢町交差点", "錦通"),
+        ("天王崎橋東交差点", "三蔵通"),
+        ("天王崎橋交差点", "三蔵通"),
+        ("伏見魚ノ棚交差点", "伏見通"),
+    ]
+
+    for intersection, expected in cases:
+        inferred = infer_road_alias_from_result({"roadname": "", "candidates": [{"name": intersection, "category": "地点名"}]})
+        assert inferred["adopted_roadname"] == expected

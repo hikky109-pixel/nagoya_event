@@ -30,6 +30,8 @@ def test_place_dict_sheet_names_are_configured():
         "PlaceInfo_Review",
         "TB_TP",
         "Landmarks",
+        "Place_Label_Overrides",
+        "Road_Aliases",
         "Road_Overrides",
         "Seeded_Taxi_Ops",
     ]

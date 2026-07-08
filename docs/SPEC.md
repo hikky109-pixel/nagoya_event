@@ -52,10 +52,12 @@ Google SheetsのイベントDB IDは既存の `GOOGLE_SHEET_ID`、または `scr
 - `PlaceInfo_Review`
 - `TB_TP`
 - `Landmarks`
+- `Place_Label_Overrides`
+- `Road_Aliases`
 - `Road_Overrides`
 - `Seeded_Taxi_Ops`
 
-現時点でGoogle Sheets同期実装があるのは `PlaceInfo_Review` のみ。TB/TP、Landmarks、Road_Overrides、Seeded_Taxi_Ops の読み込み実装はまだない。
+現時点でGoogle Sheets同期実装があるのは、`PlaceInfo_Review`、`Seeded_Taxi_Ops`、`Landmarks`、`Place_Label_Overrides`、`Road_Aliases` である。TB/TP、Road_Overrides、Seeded_Taxi_Ops等をGoogle Sheetsから読み込んで本番判定へ反映する実装はまだない。
 
 ## 4. PlaceInfo_Review
 
@@ -322,11 +324,21 @@ tools/location/road_aliases.py
 1. Yahoo候補のうち `Category=地点名` の候補名を交差点名として扱う
 2. 交差点名を正規化する
 3. `road_aliases.yml` の `intersections` と完全一致照合する
-4. `direction` が `east_west` と `north_south` に分かれる
-5. 東西道路と南北道路が1本ずつ確定できた場合は `東西道路 × 南北道路`
-6. 片方のみ確定できた場合はその通り名
-7. 同方向で複数候補がある場合は、Yahoo `roadname` が辞書の `name` または `aliases` と一致するものを優先
-8. それでも確定できなければ未確定
+4. 照合結果はYahoo交差点候補ごとにグルーピングする
+5. 同一Yahoo交差点内で `direction` が `east_west` と `north_south` に分かれる
+6. 同一Yahoo交差点内で東西道路と南北道路が1本ずつ確定できた場合は `東西道路 × 南北道路`
+7. 同一Yahoo交差点内で片方のみ確定できた場合はその通り名
+8. 同方向で複数候補がある場合は、Yahoo `roadname` が辞書の `name` または `aliases` と一致するものを優先
+9. それでも確定できなければ未確定
+10. road_aliasで未確定かつYahoo `roadname` が人間向け通り名として使える場合はfallbackとして採用する
+
+複数のYahoo交差点候補をまたいで `東西道路 × 南北道路` を合成しない。たとえば1件目の候補から東西道路、2件目の候補から南北道路が出ても、別地点の情報が混ざる可能性があるため交差点単位で判定する。
+
+Yahoo `roadname` fallback:
+
+- `伊勢町通り` のような末尾 `通り` は `伊勢町通` に正規化する
+- `県道`、`国道`、`市道`、`名古屋高速`、`高速`、`IC`、`JCT`、`インター` を含む道路名は採用しない
+- `通`、`線`、`筋` のいずれも含まない名称は採用しない
 
 正規化:
 
@@ -334,7 +346,14 @@ tools/location/road_aliases.py
 - 空白、全角空白、中黒、ハイフン類を除去
 - 末尾の `交差点` を除去
 
-現時点の辞書データは、Wikipedia由来の主要道路と、OSM由来で補強した三蔵通を含む。三蔵通はOSM way idとgeometry文字列を `geometry` に保存している。
+現時点の辞書データは、Wikipedia由来の主要道路と、OSM由来で補強した三蔵通を含む。三蔵通はOSM way idとgeometry文字列を `geometry` に保存している。`geometry` は保存のみで、現時点の判定には使っていない。
+
+2026-07時点で、実測レビューに基づき以下の交差点を辞書へ追加している。
+
+- `錦通伊勢町交差点` -> `錦通`
+- `天王崎橋東交差点` -> `三蔵通`
+- `天王崎橋交差点` -> `三蔵通`
+- `伏見魚ノ棚交差点` -> `伏見通`
 
 ## 8. Discord投稿
 
@@ -383,6 +402,7 @@ credentials/token.json
 
 - イベント系のCSV同期は既存仕様を維持
 - `PlaceInfo_Review` は人間レビュー列を保持するupsert同期
+- 場所辞書YAMLの同期も、人間レビュー列を保持するupsert同期
 - 同期失敗はログに出す
 - 朝のイベント同期全体を壊さないよう、PlaceInfo同期は個別 `try/except` で隔離する
 
@@ -391,6 +411,7 @@ credentials/token.json
 ```bash
 python3 tools/location/export_placeinfo_review.py --fetch-discord --limit 500
 python3 tools/location/sync_placeinfo_review_sheet.py
+python3 tools/location/sync_place_dict_sheets.py
 ```
 
 全件寄り取得:
@@ -398,6 +419,61 @@ python3 tools/location/sync_placeinfo_review_sheet.py
 ```bash
 python3 tools/location/export_placeinfo_review.py --fetch-discord --all
 ```
+
+### 9.1 場所辞書YAML同期
+
+同期スクリプト:
+
+```text
+tools/location/sync_place_dict_sheets.py
+```
+
+同期先は `PLACE_DICT_SHEET_ID` を最優先する。未設定時は `LOCATION_SHEET_ID`、`EVENT_SHEET_ID`、従来設定へfallbackする。
+
+同期対象:
+
+```text
+data/location/place_label_overrides.yml
+data/location/road_aliases.yml
+```
+
+`place_label_overrides.yml` は `source` ごとに分割して同期する。
+
+| source | 同期先シート |
+|---|---|
+| `seeded_taxi_ops` | `Seeded_Taxi_Ops` |
+| `seeded_landmark` | `Landmarks` |
+| `user_corrected` | `Place_Label_Overrides` |
+
+`road_aliases.yml` は全件を `Road_Aliases` へ同期する。
+
+一意キー:
+
+- 場所補正系: `id` 優先。`id` が空なら `source + lat + lon + label`
+- road_alias系: `id` 優先。`id` が空なら `name + direction + start + end`
+
+自動管理列:
+
+- 場所補正系: `id`, `lat`, `lon`, `radius_m`, `label`, `source`, `confidence`, `priority`
+- road_alias系: `id`, `name`, `direction`, `aliases`, `source_url`, `start`, `end`, `road_numbers`, `intersections`, `geometry`, `source_note`
+
+手動保持列:
+
+```text
+reviewed
+note
+enabled
+updated_by
+```
+
+重要方針:
+
+- シート全体clearは禁止。
+- 既存Sheetを読み込み、ローカルYAMLとupsertする。
+- 既存行がある場合、ローカル自動列は更新し、手動保持列はSheets側を保持する。
+- 重複キー行がある場合は1行に統合し、手動列の値は空でないものを保持する。
+- 書き戻し後に古い余剰行が残る場合のみ、余剰範囲を部分clearする。
+- `road_aliases.yml` のYAML側 `note` は、Sheets手動列 `note` と衝突させず `source_note` として同期する。
 
 ## 10. systemd timer / 定期実行
 
@@ -450,6 +526,7 @@ PlaceInfoレビュー同期:
 ```bash
 python3 tools/location/export_placeinfo_review.py --fetch-discord --limit 500
 python3 tools/location/sync_placeinfo_review_sheet.py
+python3 tools/location/sync_place_dict_sheets.py
 ```
 
 注意:
@@ -465,7 +542,7 @@ python3 tools/location/sync_placeinfo_review_sheet.py
 
 ```bash
 python3 -m py_compile main.py config.py tools/location/*.py
-.venv/bin/python -m pytest tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py -q
+.venv/bin/python -m pytest tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py tests/test_sync_place_dict_sheets.py -q
 git diff --check
 ```
 
@@ -481,6 +558,18 @@ road_aliasの重要テスト:
 - 主要交差点から通り名が判定できること
 - 東西道路と南北道路が `東西 × 南北` の順で表示されること
 - 複数候補時にYahoo roadname一致を優先すること
+- 別々のYahoo交差点候補をまたいで通り名を混ぜないこと
+- road_alias未登録時にYahoo roadname fallbackが効くこと
+
+場所辞書同期の重要テスト:
+
+- `tests/test_sync_place_dict_sheets.py`
+- `seeded_taxi_ops` が `Seeded_Taxi_Ops` へ同期されること
+- `seeded_landmark` が `Landmarks` へ同期されること
+- `user_corrected` が `Place_Label_Overrides` へ同期されること
+- `road_aliases.yml` が `Road_Aliases` へ同期されること
+- `reviewed`、`note`、`enabled`、`updated_by` が保持されること
+- 全シートclearを行わないこと
 
 ## 13. 今後の予定
 
@@ -489,7 +578,8 @@ road_aliasの重要テスト:
 - `TB_TP` シートからタクシー乗り場・タクシープール辞書を読み込む
 - `Landmarks` シートから強ランドマーク辞書を読み込む
 - `Road_Overrides` シートから道路・通り名補正を読み込む
-- `Seeded_Taxi_Ops` シートから初期タクシー運用ランドマークを管理する
+- `Seeded_Taxi_Ops` シートから初期タクシー運用ランドマークを読み込む
+- `Place_Label_Overrides` / `Road_Aliases` のSheets側編集をローカルYAMLへpullする
 - PlaceInfo_Reviewの `correct_*` から辞書候補を半自動生成する
 - Discord正解リプライからpending補正候補を作る
 - OSM geometryを使い、座標から通り沿い判定を行う
