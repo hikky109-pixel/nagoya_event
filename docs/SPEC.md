@@ -1,6 +1,6 @@
 # nagoya_event 現状仕様
 
-最終更新: 2026-07-09
+最終更新: 2026-07-10
 
 この文書は、現時点のコード実装を正として整理する。未実装の構想は末尾の「今後の予定」に分ける。仕様変更時は該当章へ追記し、運用上の注意が変わる場合は「運用メモ」も更新する。
 
@@ -357,6 +357,59 @@ Yahoo `roadname` fallback:
 - `天王崎橋交差点` -> `三蔵通`
 - `伏見魚ノ棚交差点` -> `伏見通`
 
+### 7.1 OSM geometry実験
+
+本番表示の確定仕様とは別に、OSM way geometryを使った座標沿い道路判定の実験を追加している。
+
+実験データ:
+
+```text
+data/location/osm_road_geometries.yml
+```
+
+実験コード:
+
+```text
+tools/location/osm_road_geometry.py
+```
+
+目的:
+
+- Wikipedia由来の交差点辞書やYahoo `roadname` だけでは、細街路や商店街付近で1本隣の道路名を拾うことがある
+- OSM way geometryから現在座標に最も近い名前付き道路を判定し、通り名改善に使えるか評価する
+
+現在の扱い:
+
+- 本番の `display_lines` はまだ変更しない
+- `get_hybrid_placeinfo()` の結果に `osm_road_geometry` を追加する
+- `comparison.osm_geometry_road` に実験結果の道路名を保存する
+- `/admin/placeinfo-test` では「OSM geometry実験」として表示する
+- GPS画面とDiscord投稿の通り名は、従来どおり採用交差点限定road_aliasとYahoo roadname fallbackを使う
+
+OSMデータ取得方法:
+
+- Overpass APIでは `way["highway"]["name"=...]` または `name` / `alt_name` / `old_name` 検索に `out geom tags` を使う
+- 小範囲の確認では OSM API map endpoint からbbox内のwayを取得し、`highway` と `name` を持つwayを抽出する
+- 実行時に毎回OSM APIへアクセスせず、取得したway id、道路名、geometryをローカルYAMLへ保存する
+
+現在の実験データ:
+
+- `三蔵通`: OSM `name=三蔵通`
+- `本町通`: OSM上の近傍way名は `大須本通`。タクシー向け期待表示に合わせ、実験データでは `display_name=本町通` として保存する
+- `門前町通`: OSM `name=門前町通り`。大須本通/本町通との誤判定比較用
+
+実測確認:
+
+- `35.166229, 136.897967` はOSM geometry実験で `三蔵通`
+- `35.160399, 136.901881` はOSM geometry実験で `本町通`
+- 後者では `門前町通` は100m以上離れており、OSM geometry距離判定なら1本東側の誤採用を避けられる
+
+注意:
+
+- OSM geometry実験は、現時点では比較・評価用であり本番表示の決定には使わない
+- OSM nameとタクシー向け表示名が一致しない場合があるため、将来的には `osm_name` と `display_name` を分けて管理する必要がある
+- OSM geometryによる座標沿い道路判定を本番導入する場合も、fallbackとして現在のYahoo road_alias / roadname処理を維持する想定
+
 ## 8. Discord投稿
 
 GPS取得後のDiscord投稿は `gps_web_app.py` の `placeinfo_summary()` で生成する。
@@ -544,7 +597,7 @@ python3 tools/location/sync_place_dict_sheets.py
 
 ```bash
 python3 -m py_compile main.py config.py tools/location/*.py
-.venv/bin/python -m pytest tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py tests/test_sync_place_dict_sheets.py -q
+.venv/bin/python -m pytest tests/test_osm_road_geometry.py tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py tests/test_sync_place_dict_sheets.py -q
 git diff --check
 ```
 
@@ -556,12 +609,14 @@ PlaceInfo同期の重要テスト:
 
 road_aliasの重要テスト:
 
+- `tests/test_osm_road_geometry.py`
 - `tests/test_road_aliases.py`
 - 主要交差点から通り名が判定できること
 - 東西道路と南北道路が `東西 × 南北` の順で表示されること
 - 複数候補時にYahoo roadname一致を優先すること
 - 別々のYahoo交差点候補をまたいで通り名を混ぜないこと
 - road_alias未登録時にYahoo roadname fallbackが効くこと
+- OSM geometry実験で三蔵通と本町通の実測座標を判定できること
 
 場所辞書同期の重要テスト:
 
@@ -584,7 +639,7 @@ road_aliasの重要テスト:
 - `Place_Label_Overrides` / `Road_Aliases` のSheets側編集をローカルYAMLへpullする
 - PlaceInfo_Reviewの `correct_*` から辞書候補を半自動生成する
 - Discord正解リプライからpending補正候補を作る
-- OSM geometryを使い、座標から通り沿い判定を行う
+- OSM geometry実験を評価し、座標から通り沿い判定を本番表示へ導入するか決める
 - Yahoo交差点に出ない細街路向けの交差点辞書を追加する
 - 管理ページからGoogle Sheets行または辞書候補へ直接反映する
 - Google Maps座標貼り付けから `/admin/placeinfo-test` を直接検索する

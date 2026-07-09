@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from tools.location.get_yahoo_placeinfo import get_yahoo_placeinfo  # noqa: E402
+from tools.location.osm_road_geometry import infer_osm_road_from_geometry  # noqa: E402
 from tools.location.place_labeler import (  # noqa: E402
     build_placeinfo_display_lines,
     build_taxi_place_label,
@@ -248,10 +249,20 @@ def build_hybrid_result(osm: dict[str, Any], yahoo: dict[str, Any]) -> dict[str,
         "error": osm.get("error") or yahoo.get("error", ""),
     }
     result["display_intersection"] = select_display_intersection_name(result)
+    try:
+        result["osm_road_geometry"] = infer_osm_road_from_geometry(float(result["lat"]), float(result["lon"]))
+    except (TypeError, ValueError):
+        result["osm_road_geometry"] = {
+            "source": "OSMRoadGeometryExperiment",
+            "adopted_roadname": "",
+            "reason": "Invalid coordinates",
+            "candidates": [],
+        }
     result["road_alias"] = infer_road_alias_from_result(result, adopted_intersection=result["display_intersection"])
     result["taxi_label"] = _hybrid_label(osm, yahoo, merged_candidates)
     result["display_lines"] = build_placeinfo_display_lines(result)
     result["comparison"]["hybrid_label"] = result["taxi_label"].get("label", "")
+    result["comparison"]["osm_geometry_road"] = result["osm_road_geometry"].get("adopted_roadname", "")
     # Keep the existing labeler output for comparison when all candidates are merged.
     result["comparison"]["merged_labeler_label"] = build_taxi_place_label(result).get("label", "")
     return result

@@ -394,6 +394,10 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       <div id="roadAlias"></div>
     </section>
     <section>
+      <h2>OSM geometry実験</h2>
+      <div id="osmRoadGeometry"></div>
+    </section>
+    <section>
       <h2>候補一覧</h2>
       <div id="candidates"></div>
     </section>
@@ -416,6 +420,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
     const summaryBox = document.getElementById("summary");
     const yahooBox = document.getElementById("yahoo");
     const roadAliasBox = document.getElementById("roadAlias");
+    const osmRoadGeometryBox = document.getElementById("osmRoadGeometry");
     const candidatesBox = document.getElementById("candidates");
     const reasonsBox = document.getElementById("reasons");
     const rawJson = document.getElementById("rawJson");
@@ -452,6 +457,9 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
         "",
         "通り名判定",
         roadAliasBox.textContent.trim(),
+        "",
+        "OSM geometry実験",
+        osmRoadGeometryBox.textContent.trim(),
         "",
         "候補一覧",
         candidatesBox.textContent.trim(),
@@ -510,6 +518,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
         summaryBox.textContent = data.text || "";
         yahooBox.textContent = data.debug && data.debug.yahoo ? data.debug.yahoo : "";
         roadAliasBox.textContent = data.debug && data.debug.road_alias ? data.debug.road_alias : "";
+        osmRoadGeometryBox.textContent = data.debug && data.debug.osm_road_geometry ? data.debug.osm_road_geometry : "";
         renderCandidates(data.debug && data.debug.candidates ? data.debug.candidates : []);
         reasonsBox.textContent = data.debug && data.debug.reasons ? data.debug.reasons.join("\\n") : "";
         rawJson.textContent = JSON.stringify(data.result || {}, null, 2);
@@ -653,6 +662,31 @@ def _road_alias_debug_text(result: dict[str, Any]) -> str:
     )
 
 
+def _osm_road_geometry_debug_text(result: dict[str, Any]) -> str:
+    osm_road = result.get("osm_road_geometry") if isinstance(result.get("osm_road_geometry"), dict) else {}
+    candidates = osm_road.get("candidates") if isinstance(osm_road.get("candidates"), list) else []
+    candidate_lines = []
+    for candidate in candidates[:8]:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_lines.append(
+            f"- {_text(candidate.get('name'))} / OSM={_text(candidate.get('osm_name'))}"
+            f" / distance={_text(candidate.get('distance_m'))}m / way={_text(candidate.get('way_id'))}"
+        )
+    return "\n".join(
+        [
+            f"source: {_text(osm_road.get('source')) or 'なし'}",
+            f"採用通り名: {_text(osm_road.get('adopted_roadname')) or 'なし'}",
+            f"OSM名: {_text(osm_road.get('osm_name')) or 'なし'}",
+            f"距離: {_text(osm_road.get('distance_m')) or 'なし'}m",
+            f"way id: {_text(osm_road.get('way_id')) or 'なし'}",
+            f"判定理由: {_text(osm_road.get('reason')) or 'なし'}",
+            "候補:",
+            *(candidate_lines or ["- なし"]),
+        ]
+    )
+
+
 def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
     candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
     candidates = [candidate for candidate in candidates if isinstance(candidate, dict)]
@@ -745,6 +779,7 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "yahoo": "\n".join(yahoo_lines),
         "road_alias": _road_alias_debug_text(result),
+        "osm_road_geometry": _osm_road_geometry_debug_text(result),
         "candidates": candidate_rows,
         "reasons": reasons,
     }
