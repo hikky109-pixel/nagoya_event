@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from tools.location.get_yahoo_placeinfo import extract_candidates
-from tools.location.place_labeler import build_placeinfo_display_lines, build_taxi_place_label, normalize_short_address
+from tools.location.place_labeler import build_placeinfo_display_lines, build_taxi_place_label, distance_m, find_override, normalize_short_address
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +56,7 @@ def test_seeded_major_landmark_and_hotel_overrides():
 def test_seeded_taxi_operation_overrides():
     cases = [
         (35.171361, 136.883249, "名古屋駅 桜通口タクシーのりば"),
-        (35.170062, 136.880962, "名古屋駅 太閤通口タクシーのりば"),
+        (35.169980, 136.880800, "新幹線口TP"),
         (35.1439454, 136.9005594, "アスナル金山タクシーのりば"),
         (35.142328, 136.901075, "金山駅南口タクシーのりば"),
     ]
@@ -64,6 +64,26 @@ def test_seeded_taxi_operation_overrides():
     for lat, lon, expected in cases:
         result = {"lat": lat, "lon": lon, "address": [], "roadname": "", "candidates": []}
         assert build_taxi_place_label(result)["label"] == expected
+
+
+def test_shinkansen_tp_live_gps_offset_hits_seeded_taxi_ops():
+    measured = (35.170216, 136.880259)
+    center = (35.169980, 136.880800)
+    override = find_override(*measured)
+
+    assert round(distance_m(*measured, *center), 2) == 55.74
+    assert override is not None
+    assert override["id"] == "nagoya_station_taikodori_taxi_stand"
+    assert override["label"] == "新幹線口TP"
+    assert override["source"] == "seeded_taxi_ops"
+    assert override["radius_m"] == 60
+    assert override["distance_m"] == 55.7
+
+
+def test_shinkansen_tp_outside_radius_does_not_show_taxi_ops():
+    outside = (35.170216, 136.879700)
+
+    assert find_override(*outside) is None
 
 
 def test_suburban_intersections_are_preferred():

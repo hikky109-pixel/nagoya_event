@@ -291,6 +291,37 @@ get_hybrid_placeinfo(lat, lon)
 - `🚖` は `place_label_overrides.yml` の `source: seeded_taxi_ops` に当たった場合に表示する。
 - Yahoo候補一覧はadminデバッグには残す。
 
+### 6.1 TP/TB表示
+
+TP/TBやタクシー乗り場などタクシー運用系の場所は、`data/location/place_label_overrides.yml` の `source: seeded_taxi_ops` で管理する。
+
+判定仕様:
+
+- 現在座標と辞書中心座標の距離が `radius_m` 以内ならヒット
+- 複数ヒット時は `priority` が小さいものを優先し、同priorityなら距離が近いものを優先
+- `source: seeded_taxi_ops` がヒットした場合、`display_lines` に `🚖 label` を表示する
+- 範囲外では🚖行を表示しない
+- Google Sheets同期では `Seeded_Taxi_Ops` シートへsafe upsertする
+
+新幹線口TP:
+
+```text
+id: nagoya_station_taikodori_taxi_stand
+label: 新幹線口TP
+center: 35.169980, 136.880800
+radius_m: 60
+source: seeded_taxi_ops
+priority: 200
+```
+
+実測確認:
+
+- 実測ズレ座標 `35.170216, 136.880259`
+- 中心点からの距離は約55.74m
+- 最小整数半径は56mだが、既存TP/TB辞書の10m刻み運用とGPS誤差の微小な揺れを考慮し、既存値と同じ `radius_m: 60` を採用する
+
+現時点ではTP/TBのpolygon判定は未実装。円形radiusで一般道路や隣接施設へ誤爆する地点が増える場合は、将来的にpolygon/geometry判定へ移行する。
+
 ## 7. road_alias / 通り名判定
 
 道路辞書:
@@ -680,6 +711,7 @@ road_aliasの重要テスト:
 - Yahoo交差点に出ない細街路向けの交差点辞書を追加する
 - 管理ページからGoogle Sheets行または辞書候補へ直接反映する
 - Google Maps座標貼り付けから `/admin/placeinfo-test` を直接検索する
+- TP/TBの円形radiusで誤爆が出る地点はpolygon/geometry判定へ移行する
 
 ## 14. 変更時の追記ルール
 

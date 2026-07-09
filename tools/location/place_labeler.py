@@ -538,7 +538,12 @@ def build_taxi_place_label(result: dict[str, Any]) -> dict[str, Any]:
             {
                 "override_id": override.get("id"),
                 "override_source": override.get("source"),
+                "label": override.get("label"),
+                "lat": override.get("lat"),
+                "lon": override.get("lon"),
+                "radius_m": override.get("radius_m"),
                 "distance_m": override.get("distance_m"),
+                "priority": override.get("priority"),
             },
         )
 

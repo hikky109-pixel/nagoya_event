@@ -781,6 +781,16 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
     if taxi_ops_text:
         reasons[4] = "🚖 取得元: 秘伝のタレ"
         reasons.append("🚖 採用理由: TP/TBまたはタクシー運用系辞書ヒット")
+        reasons.append(
+            "🚖 辞書詳細: "
+            f"id={_text(taxi_debug.get('override_id')) or '不明'}, "
+            f"label={_text(taxi_debug.get('label')) or taxi_ops_text}, "
+            f"source={_text(taxi_debug.get('override_source')) or '不明'}, "
+            f"center={_text(taxi_debug.get('lat')) or '不明'},{_text(taxi_debug.get('lon')) or '不明'}, "
+            f"radius_m={_text(taxi_debug.get('radius_m')) or '不明'}, "
+            f"distance_m={_text(taxi_debug.get('distance_m')) or '不明'}, "
+            f"priority={_text(taxi_debug.get('priority')) or '不明'}"
+        )
     if landmark_text:
         reasons[5] = "🏢 取得元: 秘伝のタレ"
         reasons.append("🏢 採用理由: 辞書ヒット")

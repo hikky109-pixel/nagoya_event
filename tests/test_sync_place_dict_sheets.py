@@ -10,6 +10,14 @@ def test_place_override_records_are_split_by_source():
     assert len(grouped["Landmarks"]) == 12
     assert len(grouped["Place_Label_Overrides"]) == 2
     assert grouped["Seeded_Taxi_Ops"][0]["source"] == "seeded_taxi_ops"
+    assert any(
+        row["id"] == "nagoya_station_taikodori_taxi_stand"
+        and row["label"] == "新幹線口TP"
+        and row["lat"] == "35.16998"
+        and row["lon"] == "136.8808"
+        and row["radius_m"] == "60"
+        for row in grouped["Seeded_Taxi_Ops"]
+    )
     assert grouped["Landmarks"][0]["source"] == "seeded_landmark"
     assert grouped["Place_Label_Overrides"][0]["source"] == "user_corrected"
 

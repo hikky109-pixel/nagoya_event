@@ -179,7 +179,16 @@ def _hybrid_label(osm: dict[str, Any], yahoo: dict[str, Any], merged_candidates:
             "label": label,
             "busy_label": f"{label}繁忙",
             "source": "override",
-            "debug": {"override_id": override.get("id"), "override_source": override.get("source")},
+            "debug": {
+                "override_id": override.get("id"),
+                "override_source": override.get("source"),
+                "label": override.get("label"),
+                "lat": override.get("lat"),
+                "lon": override.get("lon"),
+                "radius_m": override.get("radius_m"),
+                "distance_m": override.get("distance_m"),
+                "priority": override.get("priority"),
+            },
         }
 
     osm_road = _text(osm.get("roadname"))

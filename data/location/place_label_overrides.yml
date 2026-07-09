@@ -28,10 +28,10 @@ spots:
     priority: 200
 
   - id: nagoya_station_taikodori_taxi_stand
-    lat: 35.170062
-    lon: 136.880962
+    lat: 35.169980
+    lon: 136.880800
     radius_m: 60
-    label: 名古屋駅 太閤通口タクシーのりば
+    label: 新幹線口TP
     source: seeded_taxi_ops
     confidence: provisional
     priority: 200

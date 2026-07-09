@@ -262,3 +262,51 @@ def test_hybrid_road_alias_uses_display_intersection_only():
     assert result["road_alias"]["selected_yahoo_intersection"] == "丸の内オフランプ交差点"
     assert [candidate["name"] for candidate in result["road_alias"]["all_road_alias_candidates"]] == ["外堀通", "伏見通"]
     assert result["display_lines"]["text"] == "📍 中区丸の内1丁目\n🚥 丸の内オフランプ交差点\n座標: 35.176371, 136.896264"
+
+
+def test_hybrid_shinkansen_tp_live_gps_offset_shows_taxi_ops_line():
+    osm = {
+        "lat": 35.170216,
+        "lon": 136.880259,
+        "candidates": [],
+        "taxi_label": {},
+    }
+    yahoo = {
+        "lat": 35.170216,
+        "lon": 136.880259,
+        "address": ["愛知県", "名古屋市中村区", "椿町"],
+        "short_address": "中村区椿町",
+        "roadname": "",
+        "candidates": [{"name": "椿町北交差点", "category": "地点名", "score": 80.0}],
+        "taxi_label": {"label": "椿町北交差点付近"},
+    }
+
+    result = build_hybrid_result(osm, yahoo)
+
+    assert result["taxi_label"]["label"] == "新幹線口TP"
+    assert result["taxi_label"]["debug"]["override_id"] == "nagoya_station_taikodori_taxi_stand"
+    assert result["taxi_label"]["debug"]["radius_m"] == 60
+    assert result["display_lines"]["text"] == "📍 中村区椿町\n🚥 椿町北交差点\n🚖 新幹線口TP\n座標: 35.170216, 136.880259"
+
+
+def test_hybrid_shinkansen_tp_outside_radius_does_not_show_taxi_ops_line():
+    osm = {
+        "lat": 35.170216,
+        "lon": 136.879700,
+        "candidates": [],
+        "taxi_label": {},
+    }
+    yahoo = {
+        "lat": 35.170216,
+        "lon": 136.879700,
+        "address": ["愛知県", "名古屋市中村区", "椿町"],
+        "short_address": "中村区椿町",
+        "roadname": "",
+        "candidates": [{"name": "椿町北交差点", "category": "地点名", "score": 80.0}],
+        "taxi_label": {"label": "椿町北交差点付近"},
+    }
+
+    result = build_hybrid_result(osm, yahoo)
+
+    assert result["taxi_label"]["label"] == "椿町北交差点付近"
+    assert "🚖" not in result["display_lines"]["text"]
