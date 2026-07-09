@@ -654,6 +654,13 @@ python3 tools/location/sync_placeinfo_review_sheet.py
 python3 tools/location/sync_place_dict_sheets.py
 ```
 
+新幹線走行位置の手動取得:
+
+```bash
+python3 tools/railway/fetch_shinkansen_position.py
+python3 tools/railway/analyze_shinkansen_position.py --summary-yaml
+```
+
 注意:
 
 - `.env`、`credentials/token.json`、`credentials/credentials.json` はcommitしない。
@@ -661,13 +668,85 @@ python3 tools/location/sync_place_dict_sheets.py
 - 未設定時は従来のイベントDBへfallbackする。
 - Google Sheets側の手動レビュー列は同期で潰さない方針。
 
-## 12. テスト
+## 12. 東海道新幹線走行位置
+
+目的:
+
+- JR東海公式の列車走行位置JSONを手動取得し、列車ごとの遅延分数を保存・解析する。
+- 公式運行情報の文章だけでは判断しづらい遅延規模を、列車単位の `delay` から補助的に確認する。
+- 現時点では通知実装は行わず、Gemma投入用summary候補を作るところまで。
+
+公式ページ:
+
+```text
+https://traininfo.jr-central.co.jp/shinkansen/pc/ja/ti08.html
+```
+
+取得URL:
+
+```text
+https://traininfo.jr-central.co.jp/shinkansen/var/train_info/train_location_info.json
+https://traininfo.jr-central.co.jp/shinkansen/common/data/common_ja.json
+```
+
+保存先:
+
+```text
+data/railway/shinkansen_position/
+```
+
+実装:
+
+```text
+tools/railway/fetch_shinkansen_position.py
+tools/railway/analyze_shinkansen_position.py
+```
+
+保存仕様:
+
+- `fetch_shinkansen_position.py` は `train_location_info.json` と駅名・列車名辞書の `common_ja.json` を取得する。
+- 取得結果は `YYYYMMDD_HHMMSS_shinkansen_position.json` として保存する。
+- snapshotには `source_url`、`common_url`、`fetched_at`、`payload`、`common` を含める。
+- 公式サイトへ過剰アクセスしないため、現時点では手動実行のみ。自動ポーリングや通知は未実装。
+- 失敗時はtracebackを出さず、標準エラーへ短いログを出して終了する。
+
+解析仕様:
+
+- `analyze_shinkansen_position.py` は保存済みsnapshotを読み込む。引数省略時は保存先ディレクトリの最新snapshotを使う。
+- `atStation.bounds` と `betweenStation.bounds` の各列車を正規化する。
+- 取得できる主な項目:
+  - `train_no`: `のぞみ288` など、列車種別名 + 列車番号
+  - `direction`: `up` / `down`
+  - `position`: 駅番線、または駅間の概略
+  - `delay_min`: JSON上の `delay`
+- JSON構造が変わった場合でも、存在しないキーは空扱いにし、解析処理で例外停止しない。
+
+Gemma投入用summary候補:
+
+```yaml
+source: shinkansen_position
+line: tokaido_shinkansen
+max_delay_min: 20
+delayed_trains:
+- train_no: "のぞみxxx"
+  direction: "up"
+  delay_min: 10
+  position: "名古屋付近"
+```
+
+現時点の注意:
+
+- `train_location_info.json` は東海道・山陽新幹線全体の走行位置を含む。
+- 遅延分数は列車単位で取れるが、公式運行情報の原因・区間文章とは別データとして扱う。
+- 通知判定、しきい値、終電帯接続影響の評価は未実装。
+
+## 13. テスト
 
 主な確認コマンド:
 
 ```bash
-python3 -m py_compile main.py config.py tools/location/*.py
-.venv/bin/python -m pytest tests/test_osm_road_geometry.py tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py tests/test_sync_place_dict_sheets.py -q
+python3 -m py_compile main.py config.py tools/location/*.py tools/railway/*.py
+.venv/bin/python -m pytest tests/test_osm_road_geometry.py tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py tests/test_sync_place_dict_sheets.py tests/test_shinkansen_position.py -q
 git diff --check
 ```
 
@@ -702,7 +781,15 @@ road_aliasの重要テスト:
 - `reviewed`、`note`、`enabled`、`updated_by` が保持されること
 - 全シートclearを行わないこと
 
-## 13. 今後の予定
+新幹線走行位置の重要テスト:
+
+- `tests/test_shinkansen_position.py`
+- 列車番号、方向、位置、遅延分数を正規化できること
+- 最大遅延分数と遅延列車一覧をsummary化できること
+- JSON構造欠落時も例外停止しないこと
+- timestamp付きファイル名で保存できること
+
+## 14. 今後の予定
 
 未実装、または構想段階のもの:
 
@@ -718,8 +805,10 @@ road_aliasの重要テスト:
 - 管理ページからGoogle Sheets行または辞書候補へ直接反映する
 - Google Maps座標貼り付けから `/admin/placeinfo-test` を直接検索する
 - TP/TBの円形radiusで誤爆が出る地点はpolygon/geometry判定へ移行する
+- 新幹線走行位置summaryを既存の鉄道通知/Gemma判断へ接続する
+- 終電帯は小幅遅延でも他社線接続影響を強めに評価する
 
-## 14. 変更時の追記ルール
+## 15. 変更時の追記ルール
 
 仕様変更時は次の順で更新する。
 
