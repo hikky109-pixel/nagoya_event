@@ -11,7 +11,7 @@ from tools.location.road_aliases import load_road_aliases
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OSM_ROAD_GEOMETRIES_PATH = ROOT / "data" / "location" / "osm_road_geometries.yml"
-DEFAULT_MAX_DISTANCE_M = 35.0
+DEFAULT_MAX_DISTANCE_M = 30.0
 
 
 def _text(value: Any) -> str:
@@ -136,12 +136,46 @@ def infer_osm_road_from_geometry(
     candidates = osm_road_geometry_candidates(lat, lon, path=path, max_distance_m=max_distance_m)
     best = candidates[0] if candidates else {}
     return {
-        "source": "OSMRoadGeometryExperiment",
+        "source": "OSMRoadGeometry",
         "adopted_roadname": _text(best.get("name")),
         "distance_m": best.get("distance_m", ""),
         "way_id": _text(best.get("way_id")),
         "osm_name": _text(best.get("osm_name")),
         "max_distance_m": max_distance_m,
+        "adopted": bool(best),
         "candidates": candidates,
         "reason": "OSM geometry nearest road within threshold" if best else "No OSM road geometry within threshold",
     }
+
+
+def build_final_road_alias(osm_road_geometry: dict[str, Any], fallback_road_alias: dict[str, Any]) -> dict[str, Any]:
+    """Choose the production road display result.
+
+    Priority:
+    1. OSM geometry display_name within threshold.
+    2. Adopted Yahoo-intersection road_alias.
+    3. Yahoo roadname fallback.
+    """
+
+    osm_name = _text(osm_road_geometry.get("adopted_roadname"))
+    if osm_name:
+        return {
+            **fallback_road_alias,
+            "source": "FinalRoadAlias",
+            "adopted_roadname": osm_name,
+            "road_display_name": osm_name,
+            "adoption_source": "osm_geometry",
+            "reason": "OSM geometry nearest road within threshold",
+            "osm_geometry_adopted": True,
+            "osm_road_geometry": osm_road_geometry,
+            "fallback_road_alias": fallback_road_alias,
+        }
+
+    fallback = dict(fallback_road_alias)
+    if fallback.get("adopted_roadname") and not fallback.get("adoption_source"):
+        fallback["adoption_source"] = "adopted_yahoo_intersection"
+    fallback["source"] = "FinalRoadAlias"
+    fallback["osm_geometry_adopted"] = False
+    fallback["osm_road_geometry"] = osm_road_geometry
+    fallback["fallback_road_alias"] = fallback_road_alias
+    return fallback

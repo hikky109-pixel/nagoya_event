@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from config import YAHOO_CLIENT_ID  # noqa: E402
+from tools.location.osm_road_geometry import build_final_road_alias, infer_osm_road_from_geometry  # noqa: E402
 from tools.location.place_labeler import (  # noqa: E402
     build_placeinfo_display_lines,
     build_taxi_place_label,
@@ -244,7 +245,9 @@ def build_placeinfo_result(
     }
     result["taxi_label"] = build_taxi_place_label(result)
     result["display_intersection"] = select_display_intersection_name(result)
-    result["road_alias"] = infer_road_alias_from_result(result, adopted_intersection=result["display_intersection"])
+    result["osm_road_geometry"] = infer_osm_road_from_geometry(lat, lon)
+    result["fallback_road_alias"] = infer_road_alias_from_result(result, adopted_intersection=result["display_intersection"])
+    result["road_alias"] = build_final_road_alias(result["osm_road_geometry"], result["fallback_road_alias"])
     result["display_lines"] = build_placeinfo_display_lines(result)
     return result
 

@@ -394,7 +394,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
       <div id="roadAlias"></div>
     </section>
     <section>
-      <h2>OSM geometry実験</h2>
+      <h2>OSM geometry道路判定</h2>
       <div id="osmRoadGeometry"></div>
     </section>
     <section>
@@ -458,7 +458,7 @@ ADMIN_PLACEINFO_HTML = """<!doctype html>
         "通り名判定",
         roadAliasBox.textContent.trim(),
         "",
-        "OSM geometry実験",
+        "OSM geometry道路判定",
         osmRoadGeometryBox.textContent.trim(),
         "",
         "候補一覧",
@@ -645,6 +645,8 @@ def _road_alias_debug_text(result: dict[str, Any]) -> str:
         all_candidate_lines = []
     return "\n".join(
         [
+            f"最終採用元: {_text(road_alias.get('adoption_source')) or 'なし'}",
+            f"OSM geometry本番採用: {'yes' if road_alias.get('osm_geometry_adopted') else 'no'}",
             f"Yahoo roadname: {_text(road_alias.get('yahoo_roadname')) or 'なし'}",
             f"表示用交差点: {_text(road_alias.get('selected_yahoo_intersection')) or 'なし'}",
             f"Yahoo交差点名: {', '.join(_text(item) for item in yahoo_intersections if _text(item)) or 'なし'}",
@@ -676,9 +678,11 @@ def _osm_road_geometry_debug_text(result: dict[str, Any]) -> str:
     return "\n".join(
         [
             f"source: {_text(osm_road.get('source')) or 'なし'}",
-            f"採用通り名: {_text(osm_road.get('adopted_roadname')) or 'なし'}",
+            f"本番採用: {'yes' if osm_road.get('adopted') else 'no'}",
+            f"display_name: {_text(osm_road.get('adopted_roadname')) or 'なし'}",
             f"OSM名: {_text(osm_road.get('osm_name')) or 'なし'}",
             f"距離: {_text(osm_road.get('distance_m')) or 'なし'}m",
+            f"距離閾値: {_text(osm_road.get('max_distance_m')) or 'なし'}m",
             f"way id: {_text(osm_road.get('way_id')) or 'なし'}",
             f"判定理由: {_text(osm_road.get('reason')) or 'なし'}",
             "候補:",
@@ -747,7 +751,15 @@ def placeinfo_admin_debug(result: dict[str, Any]) -> dict[str, Any]:
         ]
     )
     if road_text:
-        reasons[2] = "🛣️ 取得元: road_alias辞書"
+        source = _text(road_alias.get("adoption_source"))
+        if source == "osm_geometry":
+            reasons[2] = "🛣️ 取得元: OSM geometry"
+        elif source == "yahoo_roadname_fallback":
+            reasons[2] = "🛣️ 取得元: Yahoo roadname fallback"
+        elif source == "adopted_yahoo_intersection":
+            reasons[2] = "🛣️ 取得元: 採用Yahoo交差点road_alias"
+        else:
+            reasons[2] = "🛣️ 取得元: road_alias辞書"
         reasons.append(f"🛣️ 採用理由: {_text(road_alias.get('reason')) or 'road_alias採用'}")
     else:
         reasons[2] = "🛣️ 取得元: 候補なし"

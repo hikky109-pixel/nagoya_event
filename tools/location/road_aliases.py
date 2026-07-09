@@ -230,12 +230,14 @@ def infer_road_alias_from_result(
             "direction_reasons": {"east_west": "候補なし", "north_south": "候補なし"},
             "road_display_name": fallback_roadname,
             "adopted_roadname": fallback_roadname,
+            "adoption_source": "yahoo_roadname_fallback",
             "reason": reason,
         }
     elif direction_result and not direction_result["adopted_roadname"] and fallback_roadname:
         selected_matches = selected_group.get("matches", []) if isinstance(selected_group, dict) else []
         direction_result["road_display_name"] = fallback_roadname
         direction_result["adopted_roadname"] = fallback_roadname
+        direction_result["adoption_source"] = "yahoo_roadname_fallback"
         direction_result["reason"] = "road_alias未確定のためYahoo roadnameを採用"
     else:
         if not direction_result:
@@ -246,8 +248,11 @@ def infer_road_alias_from_result(
                 "direction_reasons": {"east_west": "候補なし", "north_south": "候補なし"},
                 "road_display_name": "",
                 "adopted_roadname": "",
+                "adoption_source": "",
                 "reason": "表示用交差点がroad_aliases.ymlに未登録",
             }
+        elif direction_result.get("adopted_roadname") and not direction_result.get("adoption_source"):
+            direction_result["adoption_source"] = "adopted_yahoo_intersection"
 
     return {
         "yahoo_roadname": yahoo_roadname,

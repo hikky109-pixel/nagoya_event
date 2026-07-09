@@ -321,6 +321,35 @@ tools/location/road_aliases.py
 
 判定仕様:
 
+本番の🛣️通り名表示は次の優先順位で決める。
+
+1. OSM geometry道路データの `display_name`
+2. 表示用に採用したYahoo交差点限定road_alias
+3. Yahoo `roadname` fallback
+
+OSM geometry採用条件:
+
+- ローカル保存済みOSM way geometryのみを使う
+- GPSリクエストごとにOSM APIやOverpass APIへアクセスしない
+- 現在座標から最寄りOSM道路geometryまでの距離が `DEFAULT_MAX_DISTANCE_M = 30.0` m以内の場合だけ採用する
+- 閾値外、データなし、座標不正の場合はOSM geometryを採用しない
+
+OSM道路名の役割:
+
+- `osm_name`: OSM上の道路名
+- `display_name`: タクシー向け表示名
+
+例:
+
+```text
+osm_name: 大須本通
+display_name: 本町通
+```
+
+OSM geometryで採用できない場合は、従来のYahoo採用交差点限定road_aliasへfallbackする。このfallback仕様は削除しない。
+
+Yahoo採用交差点限定road_alias:
+
 1. Yahoo候補のうち `Category=地点名` の候補から、表示用の🚥交差点を先に確定する
 2. road_aliasの表示判定には、表示用に採用したYahoo交差点だけを使う
 3. 採用交差点名を正規化する
@@ -334,7 +363,13 @@ tools/location/road_aliases.py
 
 表示用に採用した交差点以外のYahoo地点名候補から、表示用road_aliasを採用しない。たとえば🚥が `丸の内オフランプ交差点` の場合、2位以下の `新御園橋交差点` から `外堀通` を採用しない。
 
-adminデバッグでは、表示判定に使ったroad_alias候補と、参考用の全road_alias候補を分けて表示する。これにより、2位以下のYahoo交差点候補の辞書ヒットはレビュー材料として残しつつ、本番表示には混ぜない。
+adminデバッグでは、OSM geometry判定、表示判定に使ったroad_alias候補、参考用の全road_alias候補を分けて表示する。これにより、2位以下のYahoo交差点候補の辞書ヒットはレビュー材料として残しつつ、本番表示には混ぜない。
+
+最終採用元は `road_alias.adoption_source` で確認できる。
+
+- `osm_geometry`
+- `adopted_yahoo_intersection`
+- `yahoo_roadname_fallback`
 
 Yahoo `roadname` fallback:
 
@@ -357,17 +392,17 @@ Yahoo `roadname` fallback:
 - `天王崎橋交差点` -> `三蔵通`
 - `伏見魚ノ棚交差点` -> `伏見通`
 
-### 7.1 OSM geometry実験
+### 7.1 OSM geometry道路データ
 
-本番表示の確定仕様とは別に、OSM way geometryを使った座標沿い道路判定の実験を追加している。
+OSM way geometryを使った座標沿い道路判定を、本番の🛣️通り名表示の第1優先として使う。
 
-実験データ:
+データ:
 
 ```text
 data/location/osm_road_geometries.yml
 ```
 
-実験コード:
+コード:
 
 ```text
 tools/location/osm_road_geometry.py
@@ -380,11 +415,11 @@ tools/location/osm_road_geometry.py
 
 現在の扱い:
 
-- 本番の `display_lines` はまだ変更しない
-- `get_hybrid_placeinfo()` の結果に `osm_road_geometry` を追加する
-- `comparison.osm_geometry_road` に実験結果の道路名を保存する
-- `/admin/placeinfo-test` では「OSM geometry実験」として表示する
-- GPS画面とDiscord投稿の通り名は、従来どおり採用交差点限定road_aliasとYahoo roadname fallbackを使う
+- 本番の `display_lines`、GPS画面、Discord投稿の🛣️行に反映する
+- `get_hybrid_placeinfo()` の結果に `osm_road_geometry` を保持する
+- `comparison.osm_geometry_road` にOSM geometry候補の道路名を保存する
+- `comparison.final_road` と `comparison.final_road_source` に本番採用結果を保存する
+- `/admin/placeinfo-test` では「OSM geometry道路判定」欄で距離、閾値、way id、採用可否を表示する
 
 OSMデータ取得方法:
 
@@ -400,15 +435,15 @@ OSMデータ取得方法:
 
 実測確認:
 
-- `35.166229, 136.897967` はOSM geometry実験で `三蔵通`
-- `35.160399, 136.901881` はOSM geometry実験で `本町通`
+- `35.166229, 136.897967` はOSM geometry道路判定で `三蔵通`
+- `35.160399, 136.901881` はOSM geometry道路判定で `本町通`
 - 後者では `門前町通` は100m以上離れており、OSM geometry距離判定なら1本東側の誤採用を避けられる
 
 注意:
 
-- OSM geometry実験は、現時点では比較・評価用であり本番表示の決定には使わない
-- OSM nameとタクシー向け表示名が一致しない場合があるため、将来的には `osm_name` と `display_name` を分けて管理する必要がある
-- OSM geometryによる座標沿い道路判定を本番導入する場合も、fallbackとして現在のYahoo road_alias / roadname処理を維持する想定
+- OSM nameとタクシー向け表示名が一致しない場合があるため、`osm_name` と `display_name` を分けて管理する
+- OSM geometryで採用できない場合のfallbackとして、現在のYahoo road_alias / roadname処理を維持する
+- OSM geometryデータを増やすまでは、未登録エリアでは従来fallbackが主に使われる
 
 ## 8. Discord投稿
 
@@ -616,7 +651,9 @@ road_aliasの重要テスト:
 - 複数候補時にYahoo roadname一致を優先すること
 - 別々のYahoo交差点候補をまたいで通り名を混ぜないこと
 - road_alias未登録時にYahoo roadname fallbackが効くこと
-- OSM geometry実験で三蔵通と本町通の実測座標を判定できること
+- OSM geometryで三蔵通と本町通の実測座標を本番通り名へ採用できること
+- OSM `osm_name` とタクシー向け `display_name` を分離できること
+- OSM geometry距離閾値外では従来fallbackへ戻ること
 
 場所辞書同期の重要テスト:
 
@@ -639,7 +676,7 @@ road_aliasの重要テスト:
 - `Place_Label_Overrides` / `Road_Aliases` のSheets側編集をローカルYAMLへpullする
 - PlaceInfo_Reviewの `correct_*` から辞書候補を半自動生成する
 - Discord正解リプライからpending補正候補を作る
-- OSM geometry実験を評価し、座標から通り沿い判定を本番表示へ導入するか決める
+- OSM geometry道路データを名古屋中心部の主要通りへ拡張する
 - Yahoo交差点に出ない細街路向けの交差点辞書を追加する
 - 管理ページからGoogle Sheets行または辞書候補へ直接反映する
 - Google Maps座標貼り付けから `/admin/placeinfo-test` を直接検索する
