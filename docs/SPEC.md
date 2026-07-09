@@ -721,24 +721,68 @@ tools/railway/analyze_shinkansen_position.py
   - `delay_min`: JSON上の `delay`
 - JSON構造が変わった場合でも、存在しないキーは空扱いにし、解析処理で例外停止しない。
 
+判定対象:
+
+- 東海道新幹線区間のみを対象にする。
+- 山陽区間は `ignored_reason: 山陽区間のため対象外` としてsummary上は参考情報に回し、通常severity・終電接続riskの判定から除外する。
+- 山陽直通列車でも、現在位置が東海道区間に入っている場合は対象にする。
+
+通常遅延severity:
+
+- `delay_min >= 30` の東海道区間列車を `severity_alerts` に出す。
+- 通常遅延severityと終電接続riskは別軸として扱う。
+
+終電帯接続risk:
+
+ルールファイル:
+
+```text
+data/railway/shinkansen_terminal_connection_rules.yml
+```
+
+現時点の暫定ルール:
+
+- `のぞみ549号`: `delay_min >= 20` で名東方面リスク
+- `ひかり669号`: `delay_min >= 10` で名東方面リスク
+- `のぞみ108号`: `delay_min >= 40` で名東方面リスク
+
+ひかり669号:
+
+- 名古屋23:49着想定。
+- 東山線名東方面への乗換余裕が極めて小さいため、10分遅れから終電接続リスクとして扱う。
+- 過去実走・営業感覚で、10分程度の遅れでも名東方面需要が増えた記憶あり。
+
+現時点では名古屋到着見込み時刻の再計算は行わず、列車番号別の遅延閾値で判定する。
+
 Gemma投入用summary候補:
 
 ```yaml
 source: shinkansen_position
 line: tokaido_shinkansen
 max_delay_min: 20
+severity_alerts: []
+terminal_connection_risks:
+- train_name: "ひかり"
+  train_number: "669"
+  direction: "down"
+  delay_min: 10
+  position: "名古屋付近"
+  risk_area: "名東方面"
+  threshold_min: 10
+  reason: "ひかり669号は名古屋23:49着想定で、10分遅れから東山線接続が危険"
 delayed_trains:
 - train_no: "のぞみxxx"
   direction: "up"
   delay_min: 10
   position: "名古屋付近"
+ignored_trains: []
 ```
 
 現時点の注意:
 
 - `train_location_info.json` は東海道・山陽新幹線全体の走行位置を含む。
 - 遅延分数は列車単位で取れるが、公式運行情報の原因・区間文章とは別データとして扱う。
-- 通知判定、しきい値、終電帯接続影響の評価は未実装。
+- 通知投稿、名古屋到着見込み時刻の推定、他社線終電時刻との照合は未実装。
 
 ## 13. テスト
 
@@ -786,6 +830,9 @@ road_aliasの重要テスト:
 - `tests/test_shinkansen_position.py`
 - 列車番号、方向、位置、遅延分数を正規化できること
 - 最大遅延分数と遅延列車一覧をsummary化できること
+- 東海道区間のみ通常severity・終電接続riskの判定対象にすること
+- `のぞみ549号`、`ひかり669号`、`のぞみ108号` の暫定終電接続riskを判定できること
+- 山陽区間の列車は `ignored_reason` 付きで判定対象外にできること
 - JSON構造欠落時も例外停止しないこと
 - timestamp付きファイル名で保存できること
 

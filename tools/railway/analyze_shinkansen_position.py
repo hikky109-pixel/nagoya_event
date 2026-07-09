@@ -10,6 +10,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT_DIR = ROOT / "data" / "railway" / "shinkansen_position"
+DEFAULT_RULES_PATH = ROOT / "data" / "railway" / "shinkansen_terminal_connection_rules.yml"
 
 BOUND_TO_DIRECTION = {
     "1": "up",
@@ -26,6 +27,59 @@ def _int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_scalar(value: str) -> Any:
+    value = value.strip()
+    if not value:
+        return ""
+    if value.startswith('"') and value.endswith('"'):
+        return value[1:-1]
+    if value.startswith("'") and value.endswith("'"):
+        return value[1:-1]
+    if value in {"true", "True"}:
+        return True
+    if value in {"false", "False"}:
+        return False
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
+def load_terminal_connection_rules(path: Path = DEFAULT_RULES_PATH) -> dict[str, Any]:
+    if not path.exists():
+        return {"normal_delay_threshold_min": 30, "terminal_connection_rules": []}
+    data: dict[str, Any] = {"terminal_connection_rules": []}
+    current: dict[str, Any] | None = None
+    in_rules = False
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped == "terminal_connection_rules:":
+            in_rules = True
+            continue
+        if in_rules and stripped.startswith("- "):
+            if current:
+                data["terminal_connection_rules"].append(current)
+            current = {}
+            content = stripped[2:].strip()
+            if ":" in content:
+                key, value = content.split(":", 1)
+                current[key.strip()] = _parse_scalar(value)
+            continue
+        if in_rules and current is not None and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current[key.strip()] = _parse_scalar(value)
+            continue
+        if not in_rules and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            data[key.strip()] = _parse_scalar(value)
+    if current:
+        data["terminal_connection_rules"].append(current)
+    return data
 
 
 def load_snapshot(path: Path) -> dict[str, Any]:
@@ -60,6 +114,18 @@ def station_order(constants: dict[str, Any]) -> list[str]:
     return []
 
 
+def tokaido_station_codes(constants: dict[str, Any]) -> set[str]:
+    raw_tokaido = constants.get("stationTokaido")
+    if isinstance(raw_tokaido, list):
+        return {_text(item) for item in raw_tokaido if _text(item)}
+    order = station_order(constants)
+    if not order:
+        return set()
+    if "15" in order:
+        return set(order[: order.index("15") + 1])
+    return set(order)
+
+
 def station_name(station_code: Any, constants: dict[str, Any]) -> str:
     stations = constants.get("station") if isinstance(constants.get("station"), dict) else {}
     code = _text(station_code)
@@ -86,6 +152,30 @@ def between_position(station_code: Any, bound: str, constants: dict[str, Any]) -
     return f"{name}付近"
 
 
+def location_station_codes(station_code: Any, bound: str, section: str, constants: dict[str, Any]) -> list[str]:
+    code = _text(station_code)
+    if not code:
+        return []
+    if section == "at_station":
+        return [code]
+    order = station_order(constants)
+    if code not in order:
+        return [code]
+    index = order.index(code)
+    if bound == "2" and index + 1 < len(order):
+        return [code, order[index + 1]]
+    if bound == "1" and index - 1 >= 0:
+        return [code, order[index - 1]]
+    return [code]
+
+
+def is_tokaido_section(station_codes: list[str], constants: dict[str, Any]) -> bool:
+    tokaido_codes = tokaido_station_codes(constants)
+    if not station_codes or not tokaido_codes:
+        return True
+    return all(code in tokaido_codes for code in station_codes)
+
+
 def normalize_train(
     train: dict[str, Any],
     *,
@@ -103,6 +193,8 @@ def normalize_train(
         position = f"{base_position} {track}番線" if track and track != "0" else base_position
     else:
         position = between_position(station_code, bound, constants)
+    station_codes = location_station_codes(station_code, bound, section, constants)
+    tokaido_section = is_tokaido_section(station_codes, constants)
     return {
         "train_no": f"{train_type}{train_number}" if train_type or train_number else "",
         "train_type": train_type,
@@ -115,6 +207,8 @@ def normalize_train(
         "delay_min": delay,
         "track": _text(train.get("track")),
         "sot": bool(train.get("sot")) if "sot" in train else False,
+        "tokaido_section": tokaido_section,
+        "ignored_reason": "" if tokaido_section else "山陽区間のため対象外",
     }
 
 
@@ -149,10 +243,66 @@ def extract_trains(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return trains
 
 
-def build_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
+def build_severity_alerts(trains: list[dict[str, Any]], *, threshold_min: int) -> list[dict[str, Any]]:
+    alerts = []
+    for train in trains:
+        delay = _int(train.get("delay_min"))
+        if delay < threshold_min:
+            continue
+        alerts.append(
+            {
+                "train_name": train.get("train_type", ""),
+                "train_number": train.get("train_number", ""),
+                "direction": train.get("direction", ""),
+                "delay_min": delay,
+                "position": train.get("position", ""),
+                "reason": f"東海道新幹線区間で{threshold_min}分以上の遅延",
+            }
+        )
+    return alerts
+
+
+def build_terminal_connection_risks(trains: list[dict[str, Any]], rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    risks = []
+    for train in trains:
+        delay = _int(train.get("delay_min"))
+        for rule in rules:
+            if _text(rule.get("train_name")) != _text(train.get("train_type")):
+                continue
+            if _text(rule.get("train_number")) != _text(train.get("train_number")):
+                continue
+            rule_direction = _text(rule.get("direction"))
+            if rule_direction and rule_direction != _text(train.get("direction")):
+                continue
+            threshold = _int(rule.get("threshold_min"))
+            if delay < threshold:
+                continue
+            risks.append(
+                {
+                    "train_name": train.get("train_type", ""),
+                    "train_number": train.get("train_number", ""),
+                    "direction": train.get("direction", ""),
+                    "delay_min": delay,
+                    "position": train.get("position", ""),
+                    "risk_area": rule.get("risk_area", ""),
+                    "threshold_min": threshold,
+                    "reason": rule.get("reason", ""),
+                }
+            )
+    return risks
+
+
+def build_summary(snapshot: dict[str, Any], *, rules_path: Path = DEFAULT_RULES_PATH) -> dict[str, Any]:
     trains = extract_trains(snapshot)
-    delayed = [train for train in trains if _int(train.get("delay_min")) > 0]
-    max_delay = max((_int(train.get("delay_min")) for train in trains), default=0)
+    rules_data = load_terminal_connection_rules(rules_path)
+    normal_threshold = _int(rules_data.get("normal_delay_threshold_min"), 30)
+    terminal_rules = rules_data.get("terminal_connection_rules")
+    if not isinstance(terminal_rules, list):
+        terminal_rules = []
+    tokaido_trains = [train for train in trains if train.get("tokaido_section")]
+    ignored_trains = [train for train in trains if train.get("ignored_reason")]
+    delayed = [train for train in tokaido_trains if _int(train.get("delay_min")) > 0]
+    max_delay = max((_int(train.get("delay_min")) for train in tokaido_trains), default=0)
     payload, _common = unwrap_snapshot(snapshot)
     info = payload.get("trainLocationInfo") if isinstance(payload.get("trainLocationInfo"), dict) else {}
     return {
@@ -161,7 +311,11 @@ def build_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
         "fetched_at": _text(snapshot.get("fetched_at")),
         "data_datetime": info.get("datetime", ""),
         "total_trains": len(trains),
+        "tokaido_trains": len(tokaido_trains),
         "max_delay_min": max_delay,
+        "normal_delay_threshold_min": normal_threshold,
+        "severity_alerts": build_severity_alerts(tokaido_trains, threshold_min=normal_threshold),
+        "terminal_connection_risks": build_terminal_connection_risks(tokaido_trains, terminal_rules),
         "delayed_trains": [
             {
                 "train_no": train.get("train_no", ""),
@@ -171,6 +325,16 @@ def build_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
             }
             for train in delayed
         ],
+        "ignored_trains": [
+            {
+                "train_no": train.get("train_no", ""),
+                "direction": train.get("direction", ""),
+                "position": train.get("position", ""),
+                "delay_min": train.get("delay_min", 0),
+                "ignored_reason": train.get("ignored_reason", ""),
+            }
+            for train in ignored_trains
+        ],
     }
 
 
@@ -179,20 +343,30 @@ def summary_to_yaml(summary: dict[str, Any]) -> str:
         f"source: {summary.get('source', '')}",
         f"line: {summary.get('line', '')}",
         f"max_delay_min: {summary.get('max_delay_min', 0)}",
-        "delayed_trains:",
     ]
-    delayed = summary.get("delayed_trains") if isinstance(summary.get("delayed_trains"), list) else []
-    if not delayed:
-        lines[-1] = "delayed_trains: []"
-        return "\n".join(lines)
-    for train in delayed:
-        if not isinstance(train, dict):
-            continue
-        lines.append(f"- train_no: {json.dumps(_text(train.get('train_no')), ensure_ascii=False)}")
-        lines.append(f"  direction: {json.dumps(_text(train.get('direction')), ensure_ascii=False)}")
-        lines.append(f"  delay_min: {_int(train.get('delay_min'))}")
-        lines.append(f"  position: {json.dumps(_text(train.get('position')), ensure_ascii=False)}")
+    for key in ("severity_alerts", "terminal_connection_risks", "delayed_trains", "ignored_trains"):
+        append_yaml_list(lines, key, summary.get(key))
     return "\n".join(lines)
+
+
+def append_yaml_list(lines: list[str], key: str, value: Any) -> None:
+    lines.append(f"{key}:")
+    rows = value if isinstance(value, list) else []
+    if not rows:
+        lines[-1] = f"{key}: []"
+        return
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        first = True
+        for item_key, item_value in row.items():
+            prefix = "- " if first else "  "
+            first = False
+            if isinstance(item_value, int):
+                rendered = str(item_value)
+            else:
+                rendered = json.dumps(_text(item_value), ensure_ascii=False)
+            lines.append(f"{prefix}{item_key}: {rendered}")
 
 
 def parse_args() -> argparse.Namespace:

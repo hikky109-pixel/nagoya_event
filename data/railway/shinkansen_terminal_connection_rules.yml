@@ -1,0 +1,25 @@
+version: 1
+line: tokaido_shinkansen
+normal_delay_threshold_min: 30
+terminal_connection_rules:
+  - id: nozomi_549_meito
+    train_name: のぞみ
+    train_number: "549"
+    direction: down
+    threshold_min: 20
+    risk_area: 名東方面
+    reason: "のぞみ549号は終電帯の名古屋着が遅れると、東山線藤が丘方面など名東方面接続が危険"
+  - id: hikari_669_meito
+    train_name: ひかり
+    train_number: "669"
+    direction: down
+    threshold_min: 10
+    risk_area: 名東方面
+    reason: "ひかり669号は名古屋23:49着想定。東山線名東方面への乗換余裕が極めて小さいため、10分遅れから終電接続リスクとして扱う。過去実走・営業感覚で、10分程度の遅れでも名東方面需要が増えた記憶あり。"
+  - id: nozomi_108_meito
+    train_name: のぞみ
+    train_number: "108"
+    direction: up
+    threshold_min: 40
+    risk_area: 名東方面
+    reason: "のぞみ108号は大幅遅延時に名古屋到着後の名東方面接続が危険"
