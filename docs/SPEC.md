@@ -354,9 +354,11 @@ tools/location/road_aliases.py
 
 本番の🛣️通り名表示は次の優先順位で決める。
 
-1. OSM geometry道路データの `display_name`
-2. 表示用に採用したYahoo交差点限定road_alias
+1. 表示用Yahoo交差点限定road_aliasで、東西道路と南北道路が両方確定した `東西道路 × 南北道路`
+2. OSM geometry道路データの `display_name`
 3. Yahoo `roadname` fallback
+
+Yahoo交差点辞書で片方向だけ確定した場合、または未登録の場合は、その片方向road_aliasを本番🛣️行へは採用せず、OSM geometry判定へ進む。OSM geometryも採用できない場合だけYahoo `roadname` fallbackを使う。
 
 OSM geometry採用条件:
 
@@ -377,7 +379,7 @@ osm_name: 大須本通
 display_name: 本町通
 ```
 
-OSM geometryで採用できない場合は、従来のYahoo採用交差点限定road_aliasへfallbackする。このfallback仕様は削除しない。
+OSM geometryで採用できない場合は、Yahoo `roadname` fallbackへ進む。Yahoo採用交差点限定road_aliasの照合自体は維持し、東西道路と南北道路が両方確定した場合だけOSMより優先する。
 
 Yahoo採用交差点限定road_alias:
 
@@ -386,8 +388,8 @@ Yahoo採用交差点限定road_alias:
 3. 採用交差点名を正規化する
 4. 採用交差点名を `road_aliases.yml` の `intersections` と完全一致照合する
 5. 採用交差点内で `direction` が `east_west` と `north_south` に分かれる
-6. 採用交差点内で東西道路と南北道路が1本ずつ確定できた場合は `東西道路 × 南北道路`
-7. 採用交差点内で片方のみ確定できた場合はその通り名
+6. 採用交差点内で東西道路と南北道路が1本ずつ確定できた場合だけ、本番🛣️行に `東西道路 × 南北道路` として採用する
+7. 採用交差点内で片方のみ確定した道路名は、adminデバッグやfallback候補として保持するが、本番🛣️行には単独採用しない
 8. 同方向で複数候補がある場合は、Yahoo `roadname` が辞書の `name` または `aliases` と一致するものを優先
 9. 採用交差点でroad_alias未確定かつYahoo `roadname` が人間向け通り名として使える場合はfallbackとして採用する
 10. Yahoo `roadname` も空またはfallback不適格なら🛣️行は表示しない
@@ -399,7 +401,7 @@ adminデバッグでは、OSM geometry判定、表示判定に使ったroad_alia
 最終採用元は `road_alias.adoption_source` で確認できる。
 
 - `osm_geometry`
-- `adopted_yahoo_intersection`
+- `adopted_yahoo_intersection`（東西道路と南北道路が両方確定した場合）
 - `yahoo_roadname_fallback`
 
 Yahoo `roadname` fallback:
@@ -681,6 +683,8 @@ road_aliasの重要テスト:
 - 東西道路と南北道路が `東西 × 南北` の順で表示されること
 - 複数候補時にYahoo roadname一致を優先すること
 - 別々のYahoo交差点候補をまたいで通り名を混ぜないこと
+- Yahoo採用交差点で東西道路と南北道路が両方確定した場合は、OSM geometryより `東西 × 南北` を優先すること
+- Yahoo採用交差点で片方向だけ確定した場合は単独採用せず、OSM geometryまたはYahoo roadname fallbackへ進むこと
 - road_alias未登録時にYahoo roadname fallbackが効くこと
 - OSM geometryで三蔵通と本町通の実測座標を本番通り名へ採用できること
 - OSM `osm_name` とタクシー向け `display_name` を分離できること

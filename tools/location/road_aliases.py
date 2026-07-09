@@ -260,5 +260,6 @@ def infer_road_alias_from_result(
         "selected_yahoo_intersection": _text(selected_group.get("yahoo_intersection")) if isinstance(selected_group, dict) else "",
         "road_alias_candidates": selected_matches,
         "all_road_alias_candidates": road_matches,
+        "yahoo_roadname_fallback": fallback_roadname,
         **direction_result,
     }

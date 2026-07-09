@@ -152,10 +152,21 @@ def build_final_road_alias(osm_road_geometry: dict[str, Any], fallback_road_alia
     """Choose the production road display result.
 
     Priority:
-    1. OSM geometry display_name within threshold.
-    2. Adopted Yahoo-intersection road_alias.
+    1. Adopted Yahoo-intersection road_alias only when east-west and north-south are both confirmed.
+    2. OSM geometry display_name within threshold.
     3. Yahoo roadname fallback.
     """
+
+    east_west = fallback_road_alias.get("east_west_road") if isinstance(fallback_road_alias.get("east_west_road"), dict) else {}
+    north_south = fallback_road_alias.get("north_south_road") if isinstance(fallback_road_alias.get("north_south_road"), dict) else {}
+    if _text(east_west.get("name")) and _text(north_south.get("name")):
+        final = dict(fallback_road_alias)
+        final["source"] = "FinalRoadAlias"
+        final["adoption_source"] = "adopted_yahoo_intersection"
+        final["osm_geometry_adopted"] = False
+        final["osm_road_geometry"] = osm_road_geometry
+        final["fallback_road_alias"] = fallback_road_alias
+        return final
 
     osm_name = _text(osm_road_geometry.get("adopted_roadname"))
     if osm_name:
@@ -171,10 +182,30 @@ def build_final_road_alias(osm_road_geometry: dict[str, Any], fallback_road_alia
             "fallback_road_alias": fallback_road_alias,
         }
 
+    yahoo_roadname = _text(fallback_road_alias.get("yahoo_roadname_fallback"))
+    if yahoo_roadname:
+        return {
+            **fallback_road_alias,
+            "source": "FinalRoadAlias",
+            "adopted_roadname": yahoo_roadname,
+            "road_display_name": yahoo_roadname,
+            "east_west_road": {},
+            "north_south_road": {},
+            "road_alias_by_direction": {"east_west": [], "north_south": [], "unknown": []},
+            "road_alias_candidates": [],
+            "adoption_source": "yahoo_roadname_fallback",
+            "reason": "Yahoo roadname fallback",
+            "osm_geometry_adopted": False,
+            "osm_road_geometry": osm_road_geometry,
+            "fallback_road_alias": fallback_road_alias,
+        }
+
     fallback = dict(fallback_road_alias)
-    if fallback.get("adopted_roadname") and not fallback.get("adoption_source"):
-        fallback["adoption_source"] = "adopted_yahoo_intersection"
     fallback["source"] = "FinalRoadAlias"
+    fallback["adopted_roadname"] = ""
+    fallback["road_display_name"] = ""
+    fallback["adoption_source"] = ""
+    fallback["reason"] = "No cross-road alias, OSM geometry, or Yahoo roadname fallback"
     fallback["osm_geometry_adopted"] = False
     fallback["osm_road_geometry"] = osm_road_geometry
     fallback["fallback_road_alias"] = fallback_road_alias
