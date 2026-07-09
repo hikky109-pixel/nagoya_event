@@ -117,6 +117,32 @@ def test_cross_road_yahoo_intersection_beats_osm_geometry():
     assert result["road_alias"]["adoption_source"] == "adopted_yahoo_intersection"
 
 
+def test_mitsukuradori_otsu_intersection_beats_osm_geometry():
+    osm = {
+        "lat": 35.167078,
+        "lon": 136.907178,
+        "candidates": [],
+        "taxi_label": {},
+    }
+    yahoo = {
+        "lat": 35.167078,
+        "lon": 136.907178,
+        "address": ["愛知県", "名古屋市中区", "栄", "３丁目"],
+        "short_address": "中区栄3丁目",
+        "roadname": "",
+        "candidates": [{"name": "三ッ蔵通大津交差点", "category": "地点名", "score": 80.0}],
+        "taxi_label": {"label": "三ッ蔵通大津交差点付近"},
+    }
+
+    result = build_hybrid_result(osm, yahoo)
+
+    assert result["osm_road_geometry"]["adopted_roadname"] == "三蔵通"
+    assert result["fallback_road_alias"]["adopted_roadname"] == "三蔵通 × 大津通"
+    assert result["road_alias"]["adopted_roadname"] == "三蔵通 × 大津通"
+    assert result["road_alias"]["adoption_source"] == "adopted_yahoo_intersection"
+    assert result["display_lines"]["text"] == "📍 中区栄3丁目\n🛣️ 三蔵通 × 大津通\n🚥 三ッ蔵通大津交差点\n座標: 35.167078, 136.907178"
+
+
 def test_hybrid_result_falls_back_when_osm_geometry_has_no_match():
     osm = {
         "lat": 35.0,

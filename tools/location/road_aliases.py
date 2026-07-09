@@ -61,6 +61,7 @@ def load_road_aliases(path: Path = DEFAULT_ROAD_ALIASES_PATH) -> list[dict[str, 
 
 def normalize_intersection_name(name: str) -> str:
     normalized = _text(name).translate(FULLWIDTH_DIGITS)
+    normalized = normalized.replace("三ッ蔵", "三蔵").replace("三ツ蔵", "三蔵")
     for char in (" ", "　", "・", "‐", "-", "－"):
         normalized = normalized.replace(char, "")
     if normalized.endswith("交差点"):

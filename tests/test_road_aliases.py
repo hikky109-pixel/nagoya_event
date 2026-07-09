@@ -8,6 +8,13 @@ def test_normalize_intersection_name_accepts_suffix_variants():
     assert normalize_intersection_name("錦通 大津 交差点") == normalize_intersection_name("錦通大津")
 
 
+def test_normalize_intersection_name_accepts_mitsukura_variants():
+    canonical = normalize_intersection_name("三蔵通大津交差点")
+
+    assert normalize_intersection_name("三ッ蔵通大津交差点") == canonical
+    assert normalize_intersection_name("三ツ蔵通大津交差点") == canonical
+
+
 def test_sakuradori_known_intersection_matches_sakuradori():
     matches = match_road_aliases("桜通大津交差点")
 
@@ -42,6 +49,8 @@ def test_added_major_roads_match_known_intersections():
         ("東別院交差点", "山王通"),
         ("三蔵通本町交差点", "三蔵通"),
         ("三蔵通大津交差点", "三蔵通"),
+        ("三ッ蔵通大津交差点", "三蔵通"),
+        ("三ッ蔵通大津交差点", "大津通"),
         ("三蔵交差点", "三蔵通"),
         ("三ッ蔵通久屋西", "三蔵通"),
         ("三蔵通久屋西", "三蔵通"),
@@ -67,6 +76,7 @@ def test_mitsukuradori_records_osm_geometry_source():
 def test_infer_combines_east_west_and_north_south_roads():
     cases = [
         ("錦通大津交差点", "錦通 × 大津通", "錦通", "大津通"),
+        ("三ッ蔵通大津交差点", "三蔵通 × 大津通", "三蔵通", "大津通"),
         ("若宮大通久屋交差点", "若宮大通 × 久屋大通", "若宮大通", "久屋大通"),
         ("高岳交差点", "桜通 × 空港線", "桜通", "空港線"),
     ]
