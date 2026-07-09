@@ -784,13 +784,107 @@ ignored_trains: []
 - 遅延分数は列車単位で取れるが、公式運行情報の原因・区間文章とは別データとして扱う。
 - 通知投稿、名古屋到着見込み時刻の推定、他社線終電時刻との照合は未実装。
 
-## 13. テスト
+## 13. Railway Incident管理
+
+目的:
+
+- 同一交通障害を1つのincidentとして管理し、Gemmaの類似投稿連投を抑制する。
+- 公式文面の軽微な変更、遅延分数の小幅変化、復旧見込み時刻の更新だけでは新規incidentを作らない。
+- severity上昇、30分以上の通常遅延閾値突破、終電接続risk新規発生、運転見合わせ、復旧など、需要影響が変わる場合のみ再通知候補にする。
+
+実装:
+
+```text
+tools/railway/railway_incident_manager.py
+```
+
+state保存先:
+
+```text
+data/railway/incidents/railway_incidents.json
+```
+
+保存仕様:
+
+- JSONで `version` と `incidents` を保存する。
+- 保存は一時ファイルへ書き込み後 `os.replace` するatomic write。
+- 同一プロセス/同一ホスト上の競合を避けるため、可能な環境では `fcntl.flock` による `.lock` ファイル排他を使う。
+- state JSONが壊れている場合はログを出し、安全側で空stateとして扱う。
+
+incident_id:
+
+- 取得時刻そのものだけでは作らない。
+- `operator`、`line`、正規化した `reason`、正規化した `affected_section` からfingerprintを作る。
+- 初回検知時に `operator_line_YYYYMMDD_reason_001` 形式のIDを発行する。
+- 復旧済みincidentと同じfingerprintで新しい障害が発生した場合は、同日の連番を進めて新しいincident_idを発行する。
+
+保持する主な項目:
+
+- `incident_id`
+- `operator`
+- `line`
+- `status`
+- `reason`
+- `affected_section`
+- `first_detected_at`
+- `last_seen_at`
+- `last_notified_at`
+- `last_message_fingerprint`
+- `severity`
+- `max_delay_min`
+- `terminal_connection_risks`
+- `notification_count`
+
+同一incident判定:
+
+- 同じ `operator`、`line`、正規化reason、正規化affected_section のopen incidentがあれば同一incidentとして扱う。
+- 時刻表記、遅延分数、対象列車数などの軽微な文面変化はfingerprintに入れない。
+- 別原因、別路線、明確に別区間の場合は別incidentとする。
+
+通知抑制:
+
+- 初回検知は `should_notify = true`
+- 同一incidentで意味のある変化がなければ `should_notify = false`
+- 公式文面だけの軽微変更では再通知しない
+- 遅延分数が変わっただけでは毎回通知しない
+
+再通知候補:
+
+- `severity` が上昇
+- `max_delay_min` が30分閾値を新たに超えた
+- `terminal_connection_risks` が新規発生
+- `status` が運転見合わせ相当へ悪化
+- 影響区間が明確に変化
+- 復旧
+
+新幹線走行位置JSONとの関係:
+
+- `analyze_shinkansen_position.py` のsummaryに含まれる `max_delay_min`、`severity_alerts`、`terminal_connection_risks` をincident eventへ反映できる構造にしている。
+- 通常severityと終電接続riskは別軸を維持する。
+- 山陽区間は走行位置summary側で `ignored_reason` 付きの参考情報へ回し、incident判定の主要対象は東海道区間とする。
+
+現時点のGemma連携:
+
+- 本番の `run_gemma_ollama.py` への通知抑制差し込みはまだ行っていない。
+- 既存の鉄道取得、pre-LLM filter、state diff、cooldown、復旧通知の分岐が複雑なため、今回はincident manager単体とintegration helperに留める。
+- 次段階では、鉄道alertまたは新幹線走行位置summaryをincident eventへ変換し、`should_notify` がtrueの場合のみGemma入力・投稿候補へ進める。
+
+既存の鉄道→Gemma→Discord経路:
+
+- 取得: `tools/ai/railway_status_normalizer.py` の `get_all_railway_alerts_snapshot()`
+- 監視時間判定: `tools/ai/run_gemma_ollama.py` の `is_railway_monitoring_active()`
+- 0:00〜5:00の新幹線通常監視休止、重大交通incident時の監視延長は既存仕様を維持する。
+- 既存抑制: `railway_filters.py`、`railway_state.py`、`railway_beta_state.json`、`railway_beta_last_notify.json`
+- コメント生成/投稿候補: `run_gemma_ollama.py` の `railway_beta_comment` 系分岐
+- 履歴: `railway_history.py`
+
+## 14. テスト
 
 主な確認コマンド:
 
 ```bash
-python3 -m py_compile main.py config.py tools/location/*.py tools/railway/*.py
-.venv/bin/python -m pytest tests/test_osm_road_geometry.py tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py tests/test_sync_place_dict_sheets.py tests/test_shinkansen_position.py -q
+python3 -m py_compile main.py config.py tools/ai/*.py tools/location/*.py tools/railway/*.py
+.venv/bin/python -m pytest tests/test_osm_road_geometry.py tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py tests/test_sync_place_dict_sheets.py tests/test_shinkansen_position.py tests/test_railway_incident_manager.py -q
 git diff --check
 ```
 
@@ -836,7 +930,18 @@ road_aliasの重要テスト:
 - JSON構造欠落時も例外停止しないこと
 - timestamp付きファイル名で保存できること
 
-## 14. 今後の予定
+Railway Incident管理の重要テスト:
+
+- `tests/test_railway_incident_manager.py`
+- 初回障害は新規incident_idを発行し通知対象にすること
+- 同一障害、同一内容、軽微な文面変更は抑制すること
+- 20分から35分など30分閾値を新たに超えた場合は再通知候補にすること
+- `ひかり669号` など終電接続risk新規発生は再通知候補にすること
+- 別原因は別incidentにすること
+- 復旧は同一incident_idで通知候補にし、復旧後の同一fingerprint新規障害は新incident_idにすること
+- 壊れたstateでも全体停止しないこと
+
+## 15. 今後の予定
 
 未実装、または構想段階のもの:
 
@@ -854,8 +959,10 @@ road_aliasの重要テスト:
 - TP/TBの円形radiusで誤爆が出る地点はpolygon/geometry判定へ移行する
 - 新幹線走行位置summaryを既存の鉄道通知/Gemma判断へ接続する
 - 終電帯は小幅遅延でも他社線接続影響を強めに評価する
+- Railway Incident管理を `run_gemma_ollama.py` の鉄道通知分岐へ接続する
+- 公式alertと新幹線走行位置summaryを統合したincident event変換器を本番経路へ入れる
 
-## 15. 変更時の追記ルール
+## 16. 変更時の追記ルール
 
 仕様変更時は次の順で更新する。
 
