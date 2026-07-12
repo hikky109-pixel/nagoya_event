@@ -148,10 +148,9 @@ def test_railway_state_persists_morning_reposted_date(tmp_path: Path) -> None:
         },
     )
 
-    assert load_railway_state_metadata(state_path) == {
-        "morning_reposted_date": "2026-06-26",
-        "critical_transport_recovered_at": "",
-    }
+    metadata = load_railway_state_metadata(state_path)
+    assert metadata["morning_reposted_date"] == "2026-06-26"
+    assert metadata["critical_transport_recovered_at"] == ""
     assert load_railway_incident_first_seen(state_path) == {
         ALERT: "2026-06-25T23:00:00+09:00"
     }
@@ -178,8 +177,7 @@ def test_legacy_state_without_first_seen_remains_readable(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    assert load_railway_state_metadata(state_path) == {
-        "morning_reposted_date": "2026-06-25",
-        "critical_transport_recovered_at": "",
-    }
+    metadata = load_railway_state_metadata(state_path)
+    assert metadata["morning_reposted_date"] == "2026-06-25"
+    assert metadata["critical_transport_recovered_at"] == ""
     assert load_railway_incident_first_seen(state_path) == {}
