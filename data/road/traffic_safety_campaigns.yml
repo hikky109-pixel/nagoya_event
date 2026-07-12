@@ -1,0 +1,10 @@
+campaigns:
+  - id: spring_national_traffic_safety_campaign
+    title: 春の全国交通安全運動期間中の交通指導取締り
+    season: 春
+    start_month: 4
+    start_day: 6
+    end_month: 4
+    end_day: 15
+    keywords:
+      - 交通安全運動

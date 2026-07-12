@@ -27,6 +27,9 @@ data/*.json
 # Runtime/generated data
 data/*
 !data/.gitkeep
+!data/road/
+data/road/*
+!data/road/traffic_safety_campaigns.yml
 !data/location/
 data/location/*
 !data/location/place_label_overrides.yml

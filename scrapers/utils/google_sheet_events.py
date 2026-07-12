@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import os
 from datetime import date, datetime
@@ -6,6 +7,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+
+from scrapers.utils.road_validation import is_road_event_seasonally_valid
 
 
 COMMON_COLUMNS = ["date", "time", "end_time", "venue", "title", "source", "status", "note", "url"]
@@ -21,9 +24,14 @@ ROAD_EXTRA_COLUMNS = [
     "result",
     "source_detail",
     "memo",
+    "sync_key",
+    "manual_override",
+    "reviewed",
+    "updated_by",
 ]
 ROAD_COLUMNS = COMMON_COLUMNS + ROAD_EXTRA_COLUMNS
 ROAD_KEY_COLUMNS = ["date", "venue", "title", "note", "source", "url"]
+ROAD_FALLBACK_KEY_COLUMNS = ["date", "venue", "note", "source", "url"]
 SHEET_URLS = {
     'misonoza': 'https://docs.google.com/spreadsheets/d/12MNpRn0Krk3WVRFoj37bST2fXBGnomeQ-DQ4N9VA-7c/gviz/tq?tqx=out:csv&sheet=%E5%BE%A1%E5%9C%92%E5%BA%A7',
     'spot': 'https://docs.google.com/spreadsheets/d/12MNpRn0Krk3WVRFoj37bST2fXBGnomeQ-DQ4N9VA-7c/gviz/tq?tqx=out:csv&sheet=%E3%82%B9%E3%83%9D%E3%83%83%E3%83%88',
@@ -73,6 +81,10 @@ def load_all_google_sheet_events():
         events += load_google_sheet_csv(url, source)
 
     return events
+
+
+def load_road_google_sheet_events():
+    return load_google_sheet_csv(SHEET_URLS["road"], "road")
 
 SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -138,8 +150,62 @@ def _rows_to_dicts(rows, columns):
     return records
 
 
+def _truthy(value):
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "済", "はい"}
+
+
+def _road_sync_key(record):
+    existing = str(record.get("sync_key") or "").strip()
+    if existing:
+        return existing
+
+    raw_key = "|".join(str(record.get(column, "") or "").strip() for column in ROAD_KEY_COLUMNS)
+    digest = hashlib.sha1(raw_key.encode("utf-8")).hexdigest()[:16]
+    return f"road_{digest}"
+
+
 def _road_key(record):
-    return tuple(record.get(column, "") for column in ROAD_KEY_COLUMNS)
+    return _road_sync_key(record)
+
+
+def _road_fallback_key(record):
+    return tuple(str(record.get(column, "") or "").strip() for column in ROAD_FALLBACK_KEY_COLUMNS)
+
+
+def _is_protected_road_sheet_row(record):
+    status = str(record.get("status") or "").strip().lower()
+    source = str(record.get("source") or "")
+    source_detail = str(record.get("source_detail") or "")
+    note = str(record.get("note") or "")
+    memo = str(record.get("memo") or "")
+    protected_text = f"{source} {source_detail} {note} {memo}"
+    return (
+        _truthy(record.get("manual_override"))
+        or status in {"manual", "secret"}
+        or "手動" in protected_text
+        or "秘密" in protected_text
+        or "secret" in protected_text.lower()
+    )
+
+
+def _normalize_road_record(record):
+    normalized = {column: str(record.get(column, "") or "").strip() for column in ROAD_COLUMNS}
+    normalized["sync_key"] = _road_sync_key(normalized)
+    return normalized
+
+
+def _unique_fallback_index(records):
+    index = {}
+    duplicates = set()
+    for record in records:
+        key = _road_fallback_key(record)
+        if key in index:
+            duplicates.add(key)
+            continue
+        index[key] = record
+    for key in duplicates:
+        index.pop(key, None)
+    return index
 
 
 def _event_key(event):
@@ -268,27 +334,112 @@ def _create_sheet(service, spreadsheet_id, sheet_name):
     ).execute()
 
 
-def _road_records_to_rows(csv_records, sheet_records):
-    previous_by_key = {_road_key(record): record for record in sheet_records}
-    values = [ROAD_COLUMNS]
+def _merge_road_records(csv_records, sheet_records):
+    previous_by_key = {}
+    for record in sheet_records:
+        normalized = _normalize_road_record(record)
+        previous_by_key.setdefault(_road_key(normalized), normalized)
+
+    previous_by_fallback = _unique_fallback_index(previous_by_key.values())
+    csv_by_fallback = _unique_fallback_index([_normalize_road_record(record) for record in csv_records])
+    merged_records = []
+    used_sheet_keys = set()
+    stats = {
+        "csv_records": len(csv_records),
+        "added": 0,
+        "updated": 0,
+        "protected": 0,
+        "kept_sheet_only": 0,
+        "seasonal_rejected": 0,
+        "removed_invalid_sheet_rows": 0,
+    }
 
     for csv_record in csv_records:
-        merged = {column: csv_record.get(column, "") for column in ROAD_COLUMNS}
-        previous = previous_by_key.get(_road_key(merged))
+        csv_normalized = _normalize_road_record(csv_record)
+        if not is_road_event_seasonally_valid(csv_normalized, log_rejection=True):
+            stats["seasonal_rejected"] += 1
+            continue
+
+        previous = previous_by_key.get(_road_key(csv_normalized))
+        matched_by_fallback = False
+        if previous is None and _road_fallback_key(csv_normalized) in csv_by_fallback:
+            previous = previous_by_fallback.get(_road_fallback_key(csv_normalized))
+            matched_by_fallback = previous is not None
 
         if previous:
-            for column in ROAD_EXTRA_COLUMNS:
-                merged[column] = previous.get(column, "")
+            used_sheet_keys.add(_road_key(previous))
+            if _is_protected_road_sheet_row(previous):
+                merged = dict(previous)
+                if matched_by_fallback:
+                    merged["sync_key"] = csv_normalized["sync_key"]
+                stats["protected"] += 1
+            else:
+                merged = dict(csv_normalized)
+                for column in ROAD_EXTRA_COLUMNS:
+                    if column == "sync_key":
+                        continue
+                    merged[column] = previous.get(column, "")
+                stats["updated"] += 1
+        else:
+            merged = dict(csv_normalized)
+            stats["added"] += 1
 
+        merged_records.append(merged)
+
+    for previous in previous_by_key.values():
+        if _road_key(previous) in used_sheet_keys:
+            continue
+        if not is_road_event_seasonally_valid(previous, log_rejection=True) and not _is_protected_road_sheet_row(previous):
+            stats["removed_invalid_sheet_rows"] += 1
+            continue
+        merged_records.append(previous)
+        stats["kept_sheet_only"] += 1
+
+    return merged_records, stats
+
+
+def _road_records_to_rows(csv_records, sheet_records):
+    merged_records, _stats = _merge_road_records(csv_records, sheet_records)
+    values = [ROAD_COLUMNS]
+
+    for merged in merged_records:
+        if not merged.get("sync_key"):
+            merged["sync_key"] = _road_sync_key(merged)
         values.append([merged.get(column, "") for column in ROAD_COLUMNS])
 
     return values
 
 
+def _column_letter(number):
+    letters = ""
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def _write_road_sheet_values(service, spreadsheet_id, sheet_name, values, previous_row_count):
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A1",
+        valueInputOption="RAW",
+        body={"values": values},
+    ).execute()
+
+    if previous_row_count > len(values):
+        last_column = _column_letter(len(ROAD_COLUMNS))
+        service.spreadsheets().values().clear(
+            spreadsheetId=spreadsheet_id,
+            range=f"{sheet_name}!A{len(values) + 1}:{last_column}{previous_row_count}",
+            body={},
+        ).execute()
+
+
 def _road_records_to_values(records):
+    normalized_records = [_normalize_road_record(record) for record in records]
     return [ROAD_COLUMNS] + [
         [record.get(column, "") for column in ROAD_COLUMNS]
-        for record in records
+        for record in normalized_records
     ]
 
 
@@ -381,17 +532,13 @@ def archive_old_road_rows(target_date=None, csv_path="csv_events/road.csv"):
         ).execute()
 
     if old_count:
-        service.spreadsheets().values().clear(
-            spreadsheetId=spreadsheet_id,
-            range=ROAD_SHEET_NAME,
-            body={},
-        ).execute()
-        service.spreadsheets().values().update(
-            spreadsheetId=spreadsheet_id,
-            range=f"{ROAD_SHEET_NAME}!A1",
-            valueInputOption="RAW",
-            body={"values": _road_records_to_values(remaining_records)},
-        ).execute()
+        _write_road_sheet_values(
+            service,
+            spreadsheet_id,
+            ROAD_SHEET_NAME,
+            _road_records_to_values(remaining_records),
+            len(current_rows),
+        )
 
     print(f"道路情報過去ログ移動: {len(append_records)}件")
     print(f"重複スキップ: {duplicate_count}件")
@@ -426,21 +573,16 @@ def sync_road_csv_to_sheet(csv_path="csv_events/road.csv"):
 
     sheet_rows = _read_sheet_rows(service, spreadsheet_id, ROAD_SHEET_NAME)
     sheet_records = _rows_to_dicts(sheet_rows, ROAD_COLUMNS)
-    values = _road_records_to_rows(csv_records, sheet_records)
+    merged_records, stats = _merge_road_records(csv_records, sheet_records)
+    values = _road_records_to_values(merged_records)
+    _write_road_sheet_values(service, spreadsheet_id, ROAD_SHEET_NAME, values, len(sheet_rows))
 
-    service.spreadsheets().values().clear(
-        spreadsheetId=spreadsheet_id,
-        range=ROAD_SHEET_NAME,
-        body={},
-    ).execute()
-    service.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range=f"{ROAD_SHEET_NAME}!A1",
-        valueInputOption="RAW",
-        body={"values": values},
-    ).execute()
-
-    print(f"道路情報Google Sheets同期完了: {len(csv_records)}件")
+    print(
+        "道路情報Google Sheets同期完了: "
+        f"CSV{len(csv_records)}件 / 追加{stats['added']}件 / 更新{stats['updated']}件 / "
+        f"保護{stats['protected']}件 / Sheets保持{stats['kept_sheet_only']}件 / "
+        f"季節不整合除外{stats['seasonal_rejected']}件"
+    )
     return True
 
 
@@ -584,4 +726,3 @@ def cleanup_old_cruise_rows(target_date=None):
 
 def cleanup_old_asia_rows(target_date=None):
     return cleanup_old_simple_sheet_rows(ASIA_SHEET_NAME, "アジア大会", target_date)
-

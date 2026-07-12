@@ -1,6 +1,6 @@
 # nagoya_event 現状仕様
 
-最終更新: 2026-07-10
+最終更新: 2026-07-13
 
 この文書は、現時点のコード実装を正として整理する。未実装の構想は末尾の「今後の予定」に分ける。仕様変更時は該当章へ追記し、運用上の注意が変わる場合は「運用メモ」も更新する。
 
@@ -35,6 +35,41 @@
 - `cleanup_old_asia_rows(today)`
 
 Google SheetsのイベントDB IDは既存の `GOOGLE_SHEET_ID`、または `scrapers/utils/google_sheet_events.py` の既定URLから導出される。`config.py` では `EVENT_SHEET_ID` も定義し、未設定時は `GOOGLE_SHEET_ID` をfallbackとして使う。
+
+### 2.1 道路情報
+
+道路情報は主に `scrapers/road_pdf.py` が愛知県警PDFを処理し、`csv_events/road.csv` を生成する。
+
+流れ:
+
+1. 愛知県警PDFから通常の取締・オービス予定を抽出する
+2. 画像化された重点取締枠はOCRで読み取る
+3. `csv_events/road.csv` へ保存する
+4. `main.py` の `load_road_events()` が当日分を読み込む
+5. `build_road_message()` がDiscord投稿文を作る
+6. `sync_road_csv_to_sheet()` がGoogle Sheetsの `道路情報` へ同期する
+
+通常運用のDiscord投稿では、`道路情報` Google Sheetsを正本として読む。Sheets取得に失敗した場合のみ `csv_events/road.csv` へfallbackする。テストや手元確認で明示的にCSVパスを渡した場合は、そのCSVだけを読む。
+
+重点取締OCRでは、交通安全運動など季節・期間名を含む定型イベントについて、`data/road/traffic_safety_campaigns.yml` の実施期間と取得対象日を照合する。期間外の `春の全国交通安全運動期間中の交通指導取締り` は本番採用しない。OCR誤認を `春` から `夏` などへ機械置換することは禁止する。不整合時は `road_ocr: rejected seasonal mismatch ...` を出力し、CSV生成、Google Sheets同期、Discord投稿の各入口で防御的に除外する。
+
+`道路情報` Google Sheets同期はsafe upsert方式である。同期前に既存Sheetを読み、CSV由来の新規行は追加し、既存行は `sync_key` 優先で突合する。`sync_key` がない旧行は、重複しない場合のみ `date + venue + note + source + url` をfallback keyとして照合する。CSV由来行の `sync_key` は `date + venue + title + note + source + url` から生成する。
+
+道路情報の手動管理列:
+
+- `sync_key`: CSV由来行の安定キー。タイトル手修正後も同一行として扱うために保持する。
+- `manual_override`: true相当の場合、Sheets側の値をCSVで上書きしない。
+- `reviewed`: 人間レビュー状態。同期では保持する。
+- `updated_by`: 手動更新者メモ。同期では保持する。
+- `source_detail` / `memo`: `秘密`、`secret`、`手動` を含む場合は保護行として扱う。
+
+保護対象:
+
+- `manual_override` がtrue相当の行
+- `status` が `manual` または `secret` の行
+- `source`、`source_detail`、`note`、`memo` に `手動`、`秘密`、`secret` を含む行
+
+保護対象行はCSVに存在しなくても削除しない。CSVに存在しないSheets専用行も基本的に保持する。期間不整合の自動生成行だけは、保護対象でない場合に同期結果から除外できる。道路情報同期ではシート全体clearは禁止し、必要な場合も書き戻し後の余剰範囲だけを消す。
 
 ## 3. 名古屋場所辞書DB
 
@@ -525,7 +560,7 @@ credentials/token.json
 
 同期時の基本方針:
 
-- イベント系のCSV同期は既存仕様を維持
+- イベント系のCSV同期は既存仕様を維持。ただし `道路情報` は手動修正・秘密ルート行を守るsafe upsert方式
 - `PlaceInfo_Review` は人間レビュー列を保持するupsert同期
 - 場所辞書YAMLの同期も、人間レビュー列を保持するupsert同期
 - 同期失敗はログに出す

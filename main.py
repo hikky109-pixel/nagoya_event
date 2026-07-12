@@ -43,11 +43,13 @@ from scrapers.utils.google_sheet_events import (
     cleanup_old_asia_rows,
     cleanup_old_cruise_rows,
     load_all_google_sheet_events,
+    load_road_google_sheet_events,
     sync_asia_csv_to_sheet,
     sync_cruise_csv_to_sheet,
     sync_csv_to_sheet,
     sync_road_csv_to_sheet,
 )
+from scrapers.utils.road_validation import is_road_event_seasonally_valid
 from tools.location.sync_placeinfo_review_sheet import sync_placeinfo_review_sheet
 
 JST = timezone(timedelta(hours=9))
@@ -288,12 +290,7 @@ def load_non_road_manual_csv_events():
     return events
 
 
-def load_road_events(target_date, csv_path=ROAD_CSV_PATH):
-    if not csv_path.exists():
-        print(f"道路交通情報CSVなし: {csv_path}")
-        logging.info("道路交通情報CSVなし: %s", csv_path)
-        return []
-
+def _road_target_strings(target_date):
     if isinstance(target_date, datetime):
         target_date = target_date.date()
 
@@ -310,31 +307,58 @@ def load_road_events(target_date, csv_path=ROAD_CSV_PATH):
             target_text.replace("-", "/"),
         }
 
+    return target_strings
+
+
+def _filter_road_events_for_date(rows, target_strings):
     events = []
+
+    for row in rows:
+        if row.get("status", "").strip() in {"inactive", "skip"}:
+            continue
+
+        event = {
+            "date": row.get("date", "").strip(),
+            "time": row.get("time", "").strip() or "未定",
+            "end_time": row.get("end_time", "").strip(),
+            "venue": row.get("venue", "").strip(),
+            "title": row.get("title", "").strip(),
+            "source": row.get("source", "").strip(),
+            "status": row.get("status", "").strip(),
+            "note": row.get("note", "").strip() or "イベント",
+            "url": row.get("url", "").strip(),
+        }
+
+        if event["date"] in target_strings and event["title"]:
+            if not is_road_event_seasonally_valid(event, log_rejection=True):
+                logging.warning("道路交通情報: 季節不整合のため除外 date=%s title=%s", event["date"], event["title"])
+                continue
+            events.append(event)
+
+    return events
+
+
+def load_road_events(target_date, csv_path=ROAD_CSV_PATH):
+    csv_path = Path(csv_path)
+    target_strings = _road_target_strings(target_date)
+
+    if Path(csv_path) == ROAD_CSV_PATH:
+        try:
+            sheet_events = _filter_road_events_for_date(load_road_google_sheet_events(), target_strings)
+            logging.info("道路交通情報: Google Sheetsから取得 %s件", len(sheet_events))
+            return sheet_events
+        except Exception as exc:
+            print(f"[WARN] 道路交通情報Google Sheets取得失敗、CSVへfallback: {exc}")
+            logging.exception("道路交通情報Google Sheets取得失敗、CSVへfallback")
+
+    if not csv_path.exists():
+        print(f"道路交通情報CSVなし: {csv_path}")
+        logging.info("道路交通情報CSVなし: %s", csv_path)
+        return []
 
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
-
-        for row in reader:
-            if row.get("status", "").strip() == "inactive":
-                continue
-
-            event = {
-                "date": row.get("date", "").strip(),
-                "time": row.get("time", "").strip() or "未定",
-                "end_time": row.get("end_time", "").strip(),
-                "venue": row.get("venue", "").strip(),
-                "title": row.get("title", "").strip(),
-                "source": row.get("source", "").strip(),
-                "status": row.get("status", "").strip(),
-                "note": row.get("note", "").strip() or "イベント",
-                "url": row.get("url", "").strip(),
-            }
-
-            if event["date"] in target_strings and event["title"]:
-                events.append(event)
-
-    return events
+        return _filter_road_events_for_date(reader, target_strings)
 
 
 

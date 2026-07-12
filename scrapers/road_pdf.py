@@ -16,6 +16,10 @@ from tools.common.scraper_health import (
     check_structure_hash,
     has_major_warning,
 )
+from scrapers.utils.road_validation import (
+    is_road_event_seasonally_valid,
+    traffic_safety_campaign_title,
+)
 
 
 BASE_URL = "https://www.pref.aichi.jp/police/koutsu/ko-shidou/images"
@@ -215,7 +219,11 @@ def extract_events(path: Path, url: str) -> list[dict]:
     return events
 
 
-def classify_focus_text(text: str) -> str | None:
+def classify_focus_text(
+    text: str,
+    event_dates: list[str] | None = None,
+    year: int | None = None,
+) -> str | None:
     text = normalize_ocr_text(text)
 
     if "交通事故死ゼロ" in text and "携帯電話" in text:
@@ -235,7 +243,7 @@ def classify_focus_text(text: str) -> str | None:
     if "飲酒" in text:
         return "飲酒運転取締り"
     if "交通安全運動" in text:
-        return "春の全国交通安全運動期間中の交通指導取締り"
+        return traffic_safety_campaign_title(text, event_dates=event_dates, year=year)
     if "行楽期" in text:
         return "春の行楽期中における交通指導取締り"
     if "重点取締" in text:
@@ -304,10 +312,10 @@ def extract_focus_events(path: Path, url: str, debug: bool = False) -> list[dict
             page.crop(bbox, strict=False).to_image(resolution=300).save(image_path)
 
             ocr_text = ocr_image(image_path)
-            title = classify_focus_text(ocr_text)
-            period_dates = parse_focus_period(ocr_text, year) if title else []
-            bbox_date = date_for_bbox(bbox, cells, year, month) if title else None
+            period_dates = parse_focus_period(ocr_text, year)
+            bbox_date = date_for_bbox(bbox, cells, year, month)
             event_dates = period_dates or ([bbox_date] if bbox_date else [])
+            title = classify_focus_text(ocr_text, event_dates=event_dates, year=year)
 
             if debug:
                 one_line_text = ocr_text.replace("\n", " / ")
@@ -318,7 +326,7 @@ def extract_focus_events(path: Path, url: str, debug: bool = False) -> list[dict
                 continue
 
             for event_date in event_dates:
-                events.append({
+                event = {
                     "date": event_date,
                     "time": "未定",
                     "end_time": "",
@@ -328,7 +336,10 @@ def extract_focus_events(path: Path, url: str, debug: bool = False) -> list[dict
                     "status": "confirmed",
                     "note": "重点取締",
                     "url": url,
-                })
+                }
+                if not is_road_event_seasonally_valid(event, log_rejection=True):
+                    continue
+                events.append(event)
 
     return events
 
