@@ -1,6 +1,6 @@
 # nagoya_event 現状仕様
 
-最終更新: 2026-07-13
+最終更新: 2026-07-21
 
 この文書は、現時点のコード実装を正として整理する。未実装の構想は末尾の「今後の予定」に分ける。仕様変更時は該当章へ追記し、運用上の注意が変わる場合は「運用メモ」も更新する。
 
@@ -912,6 +912,42 @@ incident_id:
 - 既存抑制: `railway_filters.py`、`railway_state.py`、`railway_beta_state.json`、`railway_beta_last_notify.json`
 - コメント生成/投稿候補: `run_gemma_ollama.py` の `railway_beta_comment` 系分岐
 - 履歴: `railway_history.py`
+
+### 13.1 近鉄名古屋線の正規化
+
+近鉄の通知対象は名古屋線である。スクレーパーが取得したトップページのメッセージだけでなく、`data/debug/railway/kintetsu_latest.json` に保存された詳細レコードも `railway_status_normalizer.py` が正規化対象として使用する。
+
+処理仕様:
+
+1. `normalize_kintetsu_status()` が `get_kintetsu_status(abnormal_only=True)` を実行する。この処理で近鉄詳細ページの取得結果が最新debug snapshotへ保存される。
+2. normalizerは最新snapshotの `records` を読み、各レコードの `affected_lines` を確認する。
+3. `affected_lines` に `名古屋線` が含まれるレコードだけを採用する。大阪線、奈良線など名古屋線以外だけのレコードは通知対象外とする。
+4. `body_text` から名古屋線を含む文章を抽出し、`近鉄 名古屋線: ...` 形式へ正規化する。
+5. 詳細レコードが存在しない場合は、トップページ由来メッセージに `名古屋線` が明記されているものだけをfallback採用する。
+6. 正規化結果は `get_all_railway_alerts_snapshot()`、`monitoring_public_railway_alerts()` を経由して `railway_beta_alerts` へ入る。
+
+ステータスは本文から `運休`、`運転見合わせ`、`遅れ`、`遅延`、`運転変更`、`振替輸送` の順で判定する。たとえば、名古屋線の一部列車運休は次のように記録される。
+
+```text
+railway_normalized: operator=近鉄 line=名古屋線 status=運休 accepted=true
+railway_beta_alerts:1
+```
+
+除外時も理由をログへ記録する。
+
+```text
+railway_normalized: operator=近鉄 line=奈良線 status=運転見合わせ accepted=false reason=target_line_not_affected
+```
+
+主な除外理由:
+
+- `target_line_not_affected`: 詳細レコードの影響線区に名古屋線がない
+- `target_line_not_found`: fallbackメッセージに名古屋線の記載がない
+- `empty_detail_message`: 詳細レコードから通知本文を作れない
+- `invalid_detail_record`: 詳細レコードの形式が不正
+- `detail_snapshot_unavailable`: 最新debug snapshotを読み込めない
+
+近鉄の失敗や対象外判定はJR東海、名鉄、名古屋市営地下鉄など他事業者のalert生成を停止させない。
 
 ## 14. テスト
 
