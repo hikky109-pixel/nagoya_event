@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import html as html_lib
+import json
 import re
 import sys
 from datetime import datetime, timezone
@@ -21,8 +22,13 @@ from get_jrc_zairai_status import (  # noqa: E402
     get_jrc_zairai_status,
     get_jrc_zairai_status_details_snapshot,
 )
-from get_kintetsu_status import get_kintetsu_status  # noqa: E402
+from get_kintetsu_status import (  # noqa: E402
+    LATEST_DEBUG_PATH as KINTETSU_LATEST_DEBUG_PATH,
+    TARGET_LINE as KINTETSU_TARGET_LINE,
+    get_kintetsu_status,
+)
 from get_linimo_status import get_linimo_status  # noqa: E402
+from log_utils import log  # noqa: E402
 from get_meitetsu_status import get_meitetsu_status, get_meitetsu_status_snapshot  # noqa: E402
 from get_nagoya_subway_status import get_nagoya_subway_status  # noqa: E402
 from get_yutorito_status import get_yutorito_status  # noqa: E402
@@ -133,8 +139,112 @@ def get_last_jrc_zairai_structured_events() -> list[dict[str, Any]]:
     return [dict(event) for event in _LAST_JRC_ZAIRAI_STRUCTURED_EVENTS]
 
 
+KINTETSU_STATUS_MARKERS = (
+    "運休",
+    "運転見合わせ",
+    "遅れ",
+    "遅延",
+    "運転変更",
+    "振替輸送",
+)
+
+
+def _kintetsu_status(text: str) -> str:
+    return next((marker for marker in KINTETSU_STATUS_MARKERS if marker in text), "異常情報あり")
+
+
+def _kintetsu_line_message(record: dict[str, Any]) -> str:
+    body = _clean_text(record.get("body_text"))
+    line_sentences = [
+        _clean_text(sentence)
+        for sentence in re.split(r"(?<=[。！？])|(?=影響線区[：:])", body)
+        if KINTETSU_TARGET_LINE in sentence
+    ]
+    return " ".join(dict.fromkeys(line_sentences)) or _clean_text(record.get("title")) or body
+
+
+def _normalize_kintetsu_result(
+    messages: Any,
+    snapshot: Any,
+) -> list[str]:
+    alerts: list[str] = []
+    records = snapshot.get("records", []) if isinstance(snapshot, dict) else []
+    if isinstance(records, list) and records:
+        for record in records:
+            if not isinstance(record, dict):
+                log(
+                    "railway_normalized: operator=近鉄 line=不明 status=不明 "
+                    "accepted=false reason=invalid_detail_record"
+                )
+                continue
+            affected_lines = record.get("affected_lines", [])
+            accepted = (
+                isinstance(affected_lines, list)
+                and KINTETSU_TARGET_LINE in affected_lines
+            )
+            message = _kintetsu_line_message(record)
+            status = _kintetsu_status(message)
+            if not accepted:
+                log(
+                    "railway_normalized: operator=近鉄 "
+                    f"line={_clean_text(record.get('main_line')) or '不明'} "
+                    f"status={status} accepted=false reason=target_line_not_affected"
+                )
+                continue
+            if not message:
+                log(
+                    f"railway_normalized: operator=近鉄 line={KINTETSU_TARGET_LINE} "
+                    "status=不明 accepted=false reason=empty_detail_message"
+                )
+                continue
+            alert = f"近鉄 {KINTETSU_TARGET_LINE}: {message}"
+            if alert not in alerts:
+                alerts.append(alert)
+            log(
+                f"railway_normalized: operator=近鉄 line={KINTETSU_TARGET_LINE} "
+                f"status={status} accepted=true"
+            )
+        return alerts
+
+    if not isinstance(messages, list):
+        log(
+            "railway_normalized: operator=近鉄 line=不明 status=不明 "
+            "accepted=false reason=invalid_status_result"
+        )
+        return []
+    for raw_message in messages:
+        message = _clean_text(raw_message)
+        status = _kintetsu_status(message)
+        if not message:
+            log(
+                "railway_normalized: operator=近鉄 line=不明 status=不明 "
+                "accepted=false reason=empty_message"
+            )
+        elif KINTETSU_TARGET_LINE not in message:
+            log(
+                "railway_normalized: operator=近鉄 line=不明 "
+                f"status={status} accepted=false reason=target_line_not_found"
+            )
+        else:
+            alerts.append(f"近鉄 {KINTETSU_TARGET_LINE}: {message}")
+            log(
+                f"railway_normalized: operator=近鉄 line={KINTETSU_TARGET_LINE} "
+                f"status={status} accepted=true"
+            )
+    return alerts
+
+
 def normalize_kintetsu_status() -> list[str]:
-    return _prefixed("近鉄", get_kintetsu_status(abnormal_only=True))
+    messages = get_kintetsu_status(abnormal_only=True)
+    try:
+        snapshot = json.loads(KINTETSU_LATEST_DEBUG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        snapshot = {}
+        log(
+            "railway_normalized: operator=近鉄 line=不明 status=不明 "
+            f"accepted=false reason=detail_snapshot_unavailable error={type(exc).__name__}"
+        )
+    return _normalize_kintetsu_result(messages, snapshot)
 
 
 def normalize_linimo_status() -> list[str]:
