@@ -71,6 +71,38 @@ Google SheetsのイベントDB IDは既存の `GOOGLE_SHEET_ID`、または `scr
 
 保護対象行はCSVに存在しなくても削除しない。CSVに存在しないSheets専用行も基本的に保持する。期間不整合の自動生成行だけは、保護対象でない場合に同期結果から除外できる。道路情報同期ではシート全体clearは禁止し、必要な場合も書き戻し後の余剰範囲だけを消す。
 
+### 2.2 キョードー東海スクレーパー
+
+キョードー東海の公演一覧は `scrapers/kyodo_tokai.py` が
+`https://www.kyodotokai.co.jp/events` から取得する。
+
+一覧の正常性は `div.eventlistbox dl` の件数で判定する。HTTP 200でもこの
+セレクタが0件の場合は、一時的な空レスポンス、メンテナンスページ、遮断ページ
+などの可能性があるため1回だけ再取得する。HTTPステータスが200以外の場合や
+取得例外の場合も同様に再取得する。
+
+再取得後も正常な一覧を確認できない場合は、次の診断情報を管理ログへ出す。
+
+- HTTPステータス
+- 最終URL
+- HTMLのバイト長
+- 主要セレクタと件数
+- 保存HTMLと診断JSONのパス
+
+異常時の保存先:
+
+```text
+data/debug/scrapers/kyodo_tokai/
+```
+
+HTMLとJSONは異常時だけ保存し、通常取得では保存しない。一度目が異常でも
+再取得で一覧が確認できた場合は、再試行した事実と前後のステータス、HTML長、
+セレクタ件数をhealthログへ記録し、管理者向け異常通知は作らない。
+
+当日該当公演が0件であることと、一覧セレクタ自体が0件であることは区別する。
+一覧が1件以上取得できていれば、対象日の公演が0件でもスクレーパー異常とは
+扱わない。
+
 ## 3. 名古屋場所辞書DB
 
 場所辞書DB用の設定は `config.py` にある。
@@ -961,6 +993,13 @@ python3 -m py_compile main.py config.py tools/ai/*.py tools/location/*.py tools/
 .venv/bin/python -m pytest tests/test_osm_road_geometry.py tests/test_road_aliases.py tests/test_place_labeler.py tests/test_hybrid_placeinfo.py tests/test_placeinfo_review_export.py tests/test_sync_placeinfo_review_sheet.py tests/test_sync_place_dict_sheets.py tests/test_shinkansen_position.py tests/test_railway_incident_manager.py -q
 git diff --check
 ```
+
+キョードー東海の重要テスト:
+
+- `tests/test_kyodo_tokai.py`
+- 初回の主要セレクタ0件から再取得で回復した場合、異常通知を作らないこと
+- 2回続けて正常一覧を確認できない場合、HTMLと診断JSONを保存すること
+- 診断ログにHTTPステータス、最終URL、HTML長、セレクタ件数、保存先を含むこと
 
 PlaceInfo同期の重要テスト:
 

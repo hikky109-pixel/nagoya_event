@@ -1,5 +1,8 @@
 from utils import is_wanted_venue
 from bs4 import BeautifulSoup
+from datetime import datetime
+import json
+from pathlib import Path
 import re
 
 from tools.common.scraper_health import (
@@ -10,6 +13,10 @@ from tools.common.scraper_health import (
 )
 
 URL = "https://www.kyodotokai.co.jp/events"
+ROOT = Path(__file__).resolve().parents[1]
+DEBUG_DIR = ROOT / "data" / "debug" / "scrapers" / "kyodo_tokai"
+EVENT_SELECTOR = "div.eventlistbox dl"
+MAX_FETCH_ATTEMPTS = 2
 
 WANTED_VENUES = [
     "IGアリーナ",
@@ -26,12 +33,11 @@ WANTED_VENUES = [
 
 def _kyodo_health_messages(soup):
     messages = []
-    event_selector = "div.eventlistbox dl"
     messages.extend(
         check_selector_count(
             "kyodo_tokai",
             soup,
-            event_selector,
+            EVENT_SELECTOR,
             "events",
             min_count=1,
             drop_ratio=0.8,
@@ -49,10 +55,70 @@ def _kyodo_health_messages(soup):
         messages.append(
             build_admin_warning_message(
                 "キョードー東海",
-                {"イベント": len(soup.select(event_selector))},
+                {"イベント": len(soup.select(EVENT_SELECTOR))},
             )
         )
     return messages
+
+
+def _save_fetch_debug(html, diagnostics):
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
+    html_path = DEBUG_DIR / f"kyodo_tokai_{timestamp}.html"
+    json_path = DEBUG_DIR / f"kyodo_tokai_{timestamp}.json"
+    html_path.write_text(html or "", encoding="utf-8")
+    payload = dict(diagnostics)
+    payload["saved_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    payload["html_path"] = str(html_path)
+    json_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return html_path, json_path
+
+
+def _fetch_events_page(page):
+    attempts = []
+    last_html = ""
+    last_soup = BeautifulSoup("", "html.parser")
+
+    for attempt in range(1, MAX_FETCH_ATTEMPTS + 1):
+        response = None
+        error = ""
+        try:
+            response = page.goto(URL, wait_until="domcontentloaded", timeout=15000)
+            last_html = page.content()
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            try:
+                last_html = page.content()
+            except Exception:
+                last_html = ""
+
+        last_soup = BeautifulSoup(last_html, "html.parser")
+        selector_count = len(last_soup.select(EVENT_SELECTOR))
+        status = getattr(response, "status", None) if response is not None else None
+        attempts.append(
+            {
+                "attempt": attempt,
+                "status_code": status,
+                "final_url": str(getattr(page, "url", "") or ""),
+                "response_length": len(last_html.encode("utf-8")),
+                "selector": EVENT_SELECTOR,
+                "selector_count": selector_count,
+                "error": error,
+            }
+        )
+        if status == 200 and selector_count > 0:
+            return last_soup, attempts, None
+
+    diagnostics = {
+        "source_url": URL,
+        "attempts": attempts,
+        "final": attempts[-1],
+    }
+    html_path, json_path = _save_fetch_debug(last_html, diagnostics)
+    return last_soup, attempts, (html_path, json_path)
 
 
 def scrape_kyodo_tokai_with_health(page, target_date):
@@ -60,23 +126,31 @@ def scrape_kyodo_tokai_with_health(page, target_date):
 
     target_str = target_date.strftime("%Y年%m月%d日")
 
-    try:
-        page.goto(URL, wait_until="domcontentloaded", timeout=15000)
-    except Exception as exc:
-        messages = [
-            "scraper_health_warning: "
-            f"kyodo_tokai HTML取得失敗 error={type(exc).__name__} url={URL}",
-            build_admin_warning_message(
-                "キョードー東海",
-                {"イベント": 0},
-            ),
-        ]
-        return [], messages
-
-    soup = BeautifulSoup(page.content(), "html.parser")
+    soup, attempts, debug_paths = _fetch_events_page(page)
     health_messages = _kyodo_health_messages(soup)
+    if len(attempts) > 1:
+        health_messages.insert(
+            0,
+            "scraper_health_info: kyodo_tokai fetch retried "
+            f"first_status={attempts[0]['status_code']} "
+            f"first_length={attempts[0]['response_length']} "
+            f"first_selector_count={attempts[0]['selector_count']} "
+            f"final_status={attempts[-1]['status_code']} "
+            f"final_length={attempts[-1]['response_length']} "
+            f"final_selector_count={attempts[-1]['selector_count']}",
+        )
+    if debug_paths is not None:
+        html_path, json_path = debug_paths
+        final = attempts[-1]
+        health_messages.append(
+            "scraper_health_warning: kyodo_tokai fetch diagnostics "
+            f"status={final['status_code']} final_url={final['final_url']} "
+            f"response_length={final['response_length']} "
+            f"selector_count={final['selector_count']} "
+            f"saved_html={html_path} saved_json={json_path}"
+        )
 
-    for dl in soup.select("div.eventlistbox dl"):
+    for dl in soup.select(EVENT_SELECTOR):
         text = " ".join(dl.get_text(" ", strip=True).split())
 
         if target_str not in text:
