@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 from tools.ai.get_kintetsu_status import (  # noqa: E402
     collect_kintetsu_debug,
     extract_kintetsu_detail_urls,
+    extract_kintetsu_top_page_entries,
     parse_kintetsu_detail,
 )
 
@@ -18,8 +19,10 @@ from tools.ai.get_kintetsu_status import (  # noqa: E402
 JST = timezone(timedelta(hours=9))
 TOP_HTML = """
 <html><body>
-<input type="image" onclick="window.open('./files/905901.html')">
-<a href="./files/905901.html#tran">詳細</a>
+<table><tbody><tr>
+<td>名古屋線</td><td>一部運休</td><td>車両故障</td>
+<td><input type="image" onclick="window.open('./files/905901.html')"></td>
+</tr></tbody></table>
 </body></html>
 """
 DETAIL_HTML = """
@@ -44,6 +47,29 @@ def test_extract_kintetsu_detail_url_deduplicates_and_adds_anchor() -> None:
     assert extract_kintetsu_detail_urls(TOP_HTML) == [
         "https://www.kintetsu.jp/unkou/files/905901.html#tran"
     ]
+
+
+def test_extract_kintetsu_top_page_entry_keeps_primary_line() -> None:
+    assert extract_kintetsu_top_page_entries(TOP_HTML) == [
+        {
+            "detail_url": "https://www.kintetsu.jp/unkou/files/905901.html#tran",
+            "top_page_line": "名古屋線",
+            "top_page_lines": ["名古屋線"],
+            "top_page_status": "一部運休",
+            "top_page_cause": "車両故障",
+        }
+    ]
+
+
+def test_extract_kintetsu_top_page_entry_accepts_anchor_link() -> None:
+    top_html = TOP_HTML.replace(
+        '<input type="image" onclick="window.open(\'./files/905901.html\')">',
+        '<a href="./files/905901.html#tran">詳細</a>',
+    )
+
+    assert extract_kintetsu_top_page_entries(top_html)[0]["detail_url"] == (
+        "https://www.kintetsu.jp/unkou/files/905901.html#tran"
+    )
 
 
 def test_parse_kintetsu_detail_extracts_affected_lines_and_body() -> None:
@@ -90,6 +116,7 @@ def test_collect_kintetsu_debug_saves_latest_and_history(tmp_path: Path) -> None
         "https://www.kintetsu.jp/unkou/files/905901.html#tran"
     ]
     saved = json.loads(latest.read_text(encoding="utf-8"))
+    assert saved["records"][0]["top_page_lines"] == ["名古屋線"]
     assert saved["records"][0]["affected_lines"] == [
         "名古屋線",
         "大阪線",
@@ -98,3 +125,25 @@ def test_collect_kintetsu_debug_saves_latest_and_history(tmp_path: Path) -> None
         "橿原線",
     ]
     assert saved["records"][0]["status_code"] == 200
+
+
+def test_collect_skips_non_nagoya_detail_but_saves_debug_record(tmp_path: Path) -> None:
+    top_html = TOP_HTML.replace("名古屋線", "大阪線")
+    fetched_urls: list[str] = []
+
+    snapshot = collect_kintetsu_debug(
+        top_html,
+        detail_fetcher=lambda url: fetched_urls.append(url),
+        debug_dir=tmp_path,
+        now=datetime(2026, 7, 28, 9, 30, tzinfo=JST),
+    )
+
+    assert fetched_urls == []
+    assert snapshot["records"][0]["top_page_lines"] == ["大阪線"]
+    assert snapshot["records"][0]["affected_lines"] == []
+    assert (
+        snapshot["records"][0]["detail_skipped_reason"]
+        == "top_page_target_line_not_found"
+    )
+    saved = json.loads((tmp_path / "kintetsu_latest.json").read_text(encoding="utf-8"))
+    assert saved["records"] == snapshot["records"]

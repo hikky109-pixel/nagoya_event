@@ -14,6 +14,7 @@ def _kintetsu_snapshot() -> dict:
             {
                 "title": "奈良線 運転見合わせ",
                 "main_line": "奈良線",
+                "top_page_lines": ["名古屋線"],
                 "affected_lines": ["奈良線", "名古屋線"],
                 "body_text": (
                     "奈良線は大雨のため運転を見合わせています。 "
@@ -39,10 +40,37 @@ def test_kintetsu_detail_record_adds_nagoya_line_alert(capsys) -> None:
 
 def test_kintetsu_detail_record_rejects_non_target_line(capsys) -> None:
     snapshot = _kintetsu_snapshot()
-    snapshot["records"][0]["affected_lines"] = ["奈良線"]
+    snapshot["records"][0]["top_page_lines"] = ["奈良線"]
 
     assert normalizer._normalize_kintetsu_result([], snapshot) == []
-    assert "accepted=false reason=target_line_not_affected" in capsys.readouterr().out
+    assert (
+        "accepted=false reason=top_page_target_line_not_found"
+        in capsys.readouterr().out
+    )
+
+
+def test_kintetsu_rejects_nagoya_text_when_top_page_line_is_osaka(capsys) -> None:
+    snapshot = {
+        "records": [
+            {
+                "title": "大阪線 一部運休",
+                "top_page_lines": ["大阪線"],
+                "main_line": "大阪線",
+                "affected_lines": ["名古屋線", "大阪線", "奈良線"],
+                "cause": "停電",
+                "body_text": (
+                    "大阪線は、名古屋線で発生した停電の影響により、"
+                    "大阪上本町～大和八木間で遅れと一部の列車が運休しています。"
+                ),
+            }
+        ]
+    }
+
+    assert normalizer._normalize_kintetsu_result([], snapshot) == []
+    assert (
+        "line=大阪線 status=運休 accepted=false "
+        "reason=top_page_target_line_not_found"
+    ) in capsys.readouterr().out
 
 
 def test_all_railway_snapshot_keeps_other_operators_and_adds_kintetsu(monkeypatch) -> None:

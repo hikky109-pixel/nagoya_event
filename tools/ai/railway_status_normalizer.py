@@ -163,6 +163,14 @@ def _kintetsu_line_message(record: dict[str, Any]) -> str:
     return " ".join(dict.fromkeys(line_sentences)) or _clean_text(record.get("title")) or body
 
 
+def is_kintetsu_nagoya_target(record: dict[str, Any]) -> bool:
+    top_page_lines = record.get("top_page_lines", [])
+    return (
+        isinstance(top_page_lines, list)
+        and KINTETSU_TARGET_LINE in top_page_lines
+    )
+
+
 def _normalize_kintetsu_result(
     messages: Any,
     snapshot: Any,
@@ -177,18 +185,23 @@ def _normalize_kintetsu_result(
                     "accepted=false reason=invalid_detail_record"
                 )
                 continue
-            affected_lines = record.get("affected_lines", [])
-            accepted = (
-                isinstance(affected_lines, list)
-                and KINTETSU_TARGET_LINE in affected_lines
-            )
+            accepted = is_kintetsu_nagoya_target(record)
             message = _kintetsu_line_message(record)
-            status = _kintetsu_status(message)
+            status = _kintetsu_status(
+                f"{message} {_clean_text(record.get('top_page_status'))}"
+            )
             if not accepted:
+                top_page_lines = record.get("top_page_lines", [])
+                top_page_line = (
+                    ",".join(top_page_lines)
+                    if isinstance(top_page_lines, list)
+                    else "不明"
+                )
                 log(
                     "railway_normalized: operator=近鉄 "
-                    f"line={_clean_text(record.get('main_line')) or '不明'} "
-                    f"status={status} accepted=false reason=target_line_not_affected"
+                    f"line={top_page_line or '不明'} "
+                    f"status={status} accepted=false "
+                    "reason=top_page_target_line_not_found"
                 )
                 continue
             if not message:

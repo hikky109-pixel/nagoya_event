@@ -89,6 +89,56 @@ def extract_kintetsu_detail_urls(html: str, base_url: str = URL) -> list[str]:
     return urls
 
 
+def extract_kintetsu_top_page_entries(
+    html: str,
+    base_url: str = URL,
+) -> list[dict[str, Any]]:
+    soup = BeautifulSoup(html, "html.parser")
+    entries: list[dict[str, Any]] = []
+    for row in soup.select("tr"):
+        cells = row.find_all("td", recursive=False)
+        if len(cells) < 4:
+            continue
+        detail_node = cells[3].find(
+            lambda tag: tag.name in {"a", "input"}
+            and (
+                tag.get("href")
+                or tag.get("onclick")
+            )
+        )
+        if detail_node is None:
+            continue
+        href = str(detail_node.get("href") or "")
+        onclick = str(detail_node.get("onclick") or "")
+        candidate = href
+        if not candidate:
+            match = re.search(
+                r"""["']([^"']*files/\d+\.html(?:#[^"']*)?)["']""",
+                onclick,
+            )
+            candidate = match.group(1) if match else ""
+        if not re.search(r"files/\d+\.html(?:#.*)?$", candidate):
+            continue
+        detail_url, _fragment = urldefrag(urljoin(base_url, candidate))
+        detail_url = f"{detail_url}#tran"
+        top_page_line_text = _normalize_text(cells[0].get_text(" ", strip=True))
+        top_page_lines = [
+            line
+            for line in LINE_KEYWORDS
+            if line in top_page_line_text
+        ]
+        entries.append(
+            {
+                "detail_url": detail_url,
+                "top_page_line": top_page_line_text,
+                "top_page_lines": top_page_lines,
+                "top_page_status": _normalize_text(cells[1].get_text(" ", strip=True)),
+                "top_page_cause": _normalize_text(cells[2].get_text(" ", strip=True)),
+            }
+        )
+    return entries
+
+
 def _detail_body(soup: BeautifulSoup) -> str:
     anchor = soup.select_one("#tran")
     if anchor is None:
@@ -219,11 +269,30 @@ def collect_kintetsu_debug(
     debug_dir: Path = DEBUG_DIR,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    detail_urls = extract_kintetsu_detail_urls(top_html, top_final_url)
+    top_page_entries = extract_kintetsu_top_page_entries(
+        top_html,
+        top_final_url,
+    )
+    detail_urls = [entry["detail_url"] for entry in top_page_entries]
     records: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
-    for detail_url in detail_urls:
+    for entry in top_page_entries:
+        detail_url = entry["detail_url"]
         log(f"kintetsu_detail_url_found: {detail_url}")
+        if TARGET_LINE not in entry["top_page_lines"]:
+            records.append(
+                {
+                    **entry,
+                    "affected_lines": [],
+                    "detail_skipped_reason": "top_page_target_line_not_found",
+                }
+            )
+            log(
+                "kintetsu_detail_skipped: "
+                f"url={detail_url} top_page_lines={','.join(entry['top_page_lines']) or 'none'} "
+                "reason=top_page_target_line_not_found"
+            )
+            continue
         fetch_url, _fragment = urldefrag(detail_url)
         try:
             raw, final_url, status_code = detail_fetcher(fetch_url)
@@ -231,11 +300,14 @@ def collect_kintetsu_debug(
                 _decode_html(raw),
                 f"{urldefrag(final_url)[0]}#tran",
             )
+            record.update(entry)
             record["status_code"] = status_code
             records.append(record)
             log(
                 "kintetsu_affected_lines: "
-                f"url={record['detail_url']} lines={','.join(record['affected_lines'])}"
+                f"url={record['detail_url']} "
+                f"top_page_lines={','.join(record['top_page_lines'])} "
+                f"lines={','.join(record['affected_lines'])}"
             )
         except Exception as exc:
             errors.append(
@@ -248,6 +320,7 @@ def collect_kintetsu_debug(
         "source_url": URL,
         "final_url": top_final_url,
         "status_code": top_status_code,
+        "top_page_entries": top_page_entries,
         "detail_urls": detail_urls,
         "records": records,
         "errors": errors,

@@ -915,16 +915,19 @@ incident_id:
 
 ### 13.1 近鉄名古屋線の正規化
 
-近鉄の通知対象は名古屋線である。スクレーパーが取得したトップページのメッセージだけでなく、`data/debug/railway/kintetsu_latest.json` に保存された詳細レコードも `railway_status_normalizer.py` が正規化対象として使用する。
+近鉄の通知対象は名古屋線である。対象判定の正本はトップページに掲載された路線名とし、詳細本文から抽出した `main_line` や `affected_lines` は対象判定に使用しない。
 
 処理仕様:
 
-1. `normalize_kintetsu_status()` が `get_kintetsu_status(abnormal_only=True)` を実行する。この処理で近鉄詳細ページの取得結果が最新debug snapshotへ保存される。
-2. normalizerは最新snapshotの `records` を読み、各レコードの `affected_lines` を確認する。
-3. `affected_lines` に `名古屋線` が含まれるレコードだけを採用する。大阪線、奈良線など名古屋線以外だけのレコードは通知対象外とする。
-4. `body_text` から名古屋線を含む文章を抽出し、`近鉄 名古屋線: ...` 形式へ正規化する。
-5. 詳細レコードが存在しない場合は、トップページ由来メッセージに `名古屋線` が明記されているものだけをfallback採用する。
-6. 正規化結果は `get_all_railway_alerts_snapshot()`、`monitoring_public_railway_alerts()` を経由して `railway_beta_alerts` へ入る。
+1. スクレーパーはトップページの各行を解析し、路線名、状況、原因、詳細URLの対応関係を取得する。
+2. トップページ由来の値を `top_page_line`、`top_page_lines`、`top_page_status`、`top_page_cause` としてdebug snapshotへ保存する。
+3. `top_page_lines` に `名古屋線` が含まれる情報だけ詳細ページを取得・解析する。名古屋線がなければ詳細取得前に除外し、`detail_skipped_reason=top_page_target_line_not_found` を保存する。
+4. normalizerは通知生成前に `is_kintetsu_nagoya_target()` を必ず通し、`top_page_lines` に名古屋線があるレコードだけを採用する。
+5. 採用した詳細の `body_text` から名古屋線を含む文章を抽出し、`近鉄 名古屋線: ...` 形式へ正規化する。
+6. 詳細レコードが存在しない場合は、トップページ由来メッセージに `名古屋線` が明記されているものだけをfallback採用する。
+7. 正規化結果は `get_all_railway_alerts_snapshot()`、`monitoring_public_railway_alerts()` を経由して `railway_beta_alerts` へ入る。
+
+詳細本文に名古屋線が含まれる場合や、詳細解析済みの旧snapshotで `affected_lines` に名古屋線が含まれる場合でも、トップページの掲載路線が大阪線など別路線であれば通知対象外とする。たとえば「大阪線は、名古屋線で発生した停電の影響により一部運休」という情報は、原因発生場所に名古屋線が登場するだけなので名古屋向け通知を生成しない。名古屋線として詳細解析したレコードでは `affected_lines` を従来どおり生成するが、通知対象判定には使用しない。
 
 ステータスは本文から `運休`、`運転見合わせ`、`遅れ`、`遅延`、`運転変更`、`振替輸送` の順で判定する。たとえば、名古屋線の一部列車運休は次のように記録される。
 
@@ -936,12 +939,12 @@ railway_beta_alerts:1
 除外時も理由をログへ記録する。
 
 ```text
-railway_normalized: operator=近鉄 line=奈良線 status=運転見合わせ accepted=false reason=target_line_not_affected
+railway_normalized: operator=近鉄 line=大阪線 status=運休 accepted=false reason=top_page_target_line_not_found
 ```
 
 主な除外理由:
 
-- `target_line_not_affected`: 詳細レコードの影響線区に名古屋線がない
+- `top_page_target_line_not_found`: トップページ掲載路線に名古屋線がない
 - `target_line_not_found`: fallbackメッセージに名古屋線の記載がない
 - `empty_detail_message`: 詳細レコードから通知本文を作れない
 - `invalid_detail_record`: 詳細レコードの形式が不正
