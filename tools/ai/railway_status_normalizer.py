@@ -150,6 +150,10 @@ KINTETSU_STATUS_MARKERS = (
 
 
 def _kintetsu_status(text: str) -> str:
+    has_delay = any(marker in text for marker in ("遅れ", "遅延"))
+    has_cancel = "運休" in text
+    if has_delay and has_cancel:
+        return "遅れ・運休"
     return next((marker for marker in KINTETSU_STATUS_MARKERS if marker in text), "異常情報あり")
 
 
@@ -161,6 +165,54 @@ def _kintetsu_line_message(record: dict[str, Any]) -> str:
         if KINTETSU_TARGET_LINE in sentence
     ]
     return " ".join(dict.fromkeys(line_sentences)) or _clean_text(record.get("title")) or body
+
+
+def _kintetsu_notification_message(record: dict[str, Any]) -> tuple[str, str]:
+    line_message = _kintetsu_line_message(record)
+    status = _kintetsu_status(
+        f"{line_message} {_clean_text(record.get('top_page_status'))}"
+    )
+    cause = _clean_text(record.get("cause")) or _clean_text(
+        record.get("top_page_cause")
+    )
+    origin_line = _clean_text(
+        record.get("origin_line") or record.get("main_line")
+    )
+    direct = bool(record.get("direct")) or origin_line == KINTETSU_TARGET_LINE
+
+    if status == "異常情報あり":
+        impact = "運行への影響"
+    elif status == "運転見合わせ":
+        impact = "運転見合わせ"
+    elif status == "運転再開":
+        impact = "運転再開後の影響"
+    else:
+        impact = status
+
+    if direct:
+        location = _clean_text(record.get("origin_location"))
+        origin = f"の{location}で" if location else "で"
+        if cause:
+            return (
+                f"近鉄名古屋線{origin}{cause}が発生し、"
+                f"列車に{impact}が発生しています。",
+                status,
+            )
+        return f"近鉄名古屋線の列車に{impact}が発生しています。", status
+
+    if origin_line and cause:
+        return (
+            f"{origin_line}の{cause}の影響で、"
+            f"近鉄名古屋線の一部列車に{impact}が発生しています。",
+            status,
+        )
+    if origin_line:
+        return (
+            f"{origin_line}の影響で、"
+            f"近鉄名古屋線の一部列車に{impact}が発生しています。",
+            status,
+        )
+    return f"近鉄名古屋線の一部列車に{impact}が発生しています。", status
 
 
 def is_kintetsu_nagoya_target(record: dict[str, Any]) -> bool:
@@ -186,10 +238,7 @@ def _normalize_kintetsu_result(
                 )
                 continue
             accepted = is_kintetsu_nagoya_target(record)
-            message = _kintetsu_line_message(record)
-            status = _kintetsu_status(
-                f"{message} {_clean_text(record.get('top_page_status'))}"
-            )
+            message, status = _kintetsu_notification_message(record)
             if not accepted:
                 top_page_lines = record.get("top_page_lines", [])
                 top_page_line = (

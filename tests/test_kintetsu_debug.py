@@ -41,6 +41,22 @@ DETAIL_HTML = """
 </p>
 </body></html>
 """
+NARA_TO_NAGOYA_DETAIL_HTML = """
+<html><body>
+<font size="+2">【奈良線　一部運休】</font>
+<p id="tran"><br>
+７月２９日 １９時０７分 現在<br>
+奈良線は、富雄駅構内で発生した人身事故のため、
+大阪難波～近鉄奈良間の上下線で遅れと一部の列車が運休しています。<br>
+一部列車運休区間：奈良線　大阪難波～近鉄奈良間<br>
+影響線区：<br>
+京都線　高の原～大和西大寺間で遅れと一部の列車が運休しています。<br>
+大阪線　河内国分～伊勢中川間で遅れが出ています。<br>
+名古屋線　近鉄名古屋～伊勢中川間で遅れが出ています。<br>
+振替輸送：実施していません。
+</p>
+</body></html>
+"""
 
 
 def test_extract_kintetsu_detail_url_deduplicates_and_adds_anchor() -> None:
@@ -79,6 +95,7 @@ def test_parse_kintetsu_detail_extracts_affected_lines_and_body() -> None:
     assert record["title"] == "奈良線 運転見合わせ"
     assert record["updated_at_text"] == "６月２６日 ８時０６分 現在"
     assert record["cause"] == "大雨"
+    assert record["origin_line"] == "奈良線"
     assert record["main_line"] == "奈良線"
     assert record["affected_lines"] == [
         "名古屋線",
@@ -96,6 +113,22 @@ def test_parse_kintetsu_detail_extracts_affected_lines_and_body() -> None:
     assert record["content_hash"] == hashlib.sha256(
         record["body_text"].encode("utf-8")
     ).hexdigest()
+
+
+def test_parse_kintetsu_detail_structures_real_nara_to_nagoya_case() -> None:
+    record = parse_kintetsu_detail(
+        NARA_TO_NAGOYA_DETAIL_HTML,
+        "https://www.kintetsu.jp/unkou/files/example.html#tran",
+    )
+
+    assert record["origin_line"] == "奈良線"
+    assert record["origin_location"] == "富雄駅構内"
+    assert record["cause"] == "人身事故"
+    assert record["status"] == "遅れ"
+    assert record["affected_statuses"]["奈良線"] == "遅れ・運休"
+    assert record["affected_statuses"]["名古屋線"] == "遅れ"
+    assert record["direct"] is False
+    assert "名古屋線" in record["affected_lines"]
 
 
 def test_collect_kintetsu_debug_saves_latest_and_history(tmp_path: Path) -> None:

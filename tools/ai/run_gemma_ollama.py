@@ -996,6 +996,28 @@ def build_railway_change_comment(
     return "\n\n".join(blocks).strip()
 
 
+def railway_recovery_line_name(alert: str) -> str:
+    prefix = railway_alert_prefix(alert)
+    if prefix == "近鉄 名古屋線":
+        return "近鉄名古屋線"
+    if prefix.startswith("JR東海在来線 "):
+        line = prefix.removeprefix("JR東海在来線 ").split("(", 1)[0].strip()
+        return f"JR{line}" if line else "JR在来線"
+    if prefix.startswith("名鉄 "):
+        return "名鉄" + prefix.removeprefix("名鉄 ").strip()
+    return prefix
+
+
+def build_railway_recovery_comment(removed_alerts: list[str]) -> str:
+    line_names: list[str] = []
+    for alert in removed_alerts:
+        line_name = railway_recovery_line_name(alert)
+        if line_name and line_name not in line_names:
+            line_names.append(line_name)
+    subject = "、".join(line_names) if line_names else "鉄道各線"
+    return f"🔵 鉄道運行情報\n\n{subject}は平常運転に戻りました。"
+
+
 def build_railway_state_comment(
     state_exists: bool,
     previous_alerts: list[str],
@@ -1837,7 +1859,7 @@ def main() -> int:
                 )
                 comment = ""
                 if notify_allowed:
-                    comment = "🔵 鉄道運行情報\n\n前回の障害は平常運転に戻りました。"
+                    comment = build_railway_recovery_comment(removed_alerts)
                     save_railway_last_notify(
                         RAILWAY_LAST_NOTIFY_PATH,
                         notification_severity,
