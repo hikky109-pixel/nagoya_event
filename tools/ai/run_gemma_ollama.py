@@ -84,8 +84,10 @@ except ModuleNotFoundError:
     )
 
 try:
+    from tools.weather.get_open_meteo_alerts import build_rain_transition_forecast
     from tools.weather.weather_normalizer import get_all_weather_alerts, get_all_weather_snapshot
 except ModuleNotFoundError:
+    from get_open_meteo_alerts import build_rain_transition_forecast
     from weather_normalizer import get_all_weather_alerts, get_all_weather_snapshot
 
 try:
@@ -1433,6 +1435,10 @@ def main() -> int:
         rain_mm=rain_mm,
         wind_mps=wind_mps,
         jma_advisories=jma_advisories,
+        rain_transition_forecast=build_rain_transition_forecast(
+            weather_snapshot.get("raw_openmeteo", {}),
+            now_jst,
+        ),
         now=now_jst,
     )
     save_weather_alert_state(next_weather_state, WEATHER_STATE_PATH)

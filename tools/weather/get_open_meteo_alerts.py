@@ -29,6 +29,7 @@ def open_meteo_url() -> str:
             "latitude": NAGOYA_LATITUDE,
             "longitude": NAGOYA_LONGITUDE,
             "hourly": "precipitation,weather_code,snowfall",
+            "minutely_15": "precipitation",
             "timezone": "Asia/Tokyo",
             "forecast_days": 1,
             "past_days": 1,
@@ -76,6 +77,100 @@ def _current_and_next_indices(times: list[Any], now: datetime) -> tuple[int, int
     if current_index is not None and current_index + 1 < len(parsed_times):
         return current_index, current_index + 1
     return None
+
+
+def build_rain_transition_forecast(
+    data: dict[str, Any],
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current = now or datetime.now(JST)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=JST)
+    else:
+        current = current.astimezone(JST)
+
+    minutely = data.get("minutely_15")
+    if not isinstance(minutely, dict):
+        return {"valid": False}
+    times = minutely.get("time")
+    precipitation = minutely.get("precipitation")
+    if not isinstance(times, list) or not isinstance(precipitation, list):
+        return {"valid": False}
+
+    points: list[tuple[datetime, float]] = []
+    for index, raw_time in enumerate(times):
+        parsed = parse_hour(str(raw_time))
+        if parsed is None or index >= len(precipitation):
+            continue
+        try:
+            amount = float(precipitation[index])
+        except (TypeError, ValueError):
+            continue
+        points.append((parsed, amount))
+    if not points:
+        return {"valid": False}
+
+    current_points = [point for point in points if point[0] <= current]
+    if not current_points:
+        return {"valid": False}
+    current_time, current_amount = current_points[-1]
+    if current - current_time > timedelta(minutes=15):
+        return {"valid": False}
+
+    future_15 = [
+        point
+        for point in points
+        if current < point[0] <= current + timedelta(minutes=15)
+    ]
+    future_45 = [
+        point
+        for point in points
+        if current < point[0] <= current + timedelta(minutes=45)
+    ]
+    current_raining = current_amount >= RAIN_THRESHOLD_MM
+    start_predicted = (
+        not current_raining
+        and any(amount >= RAIN_THRESHOLD_MM for _time, amount in future_15)
+    )
+
+    end_predicted = False
+    if (
+        current_raining
+        and future_45
+        and future_45[-1][0] >= current + timedelta(minutes=30)
+    ):
+        confirmation_end = next(
+            time
+            for time, _amount in future_45
+            if time >= current + timedelta(minutes=30)
+        )
+        first_dry_index = next(
+            (
+                index
+                for index, (point_time, amount) in enumerate(future_45)
+                if (
+                    point_time <= current + timedelta(minutes=30)
+                    and amount < RAIN_THRESHOLD_MM
+                )
+            ),
+            None,
+        )
+        end_predicted = (
+            first_dry_index is not None
+            and all(
+                amount < RAIN_THRESHOLD_MM
+                for point_time, amount in future_45[first_dry_index:]
+                if point_time <= confirmation_end
+            )
+        )
+
+    return {
+        "valid": True,
+        "current_raining": current_raining,
+        "current_precipitation": current_amount,
+        "start_predicted_within_15m": start_predicted,
+        "end_predicted_within_30m": end_predicted,
+    }
 
 
 def build_open_meteo_alerts(data: dict[str, Any], now: datetime | None = None) -> list[str]:

@@ -170,6 +170,36 @@ def normalize_jma_component(raw: Any) -> dict[str, Any]:
     return component
 
 
+def empty_rain_transition_component() -> dict[str, Any]:
+    return {
+        "initialized": False,
+        "start_notice_sent": False,
+        "end_notice_sent": False,
+        "rain_event_active": False,
+        "rain_observed": False,
+        "dry_confirmations": 0,
+        "updated_at": "",
+    }
+
+
+def normalize_rain_transition_component(raw: Any) -> dict[str, Any]:
+    component = empty_rain_transition_component()
+    if not isinstance(raw, dict):
+        return component
+    component.update(
+        {
+            "initialized": bool(raw.get("initialized")),
+            "start_notice_sent": bool(raw.get("start_notice_sent")),
+            "end_notice_sent": bool(raw.get("end_notice_sent")),
+            "rain_event_active": bool(raw.get("rain_event_active")),
+            "rain_observed": bool(raw.get("rain_observed")),
+            "dry_confirmations": max(0, int(raw.get("dry_confirmations") or 0)),
+            "updated_at": str(raw.get("updated_at") or ""),
+        }
+    )
+    return component
+
+
 def load_state(path: Path = DEFAULT_STATE_PATH) -> dict[str, Any]:
     if not path.exists():
         return {"rain": empty_component(), "wind": empty_component()}
@@ -201,6 +231,9 @@ def load_state(path: Path = DEFAULT_STATE_PATH) -> dict[str, Any]:
         "rain": normalize_component(data.get("rain")),
         "wind": normalize_component(data.get("wind")),
         "jma": normalize_jma_component(data.get("jma")),
+        "rain_transition": normalize_rain_transition_component(
+            data.get("rain_transition")
+        ),
     }
 
 
@@ -590,6 +623,7 @@ def evaluate_weather_state(
     rain_mm: float,
     wind_mps: float,
     jma_advisories: list[dict[str, Any]] | None = None,
+    rain_transition_forecast: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     current = now or now_jst()
@@ -614,7 +648,92 @@ def evaluate_weather_state(
         current,
     )
     messages.extend(jma_messages)
-    return {"rain": updated_rain, "wind": updated_wind, "jma": updated_jma}, messages, rain_logs + wind_logs + jma_logs
+    updated_transition, transition_messages, transition_logs = (
+        evaluate_rain_transition(
+            normalize_rain_transition_component(state.get("rain_transition")),
+            rain_transition_forecast or {"valid": False},
+            current,
+        )
+    )
+    messages.extend(transition_messages)
+    return (
+        {
+            "rain": updated_rain,
+            "wind": updated_wind,
+            "jma": updated_jma,
+            "rain_transition": updated_transition,
+        },
+        messages,
+        rain_logs + wind_logs + jma_logs + transition_logs,
+    )
+
+
+def evaluate_rain_transition(
+    component: dict[str, Any],
+    forecast: dict[str, Any],
+    now: datetime,
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    updated = normalize_rain_transition_component(component)
+    updated["updated_at"] = now.isoformat(timespec="seconds")
+    if not forecast.get("valid"):
+        return updated, [], ["rain_transition: no transition reason=data_unavailable"]
+
+    current_raining = bool(forecast.get("current_raining"))
+    start_predicted = bool(forecast.get("start_predicted_within_15m"))
+    end_predicted = bool(forecast.get("end_predicted_within_30m"))
+    messages: list[str] = []
+    logs: list[str] = []
+
+    if not updated["initialized"]:
+        updated["initialized"] = True
+        updated["rain_event_active"] = current_raining
+        updated["rain_observed"] = current_raining
+        if start_predicted:
+            updated["rain_event_active"] = True
+            updated["start_notice_sent"] = True
+            messages.append("🌧️ 15分以内に雨が降り始める見込みです")
+            logs.append("rain_transition: start predicted within 15m")
+        else:
+            logs.append("rain_transition: no transition")
+        return updated, messages, logs
+
+    if current_raining:
+        updated["rain_event_active"] = True
+        updated["rain_observed"] = True
+        updated["dry_confirmations"] = 0
+    elif updated["rain_event_active"] and not start_predicted:
+        updated["dry_confirmations"] += 1
+        if updated["dry_confirmations"] >= 2:
+            updated.update(
+                {
+                    "start_notice_sent": False,
+                    "end_notice_sent": False,
+                    "rain_event_active": False,
+                    "rain_observed": False,
+                    "dry_confirmations": 0,
+                }
+            )
+
+    if start_predicted:
+        updated["rain_event_active"] = True
+        if updated["start_notice_sent"]:
+            logs.append("rain_transition: skipped duplicate start")
+        else:
+            updated["start_notice_sent"] = True
+            messages.append("🌧️ 15分以内に雨が降り始める見込みです")
+            logs.append("rain_transition: start predicted within 15m")
+
+    if current_raining and end_predicted:
+        if updated["end_notice_sent"]:
+            logs.append("rain_transition: skipped duplicate end")
+        else:
+            updated["end_notice_sent"] = True
+            messages.append("🌤️ 30分以内に雨が止む見込みです")
+            logs.append("rain_transition: end predicted within 30m")
+
+    if not logs:
+        logs.append("rain_transition: no transition")
+    return updated, messages, logs
 
 
 def evaluate_jma_state(

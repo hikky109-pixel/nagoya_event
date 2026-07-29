@@ -1020,7 +1020,64 @@ JR中央線は平常運転に戻りました。
 
 複数路線が同時に復旧した場合は、重複を除いた路線名を読点で連結する。復旧対象は直前stateのalertから取得し、新たに推測しない。
 
-## 14. テスト
+## 14. Lv17.8 雨の開始・終了予測通知
+
+目的:
+
+- 名古屋中心部で雨が始まる直前と止む直前だけを通知し、仕事量の切り替え判断に使う。
+- 「雨が降り始めました」「雨が止みました」という事後通知は生成しない。
+- Lv14.4で無効化した旧Open-Meteo 1時間雨通知は復活させず、Lv17.8の遷移通知だけを既存の天気state・Discord投稿経路へ追加する。
+
+データ取得:
+
+- `tools/weather/get_open_meteo_alerts.py` がOpen-Meteoの `minutely_15=precipitation` を取得する。
+- タイムゾーンは `Asia/Tokyo` 固定。
+- 雨判定は既存の `RAIN_THRESHOLD_MM = 0.1` を現在値と予測値で共用する。
+- API失敗や15分データ欠損時は通知せず、`rain_transition: no transition reason=data_unavailable` を記録する。
+
+降り始め予測:
+
+- 現在値が0.1mm未満で、15分以内の予測点が0.1mm以上になる場合に通知する。
+
+```text
+🌧️ 15分以内に雨が降り始める見込みです
+```
+
+降り終わり予測:
+
+- 現在値が0.1mm以上で、30分以内に0.1mm未満となり、その後30分先までの予測点が連続して0.1mm未満の場合に通知する。
+- 30分先の予測点が取得できない場合は終了予測を生成しない。
+
+```text
+🌤️ 30分以内に雨が止む見込みです
+```
+
+状態管理:
+
+- 既存の `data/ai/weather_state.json` に `rain_transition` componentを追加する。
+- 主な項目は `start_notice_sent`、`end_notice_sent`、`rain_event_active`。
+- 補助項目として `initialized`、`rain_observed`、`dry_confirmations`、`updated_at` を保持する。
+- 同一イベントでは開始予測・終了予測をそれぞれ最大1回に抑える。
+- 雨なし・開始予測なしを2回連続で確認してからイベント状態をリセットする。1回だけ予報が消えた場合はリセットせず、予報の揺れによる再通知を防止する。
+- 初回起動時に現在雨ありかつ終了予測ありでも、終了予測通知は出さない。stateを初期化した次回以降に判定する。
+
+主なログ:
+
+```text
+rain_transition: start predicted within 15m
+rain_transition: end predicted within 30m
+rain_transition: skipped duplicate start
+rain_transition: skipped duplicate end
+rain_transition: no transition
+```
+
+既存機能との関係:
+
+- 気象庁・Yahoo Weatherの取得、既存の雨量severity、風通知、JMA警報・注意報stateは維持する。
+- Open-Meteo snapshotは `get_all_weather_snapshot()` の `raw_openmeteo` と `sources.Open-Meteo` に保存するが、旧1時間予報文は `normalized_alerts` へ追加しない。
+- 遷移通知は `evaluate_weather_state()` で既存メッセージと統合され、既存のDiscord投稿先・投稿処理を通る。
+
+## 15. テスト
 
 主な確認コマンド:
 
@@ -1090,7 +1147,7 @@ Railway Incident管理の重要テスト:
 - 復旧は同一incident_idで通知候補にし、復旧後の同一fingerprint新規障害は新incident_idにすること
 - 壊れたstateでも全体停止しないこと
 
-## 15. 今後の予定
+## 16. 今後の予定
 
 未実装、または構想段階のもの:
 
@@ -1111,7 +1168,7 @@ Railway Incident管理の重要テスト:
 - Railway Incident管理を `run_gemma_ollama.py` の鉄道通知分岐へ接続する
 - 公式alertと新幹線走行位置summaryを統合したincident event変換器を本番経路へ入れる
 
-## 16. 変更時の追記ルール
+## 17. 変更時の追記ルール
 
 仕様変更時は次の順で更新する。
 
