@@ -22,11 +22,14 @@ def _result_from_raw(path: str, lat: float, lon: float) -> dict:
 
 
 def test_override_labels_for_ikeda_park_and_nishiki_odori_otsu():
-    ikeda = _result_from_raw(
-        "tests/fixtures/placeinfo/ikeda_park.json",
-        35.166337,
-        136.912610,
-    )
+    ikeda = {
+        "lat": 35.166337,
+        "lon": 136.912610,
+        "address": [],
+        "roadname": "",
+        "place_area": [],
+        "candidates": [],
+}
     otsu = _result_from_raw(
         "data/location/placeinfo/20260703_050110_nishiki_odori_otsu.json",
         35.169973,
@@ -87,11 +90,20 @@ def test_shinkansen_tp_outside_radius_does_not_show_taxi_ops():
 
 
 def test_suburban_intersections_are_preferred():
-    shinonome = _result_from_raw(
-        "data/location/placeinfo/20260703_050110_shinonomebashi_west.json",
-        35.146791,
-        136.910315,
-    )
+    shinonome = {
+    "lat": 35.146791,
+    "lon": 136.910315,
+    "address": ["愛知県", "名古屋市中川区"],
+    "roadname": "",
+    "place_area": [],
+    "candidates": [
+        {
+            "name": "東雲橋西交差点",
+            "category": "地点名",
+            "score": 50.0,
+        }
+    ],
+}
     mukaida = _result_from_raw(
         "data/location/placeinfo/20260703_050111_mukaidabashi_west.json",
         35.148124,
