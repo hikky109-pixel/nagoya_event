@@ -23,7 +23,7 @@ def _result_from_raw(path: str, lat: float, lon: float) -> dict:
 
 def test_override_labels_for_ikeda_park_and_nishiki_odori_otsu():
     ikeda = _result_from_raw(
-        "data/location/placeinfo/20260703_050110_ikeda_park.json",
+        "tests/fixtures/placeinfo/ikeda_park.json",
         35.166337,
         136.912610,
     )
