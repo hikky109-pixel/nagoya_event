@@ -42,6 +42,15 @@ LINE_KEYWORDS = (
     "吉野線",
 )
 LINE_PATTERN = "|".join(re.escape(line) for line in LINE_KEYWORDS)
+STATUS_MARKERS = (
+    "運転見合わせ",
+    "運転再開",
+    "一部運休",
+    "運休",
+    "遅延",
+    "遅れ",
+    "運転変更",
+)
 SECTION_PATTERN = re.compile(
     rf"(?:^|[\s、。：])(?:(?P<line>{LINE_PATTERN})[　 ]*)?"
     r"(?P<from>[一-龠々ヶぁ-んァ-ヶーA-Za-z0-9]{1,20})"
@@ -202,6 +211,34 @@ def _extract_transfer_info(body_text: str) -> str:
     return _normalize_text(body_text[marker.start():])
 
 
+def _extract_status(text: str) -> str:
+    normalized = _normalize_text(text)
+    has_delay = any(marker in normalized for marker in ("遅れ", "遅延"))
+    has_cancel = any(marker in normalized for marker in ("運休", "一部運休"))
+    if has_delay and has_cancel:
+        return "遅れ・運休"
+    return next((marker for marker in STATUS_MARKERS if marker in normalized), "")
+
+
+def _extract_line_status(body_text: str, line: str) -> str:
+    line_text = " ".join(
+        sentence
+        for sentence in re.split(r"(?<=[。！？])", body_text)
+        if line in sentence
+    )
+    return _extract_status(line_text)
+
+
+def _extract_origin_location(body_text: str, cause: str) -> str:
+    if not cause:
+        return ""
+    match = re.search(
+        rf"(?:{LINE_PATTERN})は、?(.{{1,40}}?)で(?:発生した)?{re.escape(cause)}",
+        body_text,
+    )
+    return _normalize_text(match.group(1)) if match else ""
+
+
 def parse_kintetsu_detail(html: str, detail_url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     body_text = _detail_body(soup)
@@ -215,12 +252,24 @@ def parse_kintetsu_detail(html: str, detail_url: str) -> dict[str, Any]:
         for line in LINE_KEYWORDS
         if line in f"{title} {body_text}"
     ]
+    origin_line = _extract_main_line(title, body_text)
+    cause = _extract_cause(body_text)
+    affected_statuses = {
+        line: status
+        for line in affected_lines
+        if (status := _extract_line_status(body_text, line))
+    }
     return {
         "title": title,
         "updated_at_text": _normalize_text(updated_match.group(0)) if updated_match else "",
-        "cause": _extract_cause(body_text),
-        "main_line": _extract_main_line(title, body_text),
+        "cause": cause,
+        "origin_line": origin_line,
+        "origin_location": _extract_origin_location(body_text, cause),
+        "main_line": origin_line,
         "affected_lines": affected_lines,
+        "affected_statuses": affected_statuses,
+        "status": affected_statuses.get(TARGET_LINE) or _extract_status(body_text),
+        "direct": origin_line == TARGET_LINE,
         "affected_sections": _extract_affected_sections(body_text),
         "transfer_info": _extract_transfer_info(body_text),
         "detail_url": detail_url,
@@ -301,6 +350,10 @@ def collect_kintetsu_debug(
                 f"{urldefrag(final_url)[0]}#tran",
             )
             record.update(entry)
+            if not record["origin_line"]:
+                record["origin_line"] = entry["top_page_line"]
+                record["main_line"] = entry["top_page_line"]
+            record["direct"] = record["origin_line"] == TARGET_LINE
             record["status_code"] = status_code
             records.append(record)
             log(

@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT))
 from tools.ai.run_gemma_ollama import (  # noqa: E402
     build_railway_beta_comment,
     build_railway_change_comment,
+    build_railway_recovery_comment,
     format_railway_current_time,
     is_minor_weather_only,
 )
@@ -85,3 +86,15 @@ def test_weather_minor_only_suppression_remains_enabled() -> None:
         [],
         ["雨は1時間以内に弱まる/止む"],
     ) is True
+
+
+def test_recovery_comment_names_kintetsu_line() -> None:
+    assert build_railway_recovery_comment(
+        ["近鉄 名古屋線: 一部列車に遅れがあります。"]
+    ) == "🔵 鉄道運行情報\n\n近鉄名古屋線は平常運転に戻りました。"
+
+
+def test_recovery_comment_names_jr_chuo_line() -> None:
+    assert build_railway_recovery_comment(
+        ["JR東海在来線 中央線: 一部列車に遅れがあります。"]
+    ) == "🔵 鉄道運行情報\n\nJR中央線は平常運転に戻りました。"

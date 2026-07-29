@@ -14,6 +14,7 @@ def _kintetsu_snapshot() -> dict:
             {
                 "title": "奈良線 運転見合わせ",
                 "main_line": "奈良線",
+                "cause": "大雨",
                 "top_page_lines": ["名古屋線"],
                 "affected_lines": ["奈良線", "名古屋線"],
                 "body_text": (
@@ -31,10 +32,13 @@ def test_kintetsu_detail_record_adds_nagoya_line_alert(capsys) -> None:
 
     assert len(alerts) == 1
     assert alerts[0].startswith("近鉄 名古屋線:")
-    assert "運休" in alerts[0]
+    assert alerts[0] == (
+        "近鉄 名古屋線: 奈良線の大雨の影響で、"
+        "近鉄名古屋線の一部列車に遅れ・運休が発生しています。"
+    )
     assert (
         "railway_normalized: operator=近鉄 line=名古屋線 "
-        "status=運休 accepted=true"
+        "status=遅れ・運休 accepted=true"
     ) in capsys.readouterr().out
 
 
@@ -68,9 +72,60 @@ def test_kintetsu_rejects_nagoya_text_when_top_page_line_is_osaka(capsys) -> Non
 
     assert normalizer._normalize_kintetsu_result([], snapshot) == []
     assert (
-        "line=大阪線 status=運休 accepted=false "
+        "line=大阪線 status=遅れ・運休 accepted=false "
         "reason=top_page_target_line_not_found"
     ) in capsys.readouterr().out
+
+
+def test_kintetsu_direct_incident_mentions_location_and_cause() -> None:
+    snapshot = {
+        "records": [
+            {
+                "top_page_lines": ["名古屋線"],
+                "top_page_status": "一部運休",
+                "origin_line": "名古屋線",
+                "origin_location": "江戸橋駅構内",
+                "cause": "車両故障",
+                "status": "一部運休",
+                "direct": True,
+                "body_text": (
+                    "名古屋線は、江戸橋駅構内で発生した車両故障のため、"
+                    "近鉄名古屋～津新町間で一部の列車が運休しています。"
+                ),
+            }
+        ]
+    }
+
+    assert normalizer._normalize_kintetsu_result([], snapshot) == [
+        "近鉄 名古屋線: 近鉄名古屋線の江戸橋駅構内で車両故障が発生し、"
+        "列車に運休が発生しています。"
+    ]
+
+
+def test_kintetsu_indirect_real_nara_case_mentions_origin_line() -> None:
+    snapshot = {
+        "records": [
+            {
+                "top_page_lines": ["名古屋線"],
+                "top_page_status": "遅延",
+                "origin_line": "奈良線",
+                "origin_location": "富雄駅構内",
+                "cause": "人身事故",
+                "direct": False,
+                "affected_lines": ["奈良線", "京都線", "大阪線", "名古屋線"],
+                "body_text": (
+                    "奈良線は、富雄駅構内で発生した人身事故のため、"
+                    "遅れと一部の列車が運休しています。 "
+                    "名古屋線 近鉄名古屋～伊勢中川間で遅れが出ています。"
+                ),
+            }
+        ]
+    }
+
+    assert normalizer._normalize_kintetsu_result([], snapshot) == [
+        "近鉄 名古屋線: 奈良線の人身事故の影響で、"
+        "近鉄名古屋線の一部列車に遅れが発生しています。"
+    ]
 
 
 def test_all_railway_snapshot_keeps_other_operators_and_adds_kintetsu(monkeypatch) -> None:
