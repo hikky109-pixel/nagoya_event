@@ -1,24 +1,10 @@
-import json
-from pathlib import Path
-
-from tools.location.get_yahoo_placeinfo import extract_candidates
-from tools.location.place_labeler import build_placeinfo_display_lines, build_taxi_place_label, distance_m, find_override, normalize_short_address
-
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _result_from_raw(path: str, lat: float, lon: float) -> dict:
-    payload = json.loads((ROOT / path).read_text(encoding="utf-8"))
-    result_set = payload.get("ResultSet", {})
-    return {
-        "lat": lat,
-        "lon": lon,
-        "address": result_set.get("Address") or [],
-        "roadname": result_set.get("Roadname"),
-        "place_area": result_set.get("Area") or [],
-        "candidates": extract_candidates(payload),
-    }
+from tools.location.place_labeler import (
+    build_placeinfo_display_lines,
+    build_taxi_place_label,
+    distance_m,
+    find_override,
+    normalize_short_address,
+)
 
 
 def test_override_labels_for_ikeda_park_and_nishiki_odori_otsu():
@@ -30,11 +16,14 @@ def test_override_labels_for_ikeda_park_and_nishiki_odori_otsu():
         "place_area": [],
         "candidates": [],
 }
-    otsu = _result_from_raw(
-        "data/location/placeinfo/20260703_050110_nishiki_odori_otsu.json",
-        35.169973,
-        136.906720,
-    )
+    otsu = {
+        "lat": 35.169973,
+        "lon": 136.906720,
+        "address": [],
+        "roadname": "",
+        "place_area": [],
+        "candidates": [],
+}
 
     assert build_taxi_place_label(ikeda)["label"] == "栄4丁目 池田公園付近"
     assert build_taxi_place_label(otsu)["label"] == "錦通大津（サンシャイン栄付近）"
@@ -101,14 +90,23 @@ def test_suburban_intersections_are_preferred():
             "name": "東雲橋西交差点",
             "category": "地点名",
             "score": 50.0,
-        }
-    ],
-}
-    mukaida = _result_from_raw(
-        "data/location/placeinfo/20260703_050111_mukaidabashi_west.json",
-        35.148124,
-        136.909713,
-    )
+            }
+        ],
+    }
+    mukaida = {
+        "lat": 35.148124,
+        "lon": 136.909713,
+        "address": ["愛知県", "名古屋市中川区"],
+        "roadname": "",
+        "place_area": [],
+        "candidates": [
+            {
+                "name": "向田橋西交差点",
+                "category": "地点名",
+                "score": 50.0,
+            }
+        ],
+    }
 
     assert build_taxi_place_label(shinonome)["label"] == "東雲橋西交差点付近"
     assert build_taxi_place_label(mukaida)["label"] == "向田橋西交差点付近"
