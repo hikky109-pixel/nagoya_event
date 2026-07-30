@@ -172,6 +172,8 @@ def classify_railway_pre_llm_notification(
     current_clean = [" ".join(str(alert or "").split()) for alert in current_alerts if str(alert or "").strip()]
     if current_clean and previous_official_hash and previous_official_hash == current_official_hash:
         return False, "no_official_change"
+    if previous_clean and current_clean and previous_clean != current_clean:
+        return True, "official_incident_changed"
     if current_clean and not has_major_railway_incident(current_clean):
         return False, "low_impact"
     if current_clean and has_major_railway_incident(current_clean):

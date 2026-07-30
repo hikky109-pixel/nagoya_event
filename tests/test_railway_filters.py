@@ -160,6 +160,48 @@ def test_railway_pre_llm_suppresses_turnback_delay_only() -> None:
     ) == (False, "low_impact")
 
 
+def test_chuo_changed_cause_reaches_structured_diff_filter() -> None:
+    previous_alert = (
+        "JR東海在来線 中央線: 折り返し列車の遅れのため、"
+        "一部の列車に遅れが発生しています。"
+    )
+    current_alert = (
+        "JR東海在来線 中央線: 勝川駅～春日井駅間で、"
+        "踏切内で障害物を検知したため、一部の列車に遅れが発生しています。"
+    )
+
+    assert classify_railway_pre_llm_notification(
+        previous_alerts=[previous_alert],
+        current_alerts=[current_alert],
+        previous_official_hash="turnback",
+        current_official_hash="crossing-obstacle",
+        previous_impact="low_impact",
+    ) == (True, "official_incident_changed")
+
+    previous = _zairai_event(
+        alert=previous_alert,
+        incident_key="中央線\x1f折り返し列車の遅れ\x1f\x1f\x1f上下線\x1f",
+        cause="折り返し列車の遅れ",
+        line="中央線",
+        message=previous_alert.split(": ", 1)[1],
+    )
+    current = _zairai_event(
+        alert=current_alert,
+        incident_key="中央線\x1f踏切内障害物\x1f勝川\x1f春日井\x1f上下線\x1f",
+        cause="踏切内障害物",
+        line="中央線",
+        section_from="勝川",
+        section_to="春日井",
+        message=current_alert.split(": ", 1)[1],
+    )
+
+    assert classify_zairai_change(
+        current_alert,
+        [previous],
+        [current],
+    ) == (True, "new_abnormal_incident")
+
+
 def test_railway_pre_llm_suppresses_animal_and_turnback_delay() -> None:
     alerts = [
         (

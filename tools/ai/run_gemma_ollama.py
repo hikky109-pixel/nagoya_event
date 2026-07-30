@@ -576,6 +576,54 @@ def railway_official_hash(
     )
 
 
+def log_zairai_notification_diagnostics(
+    previous_events: list[dict[str, Any]],
+    current_events: list[dict[str, Any]],
+    *,
+    pre_notify_allowed: bool,
+    pre_notify_reason: str,
+) -> None:
+    previous_by_line = {
+        str(event.get("line") or ""): event
+        for event in previous_events
+        if str(event.get("line") or "")
+    }
+    for current in current_events:
+        line = str(current.get("line") or "")
+        if not line:
+            continue
+        previous = previous_by_line.get(line, {})
+        current_body = str(current.get("message") or "")
+        previous_body = str(previous.get("message") or "")
+        changed_fields = [
+            field
+            for field in (
+                "cause",
+                "section_from",
+                "section_to",
+                "direction",
+                "status_id",
+                "message",
+            )
+            if str(current.get(field) or "") != str(previous.get(field) or "")
+        ]
+        log(f"railway_zairai_fetched_body: line={line} body={current_body}")
+        log(f"railway_zairai_previous_body: line={line} body={previous_body}")
+        log(
+            "railway_zairai_diff_result: "
+            f"line={line} changed={'true' if changed_fields else 'false'} "
+            f"fields={','.join(changed_fields) or 'none'}"
+        )
+        log(
+            "railway_zairai_notification_target: "
+            f"line={line} accepted={'true' if pre_notify_allowed else 'false'}"
+        )
+        log(
+            "railway_zairai_not_notified_reason: "
+            f"line={line} reason={pre_notify_reason if not pre_notify_allowed else 'none'}"
+        )
+
+
 def important_active_no_official_change_override_alerts(alerts: list[str]) -> list[str]:
     matched = []
     for alert in alerts:
@@ -1502,6 +1550,12 @@ def main() -> int:
                 current_official_hash=railway_official_current_hash,
                 previous_impact=previous_railway_impact,
             )
+        )
+        log_zairai_notification_diagnostics(
+            previous_zairai_events,
+            current_zairai_events,
+            pre_notify_allowed=railway_pre_notify_allowed,
+            pre_notify_reason=railway_pre_notify_reason,
         )
         current_railway_impact = (
             "major"

@@ -1020,6 +1020,33 @@ JR中央線は平常運転に戻りました。
 
 複数路線が同時に復旧した場合は、重複を除いた路線名を読点で連結する。復旧対象は直前stateのalertから取得し、新たに推測しない。
 
+### 13.4 JR東海在来線の原因・区間変更通知
+
+JR東海在来線では、動物衝突、折り返し列車の遅れ、踏切内障害物など低影響の初回情報を `low_impact` として抑制する既存方針を維持する。ただし、同一路線の前回alertが存在し、公式本文が変わった場合は、低影響マーカーだけで早期終了せず構造化差分判定へ進める。
+
+構造化差分では `incident_key` に路線、原因、影響区間、方向、発生時刻を含める。次の変更は新しい異常incidentとして通知対象にする。
+
+- 原因の変更
+- 影響開始駅・終了駅の変更
+- status悪化
+- 初回の運転再開見込み
+- 運転再開時刻の設定
+- 振替輸送開始
+
+同じ `incident_key` のままdelivery本文だけが変わった場合は、従来どおり `delivery_message_only` として抑制する。
+
+2026年7月30日の中央線では、前回の「折り返し列車の遅れ」から「勝川駅～春日井駅間で踏切内障害物を検知」へ原因・区間・本文が変わった。このケースは `official_incident_changed` としてpre-LLM filterを通過し、構造化判定で `new_abnormal_incident` として新規通知する。
+
+調査用ログ:
+
+```text
+railway_zairai_fetched_body
+railway_zairai_previous_body
+railway_zairai_diff_result
+railway_zairai_notification_target
+railway_zairai_not_notified_reason
+```
+
 ## 14. Lv17.8 雨の開始・終了予測通知
 
 目的:
