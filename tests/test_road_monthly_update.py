@@ -108,7 +108,11 @@ def test_1015_retry_accepts_august_records(monkeypatch, tmp_path: Path) -> None:
         lambda _key: ([road_record("2026-08-03")], 1),
     )
     monkeypatch.setattr(monthly, "regenerate_road_csv", lambda _key: (1, []))
-    monkeypatch.setattr(monthly, "run_sheet_sync", lambda _date: (True, "ok", 1))
+    monkeypatch.setattr(
+        monthly,
+        "run_sheet_sync",
+        lambda _date: {"ok": True, "output": "ok", "reason": "", "records": 1},
+    )
 
     result = monthly.check_monthly_pdf(now=datetime(2026, 8, 1, 10, 15, tzinfo=JST))
 
@@ -204,3 +208,107 @@ def test_timer_uses_jst_1005_and_1015_only() -> None:
     assert "10:05:00 Asia/Tokyo" in timer
     assert "10:15:00 Asia/Tokyo" in timer
     assert "10:01:00" not in timer
+
+
+def test_oauth_refresh_failure_is_caught_and_classified(monkeypatch, tmp_path: Path) -> None:
+    configure_paths(monkeypatch, tmp_path)
+
+    class RefreshError(Exception):
+        pass
+
+    def fail_sync(_csv_path: str) -> dict:
+        raise RefreshError("invalid_grant: Bad Request")
+
+    result = monthly.run_sheet_sync(
+        date(2026, 8, 2),
+        sync_func=fail_sync,
+        archive_func=lambda *_args: {},
+    )
+
+    assert result["ok"] is False
+    assert result["reason"] == "oauth_refresh_failed"
+    assert result["records"] == 0
+
+
+def test_csv_success_is_saved_when_sheet_oauth_fails(monkeypatch, tmp_path: Path) -> None:
+    configure_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        monthly,
+        "fetch_publication_page",
+        lambda _now: page_result('<a href="torishimariyoteiR8.8.pdf">8月</a>'),
+    )
+    monkeypatch.setattr(monthly, "download_pdf", lambda _key, _now: pdf_result(tmp_path / "aug.pdf"))
+    monkeypatch.setattr(
+        monthly,
+        "extract_target_month_records",
+        lambda _key: ([road_record("2026-08-03")], 1),
+    )
+
+    def save_csv(_key: str) -> tuple[int, list[str]]:
+        (tmp_path / "road.csv").write_text("date,time\n2026-08-03,未定\n", encoding="utf-8")
+        return 668, []
+
+    monkeypatch.setattr(monthly, "regenerate_road_csv", save_csv)
+    monkeypatch.setattr(
+        monthly,
+        "run_sheet_sync",
+        lambda _date: {
+            "ok": False,
+            "output": "RefreshError: invalid_grant",
+            "reason": "oauth_refresh_failed",
+            "records": 0,
+        },
+    )
+
+    result = monthly.check_monthly_pdf(now=datetime(2026, 8, 2, 10, 5, tzinfo=JST))
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))["R8_8"]
+
+    assert result["status"] == "downloaded_sheet_sync_pending"
+    assert result["csv_rows"] == 668
+    assert (tmp_path / "road.csv").exists()
+    assert state["downloaded"] is True
+    assert state["sheet_sync_pending"] is True
+    assert state["sheet_sync_reason"] == "oauth_refresh_failed"
+
+
+def test_pending_sheet_sync_retries_without_fetching_pdf(monkeypatch, tmp_path: Path) -> None:
+    configure_paths(monkeypatch, tmp_path)
+    (tmp_path / "road.csv").write_text("date,time\n2026-08-03,未定\n", encoding="utf-8")
+    (tmp_path / "state.json").write_text(
+        json.dumps(
+            {
+                "R8_8": {
+                    "downloaded": True,
+                    "csv_rows": 668,
+                    "sheet_sync_ok": False,
+                    "sheet_sync_pending": True,
+                    "sheet_sync_reason": "oauth_refresh_failed",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        monthly,
+        "fetch_publication_page",
+        lambda _now: (_ for _ in ()).throw(AssertionError("must not fetch publication page")),
+    )
+    monkeypatch.setattr(
+        monthly,
+        "download_pdf",
+        lambda _key, _now: (_ for _ in ()).throw(AssertionError("must not download PDF")),
+    )
+    monkeypatch.setattr(
+        monthly,
+        "run_sheet_sync",
+        lambda _date: {"ok": True, "output": "ok", "reason": "", "records": 668},
+    )
+
+    result = monthly.check_monthly_pdf(now=datetime(2026, 8, 2, 10, 15, tzinfo=JST))
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))["R8_8"]
+
+    assert result["status"] == "sheet_sync_retried"
+    assert result["sheet_sync_records"] == 668
+    assert state["downloaded"] is True
+    assert state["sheet_sync_pending"] is False
+    assert state["sheet_sync_ok"] is True

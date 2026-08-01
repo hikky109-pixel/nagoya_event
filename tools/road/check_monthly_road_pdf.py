@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -248,23 +247,60 @@ def csv_count(path: Path = CSV_PATH) -> int:
         return sum(1 for _row in csv.DictReader(f))
 
 
-def run_sheet_sync(target_date: date) -> tuple[bool, str, int]:
-    from scrapers.utils.google_sheet_events import (  # noqa: PLC0415
-        archive_old_road_rows,
-        sync_road_csv_to_sheet,
-    )
+def _sheet_sync_failure_reason(exc: BaseException) -> str:
+    detail = f"{type(exc).__name__}: {exc}".lower()
+    if type(exc).__name__ == "RefreshError" or "invalid_grant" in detail:
+        return "oauth_refresh_failed"
+    return "sheet_sync_error"
 
-    result = sync_road_csv_to_sheet(str(CSV_PATH))
-    if not isinstance(result, dict) or not result.get("synced"):
-        return False, str(result), 0
-    archive_result = archive_old_road_rows(target_date, str(CSV_PATH))
-    synced_records = int(result.get("merged_records") or 0)
-    output = json.dumps(
-        {"sync": result, "archive": archive_result},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    return True, output, synced_records
+
+def run_sheet_sync(
+    target_date: date,
+    *,
+    sync_func: Any = None,
+    archive_func: Any = None,
+) -> dict[str, Any]:
+    if sync_func is None or archive_func is None:
+        from scrapers.utils.google_sheet_events import (  # noqa: PLC0415
+            archive_old_road_rows,
+            sync_road_csv_to_sheet,
+        )
+
+        sync_func = sync_func or sync_road_csv_to_sheet
+        archive_func = archive_func or archive_old_road_rows
+
+    try:
+        result = sync_func(str(CSV_PATH))
+        if not isinstance(result, dict) or not result.get("synced"):
+            reason = str(result.get("reason") or "sheet_sync_rejected") if isinstance(result, dict) else "sheet_sync_rejected"
+            road_log("road_sheet_sync_status", "failed")
+            road_log("road_sheet_sync_reason", reason)
+            road_log("road_sheet_sync_records", 0)
+            return {"ok": False, "reason": reason, "records": 0, "output": str(result)}
+
+        archive_result = archive_func(target_date, str(CSV_PATH))
+        synced_records = int(result.get("merged_records") or 0)
+        output = json.dumps(
+            {"sync": result, "archive": archive_result},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        road_log("road_sheet_sync_status", "success")
+        road_log("road_sheet_sync_reason", "none")
+        road_log("road_sheet_sync_records", synced_records)
+        return {"ok": True, "reason": "", "records": synced_records, "output": output}
+    except Exception as exc:
+        reason = _sheet_sync_failure_reason(exc)
+        road_log("road_sheet_sync_status", "failed")
+        road_log("road_sheet_sync_reason", reason)
+        road_log("road_sheet_sync_records", 0)
+        logging.exception("road_sheet_sync_failed reason=%s", reason)
+        return {
+            "ok": False,
+            "reason": reason,
+            "records": 0,
+            "output": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def setting(name: str) -> str:
@@ -374,14 +410,58 @@ def build_failure_message(month: int, now: datetime, status: str) -> str:
     )
 
 
-def mark_success(state: dict[str, Any], key: str, *, now: datetime, csv_rows: int, sync_ok: bool) -> None:
-    state[key] = {
+def mark_success(
+    state: dict[str, Any],
+    key: str,
+    *,
+    now: datetime,
+    csv_rows: int,
+    sync_result: dict[str, Any],
+) -> None:
+    month_state = state.get(key) if isinstance(state.get(key), dict) else {}
+    month_state.update({
         "downloaded": True,
         "downloaded_at": now.isoformat(timespec="seconds"),
         "csv_rows": csv_rows,
-        "sheet_sync_ok": sync_ok,
-    }
+        "sheet_sync_ok": bool(sync_result["ok"]),
+        "sheet_sync_pending": not bool(sync_result["ok"]),
+        "sheet_sync_reason": str(sync_result["reason"]),
+        "sheet_sync_records": int(sync_result["records"]),
+        "sheet_sync_attempted_at": now.isoformat(timespec="seconds"),
+    })
+    state[key] = month_state
     save_state(state)
+
+
+def retry_pending_sheet_sync(
+    state: dict[str, Any],
+    state_key: str,
+    month_key: str,
+    month_state: dict[str, Any],
+    current: datetime,
+) -> dict[str, Any]:
+    road_log("road_sheet_sync_retry", "saved_csv_only")
+    sync_result = run_sheet_sync(current.date())
+    month_state.update(
+        {
+            "sheet_sync_ok": bool(sync_result["ok"]),
+            "sheet_sync_pending": not bool(sync_result["ok"]),
+            "sheet_sync_reason": str(sync_result["reason"]),
+            "sheet_sync_records": int(sync_result["records"]),
+            "sheet_sync_attempted_at": current.isoformat(timespec="seconds"),
+        }
+    )
+    state[state_key] = month_state
+    save_state(state)
+    return {
+        "status": "sheet_sync_retried" if sync_result["ok"] else "sheet_sync_pending",
+        "month_key": month_key,
+        "csv_rows": int(month_state.get("csv_rows") or csv_count()),
+        "sheet_sync_ok": bool(sync_result["ok"]),
+        "sheet_sync_pending": not bool(sync_result["ok"]),
+        "sheet_sync_reason": str(sync_result["reason"]),
+        "sheet_sync_records": int(sync_result["records"]),
+    }
 
 
 def mark_failure_notified(state: dict[str, Any], key: str, *, now: datetime, status: str) -> None:
@@ -407,6 +487,14 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
 
     road_log("road_scraper_started_at", current.isoformat(timespec="seconds"))
 
+    if month_state.get("downloaded") and month_state.get("sheet_sync_pending") and not force:
+        return retry_pending_sheet_sync(state, state_key, month_key, month_state, current)
+
+    if month_state.get("downloaded") and not force:
+        print(f"road_monthly_pdf: skipped already downloaded {month_key}", flush=True)
+        logging.info("road_monthly_pdf: skipped already downloaded %s", month_key)
+        return {"status": "skipped", "reason": "already_downloaded", "month_key": month_key}
+
     page_result = fetch_publication_page(current)
     page_html = str(page_result.get("body") or "")
     page_info = page_month_info(page_html, month_key)
@@ -417,11 +505,6 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
         "road_scraper_page_month",
         ",".join(page_info.get("published_months", [])) or "none",
     )
-
-    if month_state.get("downloaded") and not force:
-        print(f"road_monthly_pdf: skipped already downloaded {month_key}", flush=True)
-        logging.info("road_monthly_pdf: skipped already downloaded %s", month_key)
-        return {"status": "skipped", "reason": "already_downloaded", "month_key": month_key}
 
     pdf_result = download_pdf(month_key, current)
     road_log("road_scraper_http_status", f"pdf={pdf_result.get('status_code', 0)}")
@@ -501,23 +584,33 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
 
         csv_rows, health_messages = regenerate_road_csv(month_key)
         road_log("road_scraper_csv_records", csv_rows or csv_count())
-        sync_ok, sync_output, synced_records = run_sheet_sync(current.date())
-        road_log("road_sheet_sync_records", synced_records)
+        sync_result = run_sheet_sync(current.date())
+        sync_ok = bool(sync_result["ok"])
+        sync_output = str(sync_result["output"])
+        synced_records = int(sync_result["records"])
         message = build_success_message(target_month, current, csv_rows or csv_count(), sync_ok, sync_output)
         notify_ok, notify_status = post_admin_discord(message)
-        mark_success(state, state_key, now=current, csv_rows=csv_rows or csv_count(), sync_ok=sync_ok)
+        mark_success(
+            state,
+            state_key,
+            now=current,
+            csv_rows=csv_rows or csv_count(),
+            sync_result=sync_result,
+        )
         print(f"road_monthly_pdf: downloaded {month_key}", flush=True)
         print(f"road_monthly_pdf: admin_notify={notify_status}", flush=True)
         for health_message in health_messages:
             logging.info("road_monthly_pdf_health: %s", health_message)
         return {
-            "status": "downloaded",
+            "status": "downloaded" if sync_ok else "downloaded_sheet_sync_pending",
             "month_key": month_key,
             "csv_rows": csv_rows,
             "raw_records": raw_count,
             "parsed_records": parsed_count,
             "future_records": len(current_and_future),
             "sheet_sync_ok": sync_ok,
+            "sheet_sync_pending": not sync_ok,
+            "sheet_sync_reason": sync_result["reason"],
             "sheet_sync_records": synced_records,
             "admin_notified": notify_ok,
             "admin_notify_status": notify_status,

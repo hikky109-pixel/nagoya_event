@@ -82,6 +82,8 @@ Google SheetsのイベントDB IDは既存の `GOOGLE_SHEET_ID`、または `scr
 5. 当月レコードを1件以上確認できた場合だけ、全月CSVを再生成してGoogle Sheetsへsafe upsertする。
 6. Sheets同期後、当日より前の行を `【過去】道路情報` へ移す。
 
+PDF解析とCSV生成の成功は、Google Sheets同期の成否とは別にstateへ確定する。Sheets認証で `RefreshError` / `invalid_grant` が発生した場合も、取得済みPDF、生成済みCSV、月次stateを保持し、`sheet_sync_pending=true` と `sheet_sync_reason=oauth_refresh_failed` を記録する。次回の月次実行は対象HTMLやPDFを再取得せず、保存済みCSVからSheets同期だけを再試行する。同期成功後に `sheet_sync_pending=false` とし、過去行の移動まで実施する。
+
 0件や異常時は次の状態を区別する。
 
 - `official_no_schedule`: 当月PDFに公式の予定なし表記がある。
@@ -102,6 +104,8 @@ road_scraper_raw_records
 road_scraper_parsed_records
 road_scraper_future_records
 road_scraper_csv_records
+road_sheet_sync_status
+road_sheet_sync_reason
 road_sheet_sync_records
 road_record_skip_reason
 ```
