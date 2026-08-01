@@ -466,6 +466,18 @@ def _ensure_road_sheet_header(service, spreadsheet_id, sheet_name, rows):
     ).execute()
 
 
+def _partition_road_records(records, target_date):
+    current_records = []
+    past_records = []
+    for record in records:
+        row_date = _parse_road_date(record.get("date"))
+        if row_date is not None and row_date < target_date:
+            past_records.append(record)
+        else:
+            current_records.append(record)
+    return current_records, past_records
+
+
 def archive_old_road_rows(target_date=None, csv_path="csv_events/road.csv"):
     if not Path(csv_path).exists():
         print(f"道路情報CSVなし: {csv_path}")
@@ -496,19 +508,15 @@ def archive_old_road_rows(target_date=None, csv_path="csv_events/road.csv"):
     history_records = _rows_to_dicts(history_rows, ROAD_COLUMNS)
     history_keys = {_road_key(record) for record in history_records}
 
-    remaining_records = []
+    remaining_records, old_records = _partition_road_records(
+        current_records,
+        target_date,
+    )
     append_records = []
-    old_count = 0
+    old_count = len(old_records)
     duplicate_count = 0
 
-    for record in current_records:
-        row_date = _parse_road_date(record.get("date"))
-
-        if row_date is None or row_date >= target_date:
-            remaining_records.append(record)
-            continue
-
-        old_count += 1
+    for record in old_records:
         key = _road_key(record)
         if key in history_keys:
             duplicate_count += 1
@@ -559,6 +567,15 @@ def sync_road_csv_to_sheet(csv_path="csv_events/road.csv"):
 
     rows = _read_csv_rows(path)
     csv_records = _rows_to_dicts(rows, ROAD_COLUMNS)
+    if not csv_records:
+        print("road_sheet_sync_records: skipped empty_csv existing_sheet_preserved")
+        return {
+            "synced": False,
+            "reason": "empty_csv",
+            "csv_records": 0,
+            "sheet_records": 0,
+            "merged_records": 0,
+        }
     spreadsheet_id = _default_spreadsheet_id()
     if not spreadsheet_id:
         raise RuntimeError("Google spreadsheet ID is not configured")
@@ -583,7 +600,14 @@ def sync_road_csv_to_sheet(csv_path="csv_events/road.csv"):
         f"保護{stats['protected']}件 / Sheets保持{stats['kept_sheet_only']}件 / "
         f"季節不整合除外{stats['seasonal_rejected']}件"
     )
-    return True
+    print(f"road_sheet_sync_records: {len(merged_records)}")
+    return {
+        "synced": True,
+        "csv_records": len(csv_records),
+        "sheet_records": len(sheet_records),
+        "merged_records": len(merged_records),
+        **stats,
+    }
 
 
 def sync_csv_to_sheet(csv_path: str, sheet_name: str) -> None:

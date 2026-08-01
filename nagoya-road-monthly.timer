@@ -2,10 +2,9 @@
 Description=Run Nagoya Road Monthly PDF Watch on first day of each month
 
 [Timer]
-OnCalendar=*-*-01 10:01:00
-OnCalendar=*-*-01 12:01:00
-OnCalendar=*-*-01 15:01:00
-OnCalendar=*-*-01 18:01:00
+OnCalendar=*-*-01 10:05:00 Asia/Tokyo
+OnCalendar=*-*-01 10:15:00 Asia/Tokyo
+AccuracySec=1min
 Persistent=true
 Unit=nagoya-road-monthly.service
 

@@ -71,6 +71,41 @@ Google SheetsのイベントDB IDは既存の `GOOGLE_SHEET_ID`、または `scr
 
 保護対象行はCSVに存在しなくても削除しない。CSVに存在しないSheets専用行も基本的に保持する。期間不整合の自動生成行だけは、保護対象でない場合に同期結果から除外できる。道路情報同期ではシート全体clearは禁止し、必要な場合も書き戻し後の余剰範囲だけを消す。
 
+愛知県警の月次取締予定は `tools/road/check_monthly_road_pdf.py` が対象ページと当月PDFを監視する。実行時刻は `nagoya-road-monthly.timer` で毎月1日の10:05 JST、再試行は10:15 JSTの1回だけとする。10:00ちょうどの公開更新と競合しないよう、タイマーには `Asia/Tokyo` を明記する。
+
+月次取得の流れ:
+
+1. 対象HTMLをキャッシュ抑止queryと `Cache-Control: no-cache` 付きで取得する。
+2. HTML上の `torishimariyoteiR*.pdf` リンクから公開済み月を確認する。
+3. 当月PDFを同様にキャッシュ抑止付きで取得する。
+4. 当月PDF単体を先に解析し、raw、重複排除後、当日以降の件数を確認する。
+5. 当月レコードを1件以上確認できた場合だけ、全月CSVを再生成してGoogle Sheetsへsafe upsertする。
+6. Sheets同期後、当日より前の行を `【過去】道路情報` へ移す。
+
+0件や異常時は次の状態を区別する。
+
+- `official_no_schedule`: 当月PDFに公式の予定なし表記がある。
+- `publication_not_updated_yet`: HTMLが前月リンクのみ、更新時刻が当日10時より前、または月初の再取得結果が同一ETagである。
+- `fetch_or_parse_error`: HTTP失敗、PDF取得失敗、HTML/PDF構造変更、予定なし表記のない解析0件。
+
+初回0件は10:15再試行対象とする。再試行後も0件の場合はdebug JSONと診断ログだけを保存し、既存 `road.csv` とGoogle Sheetsを更新・削除しない。空CSVを `sync_road_csv_to_sheet()` に渡した場合も `empty_csv` として書き込みを行わない。
+
+主な診断ログ:
+
+```text
+road_scraper_started_at
+road_scraper_http_status
+road_scraper_final_url
+road_scraper_html_length
+road_scraper_page_month
+road_scraper_raw_records
+road_scraper_parsed_records
+road_scraper_future_records
+road_scraper_csv_records
+road_sheet_sync_records
+road_record_skip_reason
+```
+
 ### 2.2 キョードー東海スクレーパー
 
 キョードー東海の公演一覧は `scrapers/kyodo_tokai.py` が
@@ -680,7 +715,7 @@ READMEでは、日次イベント処理はcronまたは同等の定期実行か�
 リポジトリ内のsystemdファイル:
 
 - `nagoya-scheduler.service`: `tools/scheduler/run_scheduler.py` を常駐実行する。現時点ではOpen-Meteo予報投稿の定時ジョブ用。
-- `nagoya-road-monthly.timer`: 毎月1日の道路PDF監視ジョブを複数時刻で実行する。
+- `nagoya-road-monthly.timer`: 毎月1日10:05 JSTに道路PDFを確認し、0件・未公開・取得異常時は10:15 JSTに1回だけ再実行する。
 - GPS Web Appのsystemd user service化は `scripts/install_gps_systemd.sh` と `docs/gps_tailscale_funnel.md` を参照。
 
 リポジトリ内には、`main.py` を朝6:00に起動するtimerファイルは見当たらない。Oracle側のcronまたは外部systemd timerで `main.py` が朝6:00系に実行される前提の運用である。

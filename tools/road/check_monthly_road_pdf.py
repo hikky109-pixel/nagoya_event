@@ -8,11 +8,13 @@ import csv
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import date, datetime, time
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -30,6 +32,11 @@ STATE_PATH = ROOT / "data" / "road_monthly_pdf_state.json"
 CSV_PATH = ROOT / "csv_events" / "road.csv"
 LOG_DIR = ROOT / "logs"
 REQUEST_TIMEOUT_SECONDS = 30
+PUBLICATION_PAGE_URL = (
+    "https://www.pref.aichi.jp/police/koutsu/ko-shidou/"
+    "sokudokanri-issei.html"
+)
+DEBUG_DIR = ROOT / "data" / "debug" / "road_monthly"
 
 
 def setup_logging() -> None:
@@ -65,26 +72,94 @@ def month_state_key(month_key: str) -> str:
     return month_key.replace(".", "_")
 
 
-def download_pdf(month_key: str) -> tuple[bool, int, str]:
+def road_log(key: str, value: Any) -> None:
+    message = f"{key}: {value}"
+    print(message, flush=True)
+    logging.info(message)
+
+
+def _cache_busted_url(url: str, now: datetime) -> str:
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}_={int(now.timestamp())}"
+
+
+def fetch_publication_page(now: datetime) -> dict[str, Any]:
+    request = urllib.request.Request(
+        _cache_busted_url(PUBLICATION_PAGE_URL, now),
+        headers={
+            "User-Agent": "nagoya-event-road-monthly/1.0",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            body = response.read()
+            return {
+                "ok": 200 <= int(response.status) < 300,
+                "status_code": int(response.status),
+                "final_url": response.geturl(),
+                "body": body.decode("utf-8", errors="replace"),
+                "length": len(body),
+                "last_modified": str(response.headers.get("Last-Modified") or ""),
+                "etag": str(response.headers.get("ETag") or ""),
+            }
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "status_code": int(exc.code), "error": str(exc)}
+    except (OSError, urllib.error.URLError) as exc:
+        return {"ok": False, "status_code": 0, "error": str(exc)}
+
+
+def page_month_info(html: str, month_key: str) -> dict[str, Any]:
+    links = re.findall(r"torishimariyotei(R\d+\.\d+)\.pdf", html, re.IGNORECASE)
+    unique_links = list(dict.fromkeys(links))
+    return {
+        "month_key": month_key,
+        "current_month_published": month_key in unique_links,
+        "published_months": unique_links,
+        "previous_month_only": bool(unique_links) and month_key not in unique_links,
+    }
+
+
+def download_pdf(month_key: str, now: datetime) -> dict[str, Any]:
     url = road_pdf.pdf_url(month_key)
     path = ROOT / road_pdf.pdf_path(month_key)
-    request = urllib.request.Request(url, headers={"User-Agent": "nagoya-event-road-monthly/1.0"})
+    request = urllib.request.Request(
+        _cache_busted_url(url, now),
+        headers={
+            "User-Agent": "nagoya-event-road-monthly/1.0",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+    )
 
     try:
         with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             body = response.read()
             status_code = int(response.status)
+            final_url = response.geturl()
+            last_modified = str(response.headers.get("Last-Modified") or "")
+            etag = str(response.headers.get("ETag") or "")
     except urllib.error.HTTPError as exc:
-        return False, int(exc.code), str(exc)
+        return {"ok": False, "status_code": int(exc.code), "error": str(exc), "url": url}
     except (OSError, urllib.error.URLError) as exc:
-        return False, 0, str(exc)
+        return {"ok": False, "status_code": 0, "error": str(exc), "url": url}
 
     if not 200 <= status_code < 300:
-        return False, status_code, f"HTTP{status_code}"
+        return {"ok": False, "status_code": status_code, "error": f"HTTP{status_code}", "url": url}
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(body)
-    return True, status_code, str(path)
+    return {
+        "ok": True,
+        "status_code": status_code,
+        "final_url": final_url,
+        "path": str(path),
+        "url": url,
+        "length": len(body),
+        "last_modified": last_modified,
+        "etag": etag,
+    }
 
 
 def regenerate_road_csv(month_key: str) -> tuple[int, list[str]]:
@@ -95,6 +170,77 @@ def regenerate_road_csv(month_key: str) -> tuple[int, list[str]]:
     return len(events), health_messages
 
 
+def extract_target_month_records(month_key: str) -> tuple[list[dict[str, Any]], int]:
+    path = ROOT / road_pdf.pdf_path(month_key)
+    url = road_pdf.pdf_url(month_key)
+    place_records = road_pdf.extract_events(path, url)
+    focus_records = road_pdf.extract_focus_events(path, url)
+    raw_count = len(place_records) + len(focus_records)
+    return road_pdf.sort_events(road_pdf.dedupe_events(place_records + focus_records)), raw_count
+
+
+def future_records(
+    records: list[dict[str, Any]],
+    target_date: date,
+) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    for record in records:
+        record_date = str(record.get("date") or "")
+        if record_date < target_date.isoformat():
+            road_log(
+                "road_record_skip_reason",
+                f"past_record date={record_date} venue={record.get('venue', '')}",
+            )
+            continue
+        kept.append(record)
+    return kept
+
+
+def explicit_no_schedule(path: Path) -> bool:
+    try:
+        with road_pdf.pdfplumber.open(path) as pdf:
+            text = " ".join(page.extract_text() or "" for page in pdf.pages)
+    except Exception:
+        return False
+    normalized = " ".join(text.split())
+    return any(
+        marker in normalized
+        for marker in ("予定なし", "取締り予定はありません", "取締予定はありません")
+    )
+
+
+def classify_zero_result(
+    page_info: dict[str, Any],
+    pdf_path: Path | None,
+    page_result: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> str:
+    if pdf_path is not None and explicit_no_schedule(pdf_path):
+        return "official_no_schedule"
+    if page_info.get("previous_month_only"):
+        return "publication_not_updated_yet"
+    last_modified = str((page_result or {}).get("last_modified") or "")
+    if last_modified and now is not None:
+        try:
+            modified_at = parsedate_to_datetime(last_modified).astimezone(JST)
+        except (TypeError, ValueError):
+            modified_at = None
+        release_time = datetime.combine(now.date(), time(10, 0), tzinfo=JST)
+        if modified_at is not None and modified_at < release_time:
+            return "publication_not_updated_yet"
+    return "fetch_or_parse_error"
+
+
+def save_debug_snapshot(snapshot: dict[str, Any], now: datetime) -> Path:
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    path = DEBUG_DIR / f"{now:%Y%m%d_%H%M%S}.json"
+    path.write_text(
+        json.dumps(snapshot, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def csv_count(path: Path = CSV_PATH) -> int:
     if not path.exists():
         return 0
@@ -102,11 +248,23 @@ def csv_count(path: Path = CSV_PATH) -> int:
         return sum(1 for _row in csv.DictReader(f))
 
 
-def run_sheet_sync() -> tuple[bool, str]:
-    command = [sys.executable, str(ROOT / "tools" / "db" / "import_sheet_road.py")]
-    result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
-    output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part)
-    return result.returncode == 0, output or f"exit={result.returncode}"
+def run_sheet_sync(target_date: date) -> tuple[bool, str, int]:
+    from scrapers.utils.google_sheet_events import (  # noqa: PLC0415
+        archive_old_road_rows,
+        sync_road_csv_to_sheet,
+    )
+
+    result = sync_road_csv_to_sheet(str(CSV_PATH))
+    if not isinstance(result, dict) or not result.get("synced"):
+        return False, str(result), 0
+    archive_result = archive_old_road_rows(target_date, str(CSV_PATH))
+    synced_records = int(result.get("merged_records") or 0)
+    output = json.dumps(
+        {"sync": result, "archive": archive_result},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return True, output, synced_records
 
 
 def setting(name: str) -> str:
@@ -209,7 +367,7 @@ def build_failure_message(month: int, now: datetime, status: str) -> str:
     return "\n".join(
         [
             f"⚠️ 愛知県警 {month}月版取締予定PDF 未取得",
-            "18時時点で公開確認できず。土日・休日遅延の可能性あり",
+            "10:15再試行後も公開・解析を確認できませんでした。",
             f"確認時刻: {now.isoformat(timespec='seconds')}",
             f"取得結果: {status}",
         ]
@@ -247,15 +405,104 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
     state = load_state()
     month_state = state.get(state_key) if isinstance(state.get(state_key), dict) else {}
 
+    road_log("road_scraper_started_at", current.isoformat(timespec="seconds"))
+
+    page_result = fetch_publication_page(current)
+    page_html = str(page_result.get("body") or "")
+    page_info = page_month_info(page_html, month_key)
+    road_log("road_scraper_http_status", page_result.get("status_code", 0))
+    road_log("road_scraper_final_url", page_result.get("final_url", PUBLICATION_PAGE_URL))
+    road_log("road_scraper_html_length", page_result.get("length", 0))
+    road_log(
+        "road_scraper_page_month",
+        ",".join(page_info.get("published_months", [])) or "none",
+    )
+
     if month_state.get("downloaded") and not force:
         print(f"road_monthly_pdf: skipped already downloaded {month_key}", flush=True)
         logging.info("road_monthly_pdf: skipped already downloaded %s", month_key)
         return {"status": "skipped", "reason": "already_downloaded", "month_key": month_key}
 
-    ok, status_code, detail = download_pdf(month_key)
-    if ok:
+    pdf_result = download_pdf(month_key, current)
+    road_log("road_scraper_http_status", f"pdf={pdf_result.get('status_code', 0)}")
+    road_log("road_scraper_final_url", pdf_result.get("final_url", road_pdf.pdf_url(month_key)))
+    road_log("road_scraper_html_length", f"pdf={pdf_result.get('length', 0)}")
+    if pdf_result.get("ok"):
+        pdf_path = Path(str(pdf_result["path"]))
+        try:
+            target_records, raw_count = extract_target_month_records(month_key)
+            parse_error = ""
+        except Exception as exc:
+            target_records = []
+            raw_count = 0
+            parse_error = f"{type(exc).__name__}: {exc}"
+        parsed_count = len(target_records)
+        current_and_future = future_records(target_records, current.date())
+        road_log("road_scraper_raw_records", raw_count)
+        road_log("road_scraper_parsed_records", parsed_count)
+        road_log("road_scraper_future_records", len(current_and_future))
+
+        if not target_records:
+            diagnosis = (
+                "fetch_or_parse_error"
+                if parse_error
+                else classify_zero_result(page_info, pdf_path, page_result, current)
+            )
+            previous_attempts = int(month_state.get("attempts") or 0)
+            if (
+                previous_attempts
+                and month_state.get("page_etag") == page_result.get("etag")
+                and month_state.get("pdf_etag") == pdf_result.get("etag")
+            ):
+                diagnosis = "publication_not_updated_yet"
+            road_log("road_record_skip_reason", diagnosis)
+            attempts = previous_attempts + 1
+            month_state.update(
+                {
+                    "attempts": attempts,
+                    "last_attempt_at": current.isoformat(timespec="seconds"),
+                    "last_status": diagnosis,
+                    "page_etag": page_result.get("etag", ""),
+                    "pdf_etag": pdf_result.get("etag", ""),
+                }
+            )
+            state[state_key] = month_state
+            save_state(state)
+            debug_path = save_debug_snapshot(
+                {
+                    "started_at": current.isoformat(timespec="seconds"),
+                    "month_key": month_key,
+                    "page": {key: value for key, value in page_result.items() if key != "body"},
+                    "page_info": page_info,
+                    "pdf": pdf_result,
+                    "raw_records": raw_count,
+                    "parsed_records": parsed_count,
+                    "future_records": len(current_and_future),
+                    "diagnosis": diagnosis,
+                    "parse_error": parse_error,
+                    "attempt": attempts,
+                },
+                current,
+            )
+            road_log("road_scraper_csv_records", "skipped existing_csv_preserved")
+            road_log("road_sheet_sync_records", "skipped existing_sheet_preserved")
+            return {
+                "status": "retry_scheduled" if attempts == 1 else diagnosis,
+                "diagnosis": diagnosis,
+                "month_key": month_key,
+                "attempt": attempts,
+                "raw_records": raw_count,
+                "parsed_records": parsed_count,
+                "future_records": len(current_and_future),
+                "csv_preserved": True,
+                "sheet_preserved": True,
+                "debug_path": str(debug_path),
+            }
+
         csv_rows, health_messages = regenerate_road_csv(month_key)
-        sync_ok, sync_output = run_sheet_sync()
+        road_log("road_scraper_csv_records", csv_rows or csv_count())
+        sync_ok, sync_output, synced_records = run_sheet_sync(current.date())
+        road_log("road_sheet_sync_records", synced_records)
         message = build_success_message(target_month, current, csv_rows or csv_count(), sync_ok, sync_output)
         notify_ok, notify_status = post_admin_discord(message)
         mark_success(state, state_key, now=current, csv_rows=csv_rows or csv_count(), sync_ok=sync_ok)
@@ -267,16 +514,67 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
             "status": "downloaded",
             "month_key": month_key,
             "csv_rows": csv_rows,
+            "raw_records": raw_count,
+            "parsed_records": parsed_count,
+            "future_records": len(current_and_future),
             "sheet_sync_ok": sync_ok,
+            "sheet_sync_records": synced_records,
             "admin_notified": notify_ok,
             "admin_notify_status": notify_status,
         }
 
+    status_code = int(pdf_result.get("status_code") or 0)
+    detail = str(pdf_result.get("error") or "")
     status = f"HTTP{status_code}" if status_code else detail
+    diagnosis = (
+        "publication_not_updated_yet"
+        if page_info.get("previous_month_only")
+        else "fetch_or_parse_error"
+    )
+    attempts = int(month_state.get("attempts") or 0) + 1
+    month_state.update(
+        {
+            "attempts": attempts,
+            "last_attempt_at": current.isoformat(timespec="seconds"),
+            "last_status": diagnosis,
+        }
+    )
+    state[state_key] = month_state
+    save_state(state)
+    road_log("road_record_skip_reason", diagnosis)
+    road_log("road_scraper_raw_records", 0)
+    road_log("road_scraper_parsed_records", 0)
+    road_log("road_scraper_future_records", 0)
+    road_log("road_scraper_csv_records", "skipped existing_csv_preserved")
+    road_log("road_sheet_sync_records", "skipped existing_sheet_preserved")
+    debug_path = save_debug_snapshot(
+        {
+            "started_at": current.isoformat(timespec="seconds"),
+            "month_key": month_key,
+            "page": {key: value for key, value in page_result.items() if key != "body"},
+            "page_info": page_info,
+            "pdf": pdf_result,
+            "raw_records": 0,
+            "parsed_records": 0,
+            "future_records": 0,
+            "diagnosis": diagnosis,
+            "attempt": attempts,
+        },
+        current,
+    )
     logging.info("road_monthly_pdf: not_available month=%s status=%s", month_key, status)
-    if current.hour < 18:
-        print(f"road_monthly_pdf: not available before 18:00 {month_key} {status}", flush=True)
-        return {"status": "not_available", "month_key": month_key, "download_status": status}
+    if attempts <= 1:
+        print(f"road_monthly_pdf: retry scheduled {month_key} {status}", flush=True)
+        return {
+            "status": "retry_scheduled",
+            "diagnosis": diagnosis,
+            "month_key": month_key,
+            "download_status": status,
+            "attempt": attempts,
+            "csv_preserved": True,
+            "sheet_preserved": True,
+            "debug_path": str(debug_path),
+        }
 
     if month_state.get("failure_notified") and not force:
         print(f"road_monthly_pdf: skipped failure already notified {month_key}", flush=True)
@@ -288,11 +586,13 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
     print(f"road_monthly_pdf: missing after 18:00 {month_key}", flush=True)
     print(f"road_monthly_pdf: admin_notify={notify_status}", flush=True)
     return {
-        "status": "missing_after_18",
+        "status": diagnosis,
+        "diagnosis": diagnosis,
         "month_key": month_key,
         "download_status": status,
         "admin_notified": notify_ok,
         "admin_notify_status": notify_status,
+        "debug_path": str(debug_path),
     }
 
 
