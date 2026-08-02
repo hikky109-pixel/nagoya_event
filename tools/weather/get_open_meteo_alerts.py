@@ -91,11 +91,11 @@ def build_rain_transition_forecast(
 
     minutely = data.get("minutely_15")
     if not isinstance(minutely, dict):
-        return {"valid": False}
+        return {"valid": False, "reason": "minutely_15_missing", "threshold_mm": RAIN_THRESHOLD_MM}
     times = minutely.get("time")
     precipitation = minutely.get("precipitation")
     if not isinstance(times, list) or not isinstance(precipitation, list):
-        return {"valid": False}
+        return {"valid": False, "reason": "minutely_15_arrays_missing", "threshold_mm": RAIN_THRESHOLD_MM}
 
     points: list[tuple[datetime, float]] = []
     for index, raw_time in enumerate(times):
@@ -108,14 +108,14 @@ def build_rain_transition_forecast(
             continue
         points.append((parsed, amount))
     if not points:
-        return {"valid": False}
+        return {"valid": False, "reason": "minutely_15_points_empty", "threshold_mm": RAIN_THRESHOLD_MM}
 
     current_points = [point for point in points if point[0] <= current]
     if not current_points:
-        return {"valid": False}
+        return {"valid": False, "reason": "current_point_missing", "threshold_mm": RAIN_THRESHOLD_MM}
     current_time, current_amount = current_points[-1]
     if current - current_time > timedelta(minutes=15):
-        return {"valid": False}
+        return {"valid": False, "reason": "current_point_stale", "threshold_mm": RAIN_THRESHOLD_MM}
 
     future_15 = [
         point
@@ -164,10 +164,43 @@ def build_rain_transition_forecast(
             )
         )
 
+    future_30 = [
+        point
+        for point in points
+        if current < point[0] <= current + timedelta(minutes=30)
+    ]
+    if start_predicted:
+        reason = "dry_now_rain_within_15m"
+        decision = "notify_start"
+    elif current_raining and end_predicted:
+        reason = "raining_now_dry_within_30m_confirmed"
+        decision = "notify_end"
+    elif current_raining:
+        reason = "rain_continues_within_30m"
+        decision = "no_transition"
+    elif future_15:
+        reason = "dry_now_no_rain_within_15m"
+        decision = "no_transition"
+    else:
+        reason = "forecast_15m_unavailable"
+        decision = "no_transition"
+
     return {
         "valid": True,
+        "reason": reason,
+        "decision": decision,
+        "threshold_mm": RAIN_THRESHOLD_MM,
+        "current_time": current_time.isoformat(timespec="minutes"),
         "current_raining": current_raining,
         "current_precipitation": current_amount,
+        "forecast_15m": [
+            {"time": point_time.isoformat(timespec="minutes"), "precipitation": amount}
+            for point_time, amount in future_15
+        ],
+        "forecast_30m": [
+            {"time": point_time.isoformat(timespec="minutes"), "precipitation": amount}
+            for point_time, amount in future_30
+        ],
         "start_predicted_within_15m": start_predicted,
         "end_predicted_within_30m": end_predicted,
     }

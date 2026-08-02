@@ -42,6 +42,15 @@ REMARK_IGNORE_PATTERNS = (
     "特別車両券の取扱い",
     "お知らせした時刻よりも列車の到着が遅くなることがあります",
 )
+IMPORTANT_REMARK_MARKERS = (
+    "踏切通行不可",
+    "踏切が通行できません",
+    "点検中",
+    "点検作業",
+    "再開準備",
+    "運転再開の準備",
+    "振替輸送",
+)
 
 
 def _clean_text(value: Any) -> str:
@@ -82,6 +91,36 @@ def _detail_rows(block: Tag) -> dict[str, list[str]]:
         if values:
             details[label] = values
     return details
+
+
+def _important_remarks(block: Tag) -> list[str]:
+    remarks: list[str] = []
+    for text_node in block.find_all(string=True):
+        text = _clean_text(text_node)
+        if not text or not any(marker in text for marker in IMPORTANT_REMARK_MARKERS):
+            continue
+        parent = text_node.parent
+        container = (
+            parent
+            if parent and parent.name in ("li", "dd", "p", "td")
+            else parent.find_parent(["li", "dd", "p", "td"])
+            if parent
+            else None
+        )
+        candidate = _clean_text((container or parent).get_text(" ", strip=True) if (container or parent) else text)
+        if candidate and not any(pattern in candidate for pattern in REMARK_IGNORE_PATTERNS):
+            remarks.append(candidate)
+    return list(dict.fromkeys(remarks))
+
+
+def _merge_important_remarks(block: Tag, details: dict[str, list[str]]) -> None:
+    existing = details.setdefault("備考", [])
+    for remark in _important_remarks(block):
+        if any(remark == value or remark in value for value in existing):
+            continue
+        existing.append(remark)
+    if not existing:
+        details.pop("備考", None)
 
 
 def _alert_body(status: str, details: dict[str, list[str]]) -> str:
@@ -133,6 +172,7 @@ def _parse_meitetsu_status_diagnostics(
             continue
 
         details = _detail_rows(block)
+        _merge_important_remarks(block, details)
         lines = details.get("路線", [])
         if not lines:
             issues.append(

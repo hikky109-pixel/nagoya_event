@@ -675,14 +675,32 @@ def evaluate_rain_transition(
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     updated = normalize_rain_transition_component(component)
     updated["updated_at"] = now.isoformat(timespec="seconds")
+    threshold = forecast.get("threshold_mm", 0.1)
+    current_value = forecast.get("current_precipitation", "unavailable")
+    forecast_15m = forecast.get("forecast_15m", [])
+    forecast_30m = forecast.get("forecast_30m", [])
+    diagnostic_logs = [
+        f"rain_forecast_current: precipitation={current_value}",
+        f"rain_forecast_15m: points={forecast_15m}",
+        f"rain_forecast_30m: points={forecast_30m}",
+        f"rain_transition_threshold: precipitation_mm={threshold}",
+        f"start_notice_sent: {str(updated['start_notice_sent']).lower()}",
+        f"end_notice_sent: {str(updated['end_notice_sent']).lower()}",
+    ]
     if not forecast.get("valid"):
-        return updated, [], ["rain_transition: no transition reason=data_unavailable"]
+        reason = str(forecast.get("reason") or "data_unavailable")
+        return updated, [], diagnostic_logs + [
+            f"rain_transition_reason: {reason}",
+            "rain_transition_decision: no_transition",
+            f"rain_transition: no transition reason={reason}",
+        ]
 
     current_raining = bool(forecast.get("current_raining"))
     start_predicted = bool(forecast.get("start_predicted_within_15m"))
     end_predicted = bool(forecast.get("end_predicted_within_30m"))
     messages: list[str] = []
     logs: list[str] = []
+    reason = str(forecast.get("reason") or "not_provided")
 
     if not updated["initialized"]:
         updated["initialized"] = True
@@ -693,9 +711,14 @@ def evaluate_rain_transition(
             updated["start_notice_sent"] = True
             messages.append("🌧️ 15分以内に雨が降り始める見込みです")
             logs.append("rain_transition: start predicted within 15m")
+            decision = "notify_start"
         else:
             logs.append("rain_transition: no transition")
-        return updated, messages, logs
+            decision = "initialize_without_notification"
+        diagnostic_logs.extend(
+            [f"rain_transition_reason: {reason}", f"rain_transition_decision: {decision}"]
+        )
+        return updated, messages, diagnostic_logs + logs
 
     if current_raining:
         updated["rain_event_active"] = True
@@ -718,22 +741,35 @@ def evaluate_rain_transition(
         updated["rain_event_active"] = True
         if updated["start_notice_sent"]:
             logs.append("rain_transition: skipped duplicate start")
+            decision = "skip_duplicate_start"
         else:
             updated["start_notice_sent"] = True
             messages.append("🌧️ 15分以内に雨が降り始める見込みです")
             logs.append("rain_transition: start predicted within 15m")
+            decision = "notify_start"
 
     if current_raining and end_predicted:
         if updated["end_notice_sent"]:
             logs.append("rain_transition: skipped duplicate end")
+            decision = "skip_duplicate_end"
         else:
             updated["end_notice_sent"] = True
             messages.append("🌤️ 30分以内に雨が止む見込みです")
             logs.append("rain_transition: end predicted within 30m")
+            decision = "notify_end"
 
     if not logs:
         logs.append("rain_transition: no transition")
-    return updated, messages, logs
+        decision = "no_transition"
+    diagnostic_logs.extend(
+        [
+            f"rain_transition_reason: {reason}",
+            f"rain_transition_decision: {decision}",
+            f"start_notice_sent: {str(updated['start_notice_sent']).lower()}",
+            f"end_notice_sent: {str(updated['end_notice_sent']).lower()}",
+        ]
+    )
+    return updated, messages, diagnostic_logs + logs
 
 
 def evaluate_jma_state(

@@ -22,6 +22,20 @@ NOW = datetime(2026, 7, 30, 9, 0, tzinfo=JST)
 def _forecast(*, current: bool, start: bool = False, end: bool = False) -> dict:
     return {
         "valid": True,
+        "reason": (
+            "dry_now_rain_within_15m"
+            if start
+            else "raining_now_dry_within_30m_confirmed"
+            if end
+            else "rain_continues_within_30m"
+            if current
+            else "dry_now_no_rain_within_15m"
+        ),
+        "decision": "no_transition",
+        "threshold_mm": 0.1,
+        "current_precipitation": 0.2 if current else 0.0,
+        "forecast_15m": [],
+        "forecast_30m": [],
         "current_raining": current,
         "start_predicted_within_15m": start,
         "end_predicted_within_30m": end,
@@ -55,7 +69,9 @@ def test_no_start_when_next_15_minutes_are_dry() -> None:
         NOW,
     )
     assert messages == []
-    assert logs == ["rain_transition: no transition"]
+    assert "rain_transition: no transition" in logs
+    assert "rain_transition_reason: dry_now_no_rain_within_15m" in logs
+    assert "rain_transition_decision: no_transition" in logs
 
 
 def test_end_predicted_within_30_minutes() -> None:
@@ -78,7 +94,8 @@ def test_no_end_when_rain_continues_30_minutes() -> None:
         NOW,
     )
     assert messages == []
-    assert logs == ["rain_transition: no transition"]
+    assert "rain_transition: no transition" in logs
+    assert "rain_transition_reason: rain_continues_within_30m" in logs
 
 
 def test_duplicate_start_is_suppressed() -> None:
@@ -143,7 +160,8 @@ def test_missing_api_data_does_not_raise() -> None:
     )
     assert messages == []
     assert state["initialized"] is False
-    assert logs == ["rain_transition: no transition reason=data_unavailable"]
+    assert "rain_transition: no transition reason=data_unavailable" in logs
+    assert "rain_transition_decision: no_transition" in logs
 
 
 def test_forecast_wobble_does_not_repeat_start_notice() -> None:
@@ -195,3 +213,36 @@ def test_minutely_parser_confirms_dry_through_30_minutes_off_grid() -> None:
         datetime(2026, 7, 30, 9, 7, tzinfo=JST),
     )
     assert forecast["end_predicted_within_30m"] is True
+
+
+def test_august_2_guerrilla_rain_start_is_detected_and_fully_logged() -> None:
+    now = datetime(2026, 8, 2, 19, 7, tzinfo=JST)
+    data = {
+        "minutely_15": {
+            "time": [
+                "2026-08-02T19:00",
+                "2026-08-02T19:15",
+                "2026-08-02T19:30",
+                "2026-08-02T19:45",
+            ],
+            "precipitation": [0.0, 8.4, 22.0, 4.5],
+        }
+    }
+    forecast = build_rain_transition_forecast(data, now)
+    _state, messages, logs = evaluate_rain_transition(
+        _initialized_state(),
+        forecast,
+        now,
+    )
+
+    assert forecast["start_predicted_within_15m"] is True
+    assert forecast["reason"] == "dry_now_rain_within_15m"
+    assert messages == ["🌧️ 15分以内に雨が降り始める見込みです"]
+    assert any(log.startswith("rain_forecast_current:") for log in logs)
+    assert any(log.startswith("rain_forecast_15m:") for log in logs)
+    assert any(log.startswith("rain_forecast_30m:") for log in logs)
+    assert "rain_transition_threshold: precipitation_mm=0.1" in logs
+    assert "rain_transition_reason: dry_now_rain_within_15m" in logs
+    assert "rain_transition_decision: notify_start" in logs
+    assert "start_notice_sent: true" in logs
+    assert "end_notice_sent: false" in logs

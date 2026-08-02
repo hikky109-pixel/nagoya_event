@@ -1143,6 +1143,34 @@ rain_transition: no transition
 - Open-Meteo snapshotは `get_all_weather_snapshot()` の `raw_openmeteo` と `sources.Open-Meteo` に保存するが、旧1時間予報文は `normalized_alerts` へ追加しない。
 - 遷移通知は `evaluate_weather_state()` で既存メッセージと統合され、既存のDiscord投稿先・投稿処理を通る。
 
+## 14.1 Lv17.9 雨通知・名鉄通知改善
+
+名鉄運転見合わせ通知:
+
+- 名鉄公式の異常情報は `運転見合わせ`、`区間`、`理由`、`備考` の順で正規化・表示する。
+- 備考本文が `dt/dd/li` の外側にあっても、`踏切通行不可`、`点検中`、`点検作業`、`再開準備`、`運転再開の準備`、`振替輸送` を含む文は重要情報として必ず保持する。
+- 運転見合わせ区間内の踏切通行不可情報はDiscord本文へ表示する。
+- 2026-08-02の名鉄瀬戸線（栄町～尾張瀬戸、大雨による運転規制、点検作業準備、踏切通行不可、振替輸送）を回帰テストとする。
+
+Open-Meteo雨遷移診断:
+
+- Open-Meteoの `minutely_15=precipitation` と共通閾値 `0.1mm` は維持し、Yahoo雨雲レーダーは比較対象に限る。
+- 予測snapshotには現在値、15分以内・30分以内の全予測点、閾値、判定理由、判定結果を保持する。
+- 通知・重複抑制・継続雨・予測なし・データ欠損のいずれでも、次の診断ログを必ず出力する。
+
+```text
+rain_forecast_current
+rain_forecast_15m
+rain_forecast_30m
+rain_transition_reason
+rain_transition_threshold
+rain_transition_decision
+start_notice_sent
+end_notice_sent
+```
+
+- 2026-08-02の実運用相当データ（現在0mm、15分予測8.4mm、以後強雨）で開始予測通知が生成されることを回帰テストとする。
+
 ## 15. テスト
 
 主な確認コマンド:
