@@ -1,0 +1,50 @@
+{
+  "results": {
+    "ika_flg": "0",
+    "ika_first_flg": "0",
+    "ifr_ini_day": "",
+    "strong_list": [],
+    "calendar": [
+      {
+        "id": "20260820",
+        "koen_day": "20260820",
+        "daily_disp_flg": "0",
+        "daily_disp_str": "",
+        "mor": {"status": "1", "time": "13:30", "dispstr": "", "seat_rest": "justRest"},
+        "aft": {"status": "0", "time": "", "dispstr": "", "seat_rest": ""}
+      },
+      {
+        "id": "20260822",
+        "koen_day": "20260822",
+        "daily_disp_flg": "0",
+        "daily_disp_str": "",
+        "mor": {"status": "1", "time": "13:00", "dispstr": "", "seat_rest": "seat"},
+        "aft": {"status": "1", "time": "17:30", "dispstr": "", "seat_rest": "unsoldSeat"}
+      },
+      {
+        "id": "20260823",
+        "koen_day": "20260823",
+        "daily_disp_flg": "1",
+        "daily_disp_str": "貸切公演",
+        "mor": {"status": "0", "time": "", "dispstr": "", "seat_rest": ""},
+        "aft": {"status": "0", "time": "", "dispstr": "", "seat_rest": ""}
+      },
+      {
+        "id": "20260822",
+        "koen_day": "20260822",
+        "daily_disp_flg": "0",
+        "daily_disp_str": "",
+        "mor": {"status": "1", "time": "13:00", "dispstr": "", "seat_rest": "seat"},
+        "aft": {"status": "1", "time": "17:30", "dispstr": "", "seat_rest": "unsoldSeat"}
+      },
+      {
+        "id": "20260901",
+        "koen_day": "20260901",
+        "daily_disp_flg": "0",
+        "daily_disp_str": "",
+        "mor": {"status": "1", "time": "13:30", "dispstr": "", "seat_rest": "seat"},
+        "aft": {"status": "0", "time": "", "dispstr": "", "seat_rest": ""}
+      }
+    ]
+  }
+}

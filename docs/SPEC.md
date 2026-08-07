@@ -175,6 +175,73 @@ kyodo_calendar_fallback
 `kyodo_event_added` の公演は `main.py` のイベント集合へ入り、共通の正規化、
 当日抽出、重複除外を経てDiscord通知本文の生成対象となる。
 
+### 2.3 劇団四季スクレーパー
+
+劇団四季の対象作品・劇場ページは次のURLである。
+
+```text
+https://www.shiki.jp/stage_schedule/?aj=0&rid=0019&ggc=0977
+```
+
+対象は「オペラ座の怪人」、会場は `ＭＴＧ名古屋四季劇場` とする。作品ページの
+静的HTMLでは `#targetArea` が空であり、公演カレンダーはJavaScriptが公式JSON APIを
+呼び出して描画する。ブラウザ描画完了待ちは競合があるため一次取得には使用しない。
+
+一次取得経路:
+
+1. 作品ページの `h1.stageTitle` と `p.stageInfo strong` から作品名・名古屋会場を確認する。
+2. `/api_stage_schedule/stageYmList` から公開月を取得する。
+3. 各月について `/api_stage_schedule/calendar` を `target_ym=YYYYMM` 付きで取得する。
+4. `results.calendar[]` の `koen_day` と `mor` / `aft` の `time` を公演枠へ変換する。
+5. APIが含む前月・翌月のカレンダー余白を `koen_day` の年月で除外する。
+6. 名古屋会場確認後、`source + venue + title + date + time` で重複を除外する。
+
+APIリクエストには作品ページのRefererと `X-Requested-With: XMLHttpRequest` を付ける。
+これらがない場合、一部の将来月が一時的に404となることがある。HTTP失敗は1回だけ
+再試行し、再試行後も1か月でも取得できなければ全体を不確定とする。APIには
+公演ごとの詳細URLはなく、作品・劇場ページと月別JSONが取得元である。このため
+`shiki_detail_urls` と `shiki_detail_success` は現行構造では0となる。
+
+昼夜公演は `mor` と `aft` を別イベントとして保持する。`daily_disp_flg=1` かつ
+`daily_disp_str` に貸切表記がある場合、または時間なしの枠の `dispstr` に貸切表記が
+ある場合も、貸切公演として日付とnoteを保持する。通常公演の終了時刻は従来どおり
+開演から160分後とする。空席状態は `sufficient / seat / unsoldSeat / justRest /
+soldOut` を `◎ / ○ / △ / ▽ / ×` へ変換する。
+
+2026-08-08の実サイト確認では、対象ページはHTTP 200、リダイレクト0、静的HTML
+23,716 bytes、旧主要セレクタ0件だった。公式APIから2026年8月～2027年3月の
+将来公演220件を取得し、すべて日付解析成功、名古屋公演、会場フィルタ通過、
+重複除外後220件だった。
+
+異常判定と既存データ保護:
+
+- 0件または1件は正常結果として確定しない。
+- 前回の既存将来公演に対して50%以上減少した結果はCSVへ書かない。
+- API月一覧、いずれかの月別API、作品ページ、名古屋会場確認の失敗時はCSVへ書かない。
+- Health Dashboardの前回比50%以上減少判定は維持し、閾値を緩和しない。
+- 異常時も既存 `csv_events/shiki.csv` をinactive化・空更新せず、そのまま保持する。
+
+異常時は取得した作品ページHTMLと診断JSONを次へ保存する。
+
+```text
+data/debug/scrapers/shiki/
+```
+
+主な診断ログ:
+
+```text
+shiki_http_status
+shiki_final_url
+shiki_html_length
+shiki_raw_candidates
+shiki_detail_urls
+shiki_detail_success
+shiki_parsed_events
+shiki_nagoya_events
+shiki_filtered_events
+shiki_skip_reason
+```
+
 ## 3. 名古屋場所辞書DB
 
 場所辞書DB用の設定は `config.py` にある。
@@ -1220,6 +1287,17 @@ git diff --check
 - 初回の主要セレクタ0件から再取得で回復した場合、異常通知を作らないこと
 - 2回続けて正常一覧を確認できない場合、HTMLと診断JSONを保存すること
 - 診断ログにHTTPステータス、最終URL、HTML長、セレクタ件数、保存先を含むこと
+
+劇団四季の重要テスト:
+
+- `tests/test_shiki.py`
+- 現行JSON API fixtureから複数公演と名古屋会場を取得できること
+- 同日の昼夜公演を別イベントとして保持すること
+- 貸切表記を失わないこと
+- 月境界や重複レコードから同一公演を重複生成しないこと
+- 0件・1件および前回比50%以上減少時に既存CSVを更新しないこと
+- 異常時にHTMLと診断JSONを保存すること
+- Health Dashboardの前回比50%以上減少警告を維持すること
 
 PlaceInfo同期の重要テスト:
 

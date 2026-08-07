@@ -712,8 +712,18 @@ def main():
 
         shiki_events, shiki_messages = scrape_shiki_with_health(page, today)
         handle_scraper_health_messages(shiki_messages)
-        write_shiki_csv(shiki_events, "csv_events/shiki.csv", today=today)
-        logging.info(f"劇団四季CSV更新完了: csv_events/shiki.csv / {len(shiki_events)}件")
+        shiki_written = write_shiki_csv(
+            shiki_events, "csv_events/shiki.csv", today=today
+        )
+        if shiki_written:
+            logging.info(
+                f"劇団四季CSV更新完了: csv_events/shiki.csv / {len(shiki_events)}件"
+            )
+        else:
+            logging.warning(
+                "劇団四季CSV更新保留: 取得異常のため既存データを保持 / %s件",
+                len(shiki_events),
+            )
 
         browser.close()
 
