@@ -40,27 +40,27 @@ from scrapers.utils.csv_events import (
 )
 from scrapers.utils.google_sheet_events import (
     archive_old_road_rows,
-    cleanup_old_asia_rows,
     cleanup_old_cruise_rows,
     load_all_google_sheet_events,
     load_road_google_sheet_events,
-    sync_asia_csv_to_sheet,
     sync_cruise_csv_to_sheet,
     sync_csv_to_sheet,
     sync_road_csv_to_sheet,
 )
 from scrapers.utils.road_validation import is_road_event_seasonally_valid
 from tools.location.sync_placeinfo_review_sheet import sync_placeinfo_review_sheet
+from tools.event.aichi_nagoya_2026_bot import (
+    is_enabled as aichi_nagoya_2026_enabled,
+    send_daily_notice as send_aichi_nagoya_2026_notice,
+)
 
 JST = timezone(timedelta(hours=9))
 DRY_RUN = False
 DISCORD_TARGET = "WEBHOOK_EVENT"
 ROAD_WEBHOOK_ENV = "WEBHOOK_ROAD"
 CRUISE_WEBHOOK_ENV = "WEBHOOK_CRUISE"
-ASIA_WEBHOOK_ENV = "WEBHOOK_ASIA"
 ROAD_CSV_PATH = Path("csv_events/road.csv")
 CRUISE_CSV_PATH = Path("csv_events/cruise.csv")
-ASIA_CSV_PATH = Path("csv_events/asia.csv")
 ROAD_CATEGORY_ORDER = [
     "重点取締",
     "交通規制",
@@ -285,7 +285,8 @@ def load_non_road_manual_csv_events():
     events += load_csv_events("misonoza.csv", "misonoza")
     events += load_csv_events("shiki.csv", "shiki")
     events += load_csv_events("spot.csv", "spot")
-    events += load_csv_events("ajipara.csv", "ajipara")
+    if aichi_nagoya_2026_enabled():
+        events += load_csv_events("ajipara.csv", "ajipara")
 
     return events
 
@@ -446,17 +447,6 @@ def render_cruise_notice_item(event):
     )
 
 
-def render_asia_notice_item(event):
-    title = event.get("title", "").strip()
-    venue = event.get("venue", "").strip() or "不明"
-
-    return (
-        f"📢 {format_notice_time(event)}\n"
-        f"📍 {venue}\n"
-        f"🎺 {title}"
-    )
-
-
 def build_csv_daily_notice_message(events, target_date, header_title, count_icon, count_unit, render_item):
     if isinstance(target_date, datetime):
         target_date = target_date.date()
@@ -538,16 +528,7 @@ def send_cruise_info(target_date):
 
 
 def send_asia_info(target_date):
-    return send_csv_daily_notice(
-        target_date=target_date,
-        csv_path=ASIA_CSV_PATH,
-        webhook_env=ASIA_WEBHOOK_ENV,
-        header_title="🏟️ アジア大会情報",
-        count_icon="🏟️",
-        count_unit="件",
-        render_item=render_asia_notice_item,
-        label="アジア大会",
-    )
+    return send_aichi_nagoya_2026_notice(target_date, dry_run=DRY_RUN)
 
 
 def sort_road_events(events):
@@ -844,18 +825,6 @@ def main():
     except Exception:
         print("[WARN] クルーズ船シート削除失敗")
         logging.exception("クルーズ船シート削除失敗")
-
-    try:
-        sync_asia_csv_to_sheet()
-    except Exception:
-        print("[WARN] アジア大会Google Sheets同期失敗")
-        logging.exception("アジア大会Google Sheets同期失敗")
-
-    try:
-        cleanup_old_asia_rows(today)
-    except Exception:
-        print("[WARN] アジア大会シート削除失敗")
-        logging.exception("アジア大会シート削除失敗")
 
     try:
         sync_placeinfo_review_sheet()

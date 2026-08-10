@@ -1,0 +1,511 @@
+{
+  "data": [
+    {
+      "name": "東京アクアティクスセンター",
+      "pref": "東京",
+      "address": "〒135-0053 東京都江東区辰巳２丁目２−１",
+      "comp": "水泳",
+      "ev": "競泳、飛込",
+      "mapurl": "https://maps.app.goo.gl/ez6rT1Jya639S1Tx6",
+      "url": "https://www.tef.or.jp/tac/"
+    },
+    {
+      "name": "古橋廣之進記念浜松市総合水泳場[ToBiO]",
+      "pref": "静岡",
+      "address": "〒431-0201 静岡県浜松市中央区篠原町２３９８２−１",
+      "comp": "水泳",
+      "ev": "アーティスティックスイミング",
+      "mapurl": "https://maps.app.goo.gl/GUmFRibctFgDtdkC6",
+      "url": "https://hb-wave.co.jp/"
+    },
+    {
+      "name": "名古屋市総合体育館[レインボープール]",
+      "pref": "愛知",
+      "address": "〒457-0833 愛知県名古屋市南区東又兵ヱ町５丁目１−５",
+      "comp": "水泳",
+      "ev": "水球",
+      "mapurl": "https://maps.app.goo.gl/tmih4Y5QH9uJEh5e8",
+      "url": "https://www.nespa.or.jp/sports-plaza/arena/"
+    },
+    {
+      "name": "岡崎中央総合公園多目的広場",
+      "pref": "愛知",
+      "address": "〒444-0008 愛知県岡崎市洞町大洞",
+      "comp": "アーチェリー",
+      "ev": "アーチェリー",
+      "mapurl": "https://maps.app.goo.gl/ZFpAReKw44j13kM69",
+      "url": "https://okazaki-kanko.jp/chuo-sogo-park/guide/166"
+    },
+    {
+      "name": "名古屋市瑞穂公園陸上競技場",
+      "pref": "愛知",
+      "address": "〒467-0062 愛知県名古屋市瑞穂区山下通５丁目１",
+      "comp": "陸上競技",
+      "ev": "陸上競技（トラック／フィールド）",
+      "mapurl": "https://maps.app.goo.gl/vPqNabMkjdjAJuJUA",
+      "url": "https://mizuho-loop.jp/stadium/"
+    },
+    {
+      "name": "名古屋市瑞穂公園陸上競技場（都心コース）",
+      "pref": "愛知",
+      "address": "〒467-0062 愛知県名古屋市瑞穂区山下通５丁目１",
+      "comp": "陸上競技",
+      "ev": "陸上競技（マラソン）",
+      "mapurl": "https://maps.app.goo.gl/vPqNabMkjdjAJuJUA",
+      "url": "https://mizuho-loop.jp/stadium/"
+    },
+    {
+      "name": "愛知県庁・名古屋市役所周辺コース",
+      "pref": "愛知",
+      "address": "〒460-8501 愛知県名古屋市中区三の丸３丁目１−２",
+      "comp": "陸上競技",
+      "ev": "陸上競技（競歩）\t",
+      "mapurl": "https://maps.app.goo.gl/vCKFXY9W9yqE6tYEA",
+      "url": "https://www.city.nagoya.jp/aichi-nagoya2026/1040800/1040801/1040042.html"
+    },
+    {
+      "name": "一宮市総合体育館",
+      "pref": "愛知",
+      "address": "〒491-0135 愛知県一宮市光明寺白山前２０",
+      "comp": "バドミントン",
+      "ev": "バドミントン",
+      "mapurl": "https://maps.app.goo.gl/czWfNYva8Bps7bp5A",
+      "url": "https://www.hamada-sports.com/ichinomiya/soutai"
+    },
+    {
+      "name": "岡崎中央総合公園野球場",
+      "pref": "愛知",
+      "address": "〒444-0008 愛知県岡崎市高隆寺町字峠1番地",
+      "comp": "野球・ソフトボール",
+      "ev": "野球",
+      "mapurl": "https://maps.app.goo.gl/L2w7y42YzL2fdKCAA",
+      "url": "https://okazaki-kanko.jp/chuo-sogo-park/guide/167"
+    },
+    {
+      "name": "豊橋市民球場",
+      "pref": "愛知",
+      "address": "〒440-0832 愛知県豊橋市岩田町１−２",
+      "comp": "野球・ソフトボール",
+      "ev": "野球",
+      "mapurl": "https://maps.app.goo.gl/sra9V8w81unixDzk6",
+      "url": "https://toyohashi-sports.or.jp/facility/000085.html"
+    },
+    {
+      "name": "安城市総合運動公園ソフトボール場",
+      "pref": "愛知",
+      "address": "〒446-0061 愛知県安城市新田町新定",
+      "comp": "野球・ソフトボール",
+      "ev": "ソフトボール",
+      "mapurl": "https://maps.app.goo.gl/xQvQ5LEWxow9xmtn9",
+      "url": "https://www.city.anjo.aichi.jp/tanoshimu/koen/sougou.html"
+    },
+    {
+      "name": "愛知国際アリーナ",
+      "pref": "愛知",
+      "address": "〒462-0846 愛知県名古屋市北区名城１丁目２−２",
+      "comp": "バスケットボール、柔道",
+      "ev": "バスケットボール、柔道",
+      "mapurl": "https://maps.app.goo.gl/Q1vuT7R5KAskM8Fi6",
+      "url": "https://www.ig-arena.jp/"
+    },
+    {
+      "name": "金城ふ頭駅前特設コート",
+      "pref": "愛知",
+      "address": "〒455-0848 愛知県名古屋市港区金城ふ頭３丁目２番１",
+      "comp": "バスケットボール",
+      "ev": "3x3 バスケットボール",
+      "mapurl": "https://maps.app.goo.gl/qwFwtt26sbs2Mv7h9",
+      "url": "https://nagos-sports.city.nagoya.jp/tourism/spectators-guide/area04/"
+    },
+    {
+      "name": "西尾市総合体育館",
+      "pref": "愛知",
+      "address": "〒445-0006 愛知県西尾市小島町大郷１−１",
+      "comp": "ボクシング",
+      "ev": "ボクシング",
+      "mapurl": "https://maps.app.goo.gl/JK7J5Ub9ip2gvxnc9",
+      "url": "https://www.city.nishio.aichi.jp/shisetsu/sports/1001574/1003955.html"
+    },
+    {
+      "name": "三好池カヌー競技場",
+      "pref": "愛知",
+      "address": "〒470-0224 愛知県みよし市三好池",
+      "comp": "カヌー・カヤック",
+      "ev": "カヌー・カヤック スプリント",
+      "mapurl": "https://maps.app.goo.gl/ppmkzfLbnhDdJw2s8",
+      "url": "https://miyoshi-canoe.jp/"
+    },
+    {
+      "name": "矢作川カヌースラロームコース",
+      "pref": "愛知",
+      "address": "〒444-2824 愛知県豊田市池島町坂口",
+      "comp": "カヌー・カヤック",
+      "ev": "カヌー・カヤック スラローム",
+      "mapurl": "https://maps.app.goo.gl/FaXBrZZHwsymA98D7",
+      "url": "https://www.city.toyota.aichi.jp/_res/projects/default_project/_page_/001/070/082/01.pdf"
+    },
+    {
+      "name": "愛知県武道館",
+      "pref": "愛知",
+      "address": "〒455-0078 愛知県名古屋市港区丸池町１丁目１−４",
+      "comp": "コンバットスポーツ、武術太極拳",
+      "ev": "柔術、クラッシュ、武術太極拳",
+      "mapurl": "https://maps.app.goo.gl/1JrVj9eAKejUAnv16",
+      "url": "https://aichi-budo.sakura.ne.jp/"
+    },
+    {
+      "name": "名古屋市稲永スポーツセンター",
+      "pref": "愛知",
+      "address": "〒455-0845 愛知県名古屋市港区野跡５丁目１−１０",
+      "comp": "コンバットスポーツ、レスリング",
+      "ev": "総合格闘技、レスリング",
+      "mapurl": "https://maps.app.goo.gl/YSRhzn3P98GPufeb9",
+      "url": "https://www.nespa.or.jp/facility/inae_sc/"
+    },
+    {
+      "name": "愛知県口論義運動公園",
+      "pref": "愛知",
+      "address": "〒470-0103 愛知県日進市北新町西口論義３２３−８",
+      "comp": "クリケット",
+      "ev": "クリケット",
+      "mapurl": "https://maps.app.goo.gl/bNPHMCZL1S9852Jz7",
+      "url": "https://www.kourogi.jp/"
+    },
+    {
+      "name": "伊豆ベロドローム",
+      "pref": "静岡",
+      "address": "〒410-2402 静岡県伊豆市大野1826番地",
+      "comp": "自転車競技",
+      "ev": "自転車競技 トラック",
+      "mapurl": "https://maps.app.goo.gl/pUJHSBF4tP6i6zQq5",
+      "url": "https://www.csc.or.jp/attraction-ride/attraction-ride-786/"
+    },
+    {
+      "name": "新城市内特設コース",
+      "pref": "愛知",
+      "address": "愛知県新城市内",
+      "comp": "自転車競技",
+      "ev": "自転車競技 ロードレース",
+      "mapurl": "",
+      "url": "https://www.city.shinshiro.lg.jp/kanko/event/sports/asia-games.html"
+    },
+    {
+      "name": "小幡緑地",
+      "pref": "愛知",
+      "address": "日本、〒463-0094 愛知県名古屋市守山区牛牧 字中山１６３２−１",
+      "comp": "自転車競技",
+      "ev": "マウンテンバイク",
+      "mapurl": "https://maps.app.goo.gl/oFPe5FvNoQh5rHfr8",
+      "url": "https://www.aichi-koen.com/obata/"
+    },
+    {
+      "name": "名古屋競輪場 BMXレースコース",
+      "pref": "愛知",
+      "address": "〒453-0053 愛知県名古屋市中村区中村町高畑６８ 名古屋競輪場BMXレースコース",
+      "comp": "自転車競技",
+      "ev": "BMXレーシング",
+      "mapurl": "https://maps.app.goo.gl/o5R5Y9o8JuXMPoBz8",
+      "url": "https://nagoyakeirin-bmx.com/"
+    },
+    {
+      "name": "愛知県国際展示場[Aichi Sky Expo]",
+      "pref": "愛知",
+      "address": "〒479-0881 愛知県常滑市セントレア５丁目１０番１号",
+      "comp": "ブレイキン、自転車競技、Eスポーツ、フェンシング、スケートボード",
+      "ev": "ブレイキン、自転車競技、Eスポーツ、フェンシング、スケートボード",
+      "mapurl": "https://maps.app.goo.gl/91ygH3VNWczw3ALF7",
+      "url": "https://www.aichiskyexpo.com/"
+    },
+    {
+      "name": "馬事公苑",
+      "pref": "東京",
+      "address": "〒158-0098 東京都世田谷区上用賀２丁目１−１ メインオフィス ２階",
+      "comp": "馬術",
+      "ev": "馬場馬術、総合馬術、障害馬術",
+      "mapurl": "https://maps.app.goo.gl/pMU1wrbySmNwSiiL6",
+      "url": "https://jra.jp/facilities/bajikouen/"
+    },
+    {
+      "name": "豊田スタジアム",
+      "pref": "愛知",
+      "address": "〒471-0016 愛知県豊田市千石町７丁目２",
+      "comp": "サッカー",
+      "ev": "サッカー",
+      "mapurl": "https://maps.app.goo.gl/fjPmPFN4ryftjV1a8",
+      "url": "https://www.toyota-stadium.co.jp/facility03/"
+    },
+    {
+      "name": "名古屋市港サッカー場",
+      "pref": "愛知",
+      "address": "〒455-0845 愛知県名古屋市港区野跡４丁目１１−１２",
+      "comp": "サッカー",
+      "ev": "サッカー",
+      "mapurl": "https://maps.app.goo.gl/2WCwSvhPwUsWFbmDA",
+      "url": "https://www.nespa.or.jp/facility/minato_soc/"
+    },
+    {
+      "name": "ウェーブスタジアム刈谷",
+      "pref": "愛知",
+      "address": "〒448-0011 愛知県刈谷市築地町荒田１",
+      "comp": "サッカー",
+      "ev": "サッカー",
+      "mapurl": "https://maps.app.goo.gl/gP9GfrhT36AmoTS66",
+      "url": "https://wing-kariya.jp/about/wave.html"
+    },
+    {
+      "name": "名古屋市瑞穂公園ラグビー場",
+      "pref": "愛知",
+      "address": "〒467-0062 愛知県名古屋市瑞穂区山下通５丁目４",
+      "comp": "サッカー、ラグビー",
+      "ev": "サッカー、ラグビー７s",
+      "mapurl": "https://maps.app.goo.gl/a5qbYdWwzDXDvZni9",
+      "url": "https://mizuho-loop.jp/equipment/equipment05/"
+    },
+    {
+      "name": "岐阜メモリアルセンター長良川競技場",
+      "pref": "岐阜",
+      "address": "〒502-0817 岐阜県岐阜市長良福光大野２６７５−２８",
+      "comp": "サッカー",
+      "ev": "サッカー",
+      "mapurl": "https://maps.app.goo.gl/cPVM2Dvx4jZKTrRG7",
+      "url": "https://gifu-sports.org/gmc/"
+    },
+    {
+      "name": "小笠山総合運動公園エコパスタジアム",
+      "pref": "静岡",
+      "address": "〒437-0031 静岡県袋井市愛野２３００−１",
+      "comp": "サッカー",
+      "ev": "サッカー",
+      "mapurl": "https://maps.app.goo.gl/EYZcPb59gBuZBdPE7",
+      "url": "https://www.ecopa.jp/"
+    },
+    {
+      "name": "長居陸上競技場",
+      "pref": "大阪",
+      "address": "〒546-0034 大阪府大阪市東住吉区長居公園１−１ ヤンマースタジアム 北側入口",
+      "comp": "サッカー",
+      "ev": "サッカー",
+      "mapurl": "https://maps.app.goo.gl/h8TvFufaGWgVG2H78",
+      "url": "https://nagaipark.com/stadium/#area1"
+    },
+    {
+      "name": "春日井カントリークラブ東コース",
+      "pref": "愛知",
+      "address": "〒480-0302 愛知県春日井市西尾町１０７１",
+      "comp": "ゴルフ",
+      "ev": "ゴルフ",
+      "mapurl": "https://maps.app.goo.gl/XUob63fnm1DbCj7k8",
+      "url": "https://kasugai-cc.jp/"
+    },
+    {
+      "name": "名古屋市総合体育館[レインボーホール]",
+      "pref": "愛知",
+      "address": "〒457-0833 愛知県名古屋市南区東又兵ヱ町５丁目１−５",
+      "comp": "体操",
+      "ev": "体操、新体操、トランポリン",
+      "mapurl": "https://maps.app.goo.gl/tmih4Y5QH9uJEh5e8",
+      "url": "https://www.nespa.or.jp/sports-plaza/arena/"
+    },
+    {
+      "name": "春日井市総合体育館",
+      "pref": "愛知",
+      "address": "〒486-0804 愛知県春日井市鷹来町４１９６番地３",
+      "comp": "ハンドボール",
+      "ev": "ハンドボール",
+      "mapurl": "https://maps.app.goo.gl/TxUTNZoESdE8TgZd8",
+      "url": "https://www.spofure-kasugai.or.jp/sports/gymnasium/"
+    },
+    {
+      "name": "エントリオ",
+      "pref": "愛知",
+      "address": "〒492-8094 愛知県稲沢市下津北山１丁目１６−４",
+      "comp": "ハンドボール",
+      "ev": "ハンドボール",
+      "mapurl": "https://maps.app.goo.gl/GNt15xqTJNf51E756",
+      "url": "https://www.toyoda-gosei.co.jp/entrio/floor_guide/"
+    },
+    {
+      "name": "岐阜県グリーンスタジアム",
+      "pref": "岐阜",
+      "address": "〒504-0924 岐阜県各務原市下切町６丁目１−４",
+      "comp": "ホッケー",
+      "ev": "ホッケー",
+      "mapurl": "https://maps.app.goo.gl/KTCKNJqd3s93uKMX7",
+      "url": "https://www.city.kakamigahara.lg.jp/shisei/shisetsu/1005665/1005670.html"
+    },
+    {
+      "name": "東海市民体育館",
+      "pref": "愛知",
+      "address": "〒477-0037 愛知県東海市高横須賀町桝形１−１",
+      "comp": "カバディ",
+      "ev": "カバディ",
+      "mapurl": "https://maps.app.goo.gl/xQTSChQubPc11HfN9",
+      "url": "https://www.big-s.info/tokai_gym/"
+    },
+    {
+      "name": "豊橋市総合体育館",
+      "pref": "愛知",
+      "address": "〒441-8077 愛知県豊橋市神野新田町メノ割１−３",
+      "comp": "空手、テコンドー",
+      "ev": "空手、テコンドー",
+      "mapurl": "https://maps.app.goo.gl/PMXyz6rrm5bd6pWQ9",
+      "url": "https://www.hamada-sports.com/toyohashi-sports/shisetsu/general-gym/"
+    },
+    {
+      "name": "安城市総合運動公園",
+      "pref": "愛知",
+      "address": "〒446-0061 愛知県安城市新田町新定",
+      "comp": "近代五種",
+      "ev": "近代五種",
+      "mapurl": "https://maps.app.goo.gl/TMceMSrXipiH4iNe6",
+      "url": "https://www.city.anjo.aichi.jp/tanoshimu/koen/sougou.html"
+    },
+    {
+      "name": "調整中",
+      "pref": "",
+      "address": "調整中",
+      "comp": "パデル",
+      "ev": "パデル",
+      "mapurl": "調整中",
+      "url": "調整中"
+    },
+    {
+      "name": "長良川国際レガッタコース",
+      "pref": [
+        "愛知",
+        "岐阜"
+      ],
+      "address": "〒503-0614 岐阜県海津市海津町長瀬９４０−１",
+      "comp": "ローイング",
+      "ev": "ローイング",
+      "mapurl": "https://maps.app.goo.gl/4Q4if6QcbjhxPa7t5",
+      "url": "https://aichi-sc.jp/sportscamp/pdf/Nagaragawa_International_Regatta_Course.pdf"
+    },
+    {
+      "name": "海陽ヨットハーバー",
+      "pref": "愛知",
+      "address": "１丁目-７ 海陽町 蒲郡市 愛知県 443-0014",
+      "comp": "セーリング",
+      "ev": "セーリング",
+      "mapurl": "https://maps.app.goo.gl/Pz55KFhwdVaxn5N59",
+      "url": "https://www.aichi-koen.com/kaiyo/"
+    },
+    {
+      "name": "名古屋市瑞穂公園体育館",
+      "pref": "愛知",
+      "address": "〒467-0027 愛知県名古屋市瑞穂区田辺通３丁目4",
+      "comp": "セパタクロー",
+      "ev": "セパタクロー",
+      "mapurl": "https://maps.app.goo.gl/ZA5JEngwijGHBwuRA",
+      "url": "https://mizuho-loop.jp/equipment/equipment03/"
+    },
+    {
+      "name": "愛知県総合射撃場",
+      "pref": "愛知",
+      "address": "〒444-3203 愛知県豊田市宇連野町ウネ畑１２−９５",
+      "comp": "射撃",
+      "ev": "射撃",
+      "mapurl": "https://maps.app.goo.gl/FN8fHwrsGKhYJ37D6",
+      "url": "https://www.hm10.aitai.ne.jp/~shooting/"
+    },
+    {
+      "name": "名古屋市国際展示場[ポートメッセなごや]第１展示館",
+      "pref": "愛知",
+      "address": "〒455-0848 愛知県名古屋市港区金城ふ頭３丁目２−１",
+      "comp": "スポーツクライミング",
+      "ev": "スポーツクライミング",
+      "mapurl": "https://maps.app.goo.gl/6BwgqrQrraXb2KbF9",
+      "url": "https://portmesse.com/facility/tenjikan01"
+    },
+    {
+      "name": "名古屋金城ふ頭アリーナ",
+      "pref": "愛知",
+      "address": "〒455-0848 愛知県名古屋市港区金城ふ頭２丁目7番",
+      "comp": "スカッシュ",
+      "ev": "スカッシュ",
+      "mapurl": "https://maps.app.goo.gl/w9485mMMXt93YWKx7",
+      "url": "https://kinjofuto-arena.com/"
+    },
+    {
+      "name": "田原市赤羽根町大石海岸［太平洋ロングビーチ］",
+      "pref": "愛知",
+      "address": "〒441-3502 愛知県田原市",
+      "comp": "サーフィン",
+      "ev": "サーフィン",
+      "mapurl": "https://maps.app.goo.gl/hjFbPVjsyNeSV3na9",
+      "url": "https://www.city.tahara.aichi.jp/shisetsu/kankou/1002464.html"
+    },
+    {
+      "name": "スカイホール豊田",
+      "pref": "愛知",
+      "address": "〒471-0861 愛知県豊田市八幡町１丁目２０−２０ 豊田市総合体育館",
+      "comp": "卓球",
+      "ev": "卓球",
+      "mapurl": "https://maps.app.goo.gl/4dqW3LnYYe9f8MUd7",
+      "url": "https://www.toyota-taikyo.or.jp/skyhall"
+    },
+    {
+      "name": "名古屋市東山公園テニスセンター",
+      "pref": "愛知",
+      "address": "〒468-0071 愛知県名古屋市天白区天白町大字八事裏山６０−１９",
+      "comp": "テニス",
+      "ev": "テニス、ソフトテニス",
+      "mapurl": "https://maps.app.goo.gl/L5Q3RCDDjYnmtnMP6",
+      "url": "https://shisetsu.mizuno.jp/m-7134"
+    },
+    {
+      "name": "調整中",
+      "pref": "",
+      "address": "調整中",
+      "comp": "テックボール",
+      "ev": "テックボール",
+      "mapurl": "調整中",
+      "url": "調整中"
+    },
+    {
+      "name": "蒲郡市内特設コース",
+      "pref": "愛知",
+      "address": "愛知県蒲郡市\n",
+      "comp": "トライアスロン",
+      "ev": "トライアスロン",
+      "mapurl": "https://maps.app.goo.gl/EKVxYurFyJV8ufJE8",
+      "url": "https://www.city.gamagori.lg.jp/site/asiataikai/"
+    },
+    {
+      "name": "岡崎中央総合公園総合体育館",
+      "pref": "愛知",
+      "address": "〒444-0002 愛知県岡崎市高隆寺町峠１−１",
+      "comp": "バレーボール",
+      "ev": "バレーボール",
+      "mapurl": "https://maps.app.goo.gl/W3wNodajuv1YmjRr8",
+      "url": "https://okazaki-kanko.jp/chuo-sogo-park/guide/152"
+    },
+    {
+      "name": "小牧市スポーツ公園総合体育館",
+      "pref": "愛知",
+      "address": "〒485-0016 愛知県小牧市間々原新田７３７ パークアリーナ内",
+      "comp": "バレーボール",
+      "ev": "バレーボール",
+      "mapurl": "https://maps.app.goo.gl/rQJAj65yhuYb5h479",
+      "url": "https://komaki-sports.or.jp/park-arena/"
+    },
+    {
+      "name": "碧南緑地ビーチコート",
+      "pref": "愛知",
+      "address": "〒447-0844 愛知県碧南市港本町",
+      "comp": "バレーボール",
+      "ev": "ビーチバレーボール",
+      "mapurl": "https://maps.app.goo.gl/rAEhdM7arwZKCL3D8",
+      "url": "https://www.city.hekinan.lg.jp/soshiki/kyouiku/sports/1_2/4/6481.html"
+    },
+    {
+      "name": "名古屋市中小企業振興会館",
+      "pref": "愛知",
+      "address": "〒464-0856 愛知県名古屋市千種区吹上２丁目６−３",
+      "comp": "ウエイトリフティング",
+      "ev": "ウエイトリフティング",
+      "mapurl": "https://maps.app.goo.gl/MdDSYeFLmL3f6Ep2A",
+      "url": "https://www.nipc.or.jp/fukiage/"
+    }
+  ]
+}

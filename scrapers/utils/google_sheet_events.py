@@ -16,6 +16,21 @@ ROAD_SHEET_NAME = "道路情報"
 ROAD_HISTORY_SHEET_NAME = "【過去】道路情報"
 CRUISE_SHEET_NAME = "クルーズ船"
 ASIA_SHEET_NAME = "アジア大会"
+ASIA_PRE_EVENT_MASTER_SHEET_NAME = "アジア大会_大会前マスター"
+ASIA_OPERATIONAL_COLUMNS = [
+    "date",
+    "time",
+    "end_time",
+    "venue",
+    "event_name",
+    "session_info",
+    "availability_status",
+]
+ASIA_OPERATIONAL_SHEET_URL = (
+    "https://docs.google.com/spreadsheets/d/"
+    "12MNpRn0Krk3WVRFoj37bST2fXBGnomeQ-DQ4N9VA-7c/gviz/tq"
+    "?tqx=out:csv&sheet=%E3%82%A2%E3%82%B8%E3%82%A2%E5%A4%A7%E4%BC%9A"
+)
 ROAD_EXTRA_COLUMNS = [
     "actual_date",
     "actual_time",
@@ -72,8 +87,11 @@ def load_google_sheet_csv(url, default_source):
 
 def load_all_google_sheet_events():
     events = []
+    from config import ENABLE_AICHI_NAGOYA_2026
 
     for source in EVENT_SHEET_SOURCES:
+        if source == "ajipara" and not ENABLE_AICHI_NAGOYA_2026:
+            continue
         url = SHEET_URLS.get(source)
         if not url:
             continue
@@ -85,6 +103,29 @@ def load_all_google_sheet_events():
 
 def load_road_google_sheet_events():
     return load_google_sheet_csv(SHEET_URLS["road"], "road")
+
+
+def load_asia_operational_google_sheet_events():
+    response = requests.get(ASIA_OPERATIONAL_SHEET_URL, timeout=15)
+    response.raise_for_status()
+    response.encoding = "utf-8-sig"
+    reader = csv.DictReader(io.StringIO(response.text))
+    fieldnames = list(reader.fieldnames or [])
+    while fieldnames and not fieldnames[-1]:
+        fieldnames.pop()
+    if fieldnames != ASIA_OPERATIONAL_COLUMNS:
+        raise ValueError(
+            f"アジア大会シート列不一致: expected={ASIA_OPERATIONAL_COLUMNS} actual={reader.fieldnames}"
+        )
+    events = []
+    for row in reader:
+        event = {column: (row.get(column) or "").strip() for column in ASIA_OPERATIONAL_COLUMNS}
+        if not event["date"] or not event["event_name"]:
+            continue
+        events.append(event)
+    if not events:
+        raise ValueError("アジア大会シート0件")
+    return events
 
 SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -683,6 +724,148 @@ def sync_cruise_csv_to_sheet(csv_path="csv_events/cruise.csv"):
 
 def sync_asia_csv_to_sheet(csv_path="csv_events/asia.csv"):
     return sync_simple_csv_to_sheet(csv_path, ASIA_SHEET_NAME, "アジア大会")
+
+
+def _pad_sheet_rows(rows, width):
+    return [[str(value) for value in row] + [""] * max(width - len(row), 0) for row in rows]
+
+
+def _validate_immutable_snapshot_rows(csv_rows, sheet_rows):
+    if not csv_rows or len(csv_rows) < 2:
+        raise ValueError("baseline CSV must contain a header and at least one data row")
+    header = csv_rows[0]
+    if "snapshot_date" not in header:
+        raise ValueError("baseline CSV is missing snapshot_date")
+    snapshot_index = header.index("snapshot_date")
+    snapshots = {row[snapshot_index] for row in csv_rows[1:] if snapshot_index < len(row)}
+    if len(snapshots) != 1 or "" in snapshots:
+        raise ValueError(f"baseline CSV must contain exactly one snapshot_date: {sorted(snapshots)}")
+    snapshot_date = next(iter(snapshots))
+
+    if not sheet_rows or not any(any(str(value) for value in row) for row in sheet_rows):
+        return "write", snapshot_date
+    if sheet_rows[0] != header:
+        raise RuntimeError("immutable baseline header differs; refusing to overwrite")
+    width = len(header)
+    if _pad_sheet_rows(sheet_rows, width) == _pad_sheet_rows(csv_rows, width):
+        return "unchanged", snapshot_date
+    existing_snapshot_index = sheet_rows[0].index("snapshot_date")
+    existing_snapshots = {
+        row[existing_snapshot_index]
+        for row in sheet_rows[1:]
+        if existing_snapshot_index < len(row) and row[existing_snapshot_index]
+    }
+    if snapshot_date in existing_snapshots:
+        raise RuntimeError(
+            f"immutable baseline differs for snapshot_date={snapshot_date}; refusing to overwrite"
+        )
+    raise RuntimeError(
+        f"immutable baseline already contains snapshot_date={sorted(existing_snapshots)}; refusing to append"
+    )
+
+
+def sync_asia_pre_event_master_to_sheet(
+    csv_path="data/aichi_nagoya_2026/baseline/baseline_sessions_20260810.csv",
+):
+    path = Path(csv_path)
+    if not path.exists():
+        raise FileNotFoundError(f"大会前baseline CSVなし: {path}")
+    csv_rows = _read_csv_rows(path)
+    spreadsheet_id = _default_spreadsheet_id()
+    if not spreadsheet_id:
+        raise RuntimeError("Google spreadsheet ID is not configured")
+    service = _sheets_service()
+    if not _sheet_exists(service, spreadsheet_id, ASIA_PRE_EVENT_MASTER_SHEET_NAME):
+        _create_sheet(service, spreadsheet_id, ASIA_PRE_EVENT_MASTER_SHEET_NAME)
+        sheet_rows = []
+    else:
+        sheet_rows = _read_sheet_rows(service, spreadsheet_id, ASIA_PRE_EVENT_MASTER_SHEET_NAME)
+    action, snapshot_date = _validate_immutable_snapshot_rows(csv_rows, sheet_rows)
+    if action == "unchanged":
+        print(
+            f"アジア大会大会前マスター変更なし: snapshot_date={snapshot_date} "
+            f"records={len(csv_rows) - 1}"
+        )
+        return {"status": "unchanged", "snapshot_date": snapshot_date, "records": len(csv_rows) - 1}
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{ASIA_PRE_EVENT_MASTER_SHEET_NAME}!A1",
+        valueInputOption="RAW",
+        body={"values": csv_rows},
+    ).execute()
+    print(
+        f"アジア大会大会前マスター同期完了: snapshot_date={snapshot_date} "
+        f"records={len(csv_rows) - 1}"
+    )
+    return {"status": "written", "snapshot_date": snapshot_date, "records": len(csv_rows) - 1}
+
+
+def _validate_asia_operational_rows(csv_rows, sheet_rows):
+    if len(csv_rows) < 2:
+        raise ValueError("operational CSV must contain at least one data row")
+    if csv_rows[0] != ASIA_OPERATIONAL_COLUMNS:
+        raise ValueError(f"operational CSV header must be {ASIA_OPERATIONAL_COLUMNS}")
+    if any(len(row) != len(ASIA_OPERATIONAL_COLUMNS) for row in csv_rows):
+        raise ValueError("operational CSV contains an invalid column count")
+    if not sheet_rows:
+        return "write"
+    if _pad_sheet_rows(sheet_rows, len(ASIA_OPERATIONAL_COLUMNS)) == _pad_sheet_rows(
+        csv_rows, len(ASIA_OPERATIONAL_COLUMNS)
+    ):
+        return "unchanged"
+    populated = [row for row in sheet_rows[1:] if any(str(value) for value in row)]
+    if populated:
+        raise RuntimeError("アジア大会 tab contains different data; refusing automatic replacement")
+    allowed_empty_headers = {
+        tuple(ASIA_OPERATIONAL_COLUMNS),
+        tuple(COMMON_COLUMNS),
+    }
+    if tuple(sheet_rows[0]) not in allowed_empty_headers:
+        raise RuntimeError("アジア大会 tab has an unknown header; refusing replacement")
+    return "write"
+
+
+def sync_asia_operational_to_sheet(
+    csv_path="data/aichi_nagoya_2026/operational/asia_games_operational_20260810.csv",
+):
+    path = Path(csv_path)
+    if not path.exists():
+        raise FileNotFoundError(f"アジア大会営業用CSVなし: {path}")
+    csv_rows = _read_csv_rows(path)
+    if not csv_rows:
+        raise ValueError("アジア大会営業用CSV空")
+    spreadsheet_id = _default_spreadsheet_id()
+    if not spreadsheet_id:
+        raise RuntimeError("Google spreadsheet ID is not configured")
+    service = _sheets_service()
+    if not _sheet_exists(service, spreadsheet_id, ASIA_SHEET_NAME):
+        _create_sheet(service, spreadsheet_id, ASIA_SHEET_NAME)
+        sheet_rows = []
+    else:
+        sheet_rows = _read_sheet_rows(service, spreadsheet_id, ASIA_SHEET_NAME)
+    action = _validate_asia_operational_rows(csv_rows, sheet_rows)
+    if action == "unchanged":
+        print(f"asia_operational_sheet_sync_status=unchanged records={len(csv_rows) - 1}")
+        return {"status": "unchanged", "records": len(csv_rows) - 1}
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{ASIA_SHEET_NAME}!A1",
+        valueInputOption="RAW",
+        body={"values": csv_rows},
+    ).execute()
+    service.spreadsheets().values().clear(
+        spreadsheetId=spreadsheet_id,
+        range=f"{ASIA_SHEET_NAME}!H:Z",
+        body={},
+    ).execute()
+    if len(sheet_rows) > len(csv_rows):
+        service.spreadsheets().values().clear(
+            spreadsheetId=spreadsheet_id,
+            range=f"{ASIA_SHEET_NAME}!A{len(csv_rows) + 1}:G{len(sheet_rows)}",
+            body={},
+        ).execute()
+    print(f"asia_operational_sheet_sync_status=written records={len(csv_rows) - 1}")
+    return {"status": "written", "records": len(csv_rows) - 1}
 
 def _rows_to_values_with_header(header, records):
     return [header] + records

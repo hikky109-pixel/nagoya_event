@@ -151,6 +151,7 @@ GPS_REPORT_CHANNEL_ID = _channel_id_env("GPS_REPORT_CHANNEL_ID") or None
 PLACE_DICT_SHEET_ID = os.getenv("PLACE_DICT_SHEET_ID", "").strip() or None
 LOCATION_SHEET_ID = os.getenv("LOCATION_SHEET_ID", "").strip() or None
 EVENT_SHEET_ID = os.getenv("EVENT_SHEET_ID", "").strip() or os.getenv("GOOGLE_SHEET_ID", "").strip() or None
+ENABLE_AICHI_NAGOYA_2026 = _bool_env("ENABLE_AICHI_NAGOYA_2026", True)
 
 PLACEINFO_REVIEW_SHEET_NAME = "PlaceInfo_Review"
 TB_TP_SHEET_NAME = "TB_TP"

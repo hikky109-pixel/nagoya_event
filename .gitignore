@@ -39,6 +39,13 @@ data/ai/*
 !data/ai/topic_scope.yml
 !data/ai/summary.txt
 !data/ai/feedback_summary.txt
+!data/aichi_nagoya_2026/
+!data/aichi_nagoya_2026/raw/
+!data/aichi_nagoya_2026/raw/*.json
+!data/aichi_nagoya_2026/baseline/
+!data/aichi_nagoya_2026/baseline/*.csv
+!data/aichi_nagoya_2026/operational/
+!data/aichi_nagoya_2026/operational/*.csv
 
 # Runtime CSV
 csv_events/*.csv

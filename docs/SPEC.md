@@ -242,6 +242,247 @@ shiki_filtered_events
 shiki_skip_reason
 ```
 
+### 2.4 愛知・名古屋2026大会前baseline
+
+2026-08-10時点で公開されている愛知・名古屋2026アジア競技大会の
+競技セッション日程を、後日の変更比較用原本として保存する。このbaselineは
+本番イベントDBの入力ではなく、定期監視、Discord通知、自動反映も行わない。
+
+snapshot:
+
+```text
+snapshot_date: 2026-08-10
+raw_sessions: 527
+competition_sessions: 503
+ceremony_sessions: 2
+excluded_non_event_products: 22
+allowed_event_categories: 55
+adopted_event_categories: 57
+```
+
+公式取得元:
+
+- 競技マスター: `https://lp-ag.tickets-aichi-nagoya2026.org/wp-content/themes/asia/assets/js/kyougi.json`
+- 会場マスター: `https://lp-ag.tickets-aichi-nagoya2026.org/wp-content/themes/asia/assets/js/venue.json`
+- セッションAPI: `https://generalsale.tickets-aichi-nagoya2026.org/getFilteredProductsJSON.th`
+- アジア競技大会の親カテゴリ: `eventCategoryFather=3`
+
+`tools/event/build_aichi_nagoya_2026_baseline.py`はセッションAPIを25件ずつページングし、
+`hasMoreRecords`がfalseになるまで取得する。取得中の`totalRecords`変動、空ページ、
+JSON構造異常、総件数不一致、0～1件の結果、競技許可後0～1件は異常とし、
+新しいrawやbaselineを書かない。
+
+競技baselineは`kyougi.json`のURLから取れるeventCategoryを競技許可リストとする。
+それに加え、開会式と閉会式は非競技カテゴリだがタクシー需要上重要なため、
+baselineと採用会場候補の正式対象とする。`event_type`は競技を`competition`、
+開会式を`opening_ceremony`、閉会式を`closing_ceremony`とする。1日券、応援プラス、
+プレミアムプラス、ホスピタリティラウンジなど、競技・開会式・閉会式そのものではない
+商品はbaselineから除外するが、rawレスポンスからは削除しない。
+
+保存先:
+
+```text
+data/aichi_nagoya_2026/raw/kyougi.json
+data/aichi_nagoya_2026/raw/venue.json
+data/aichi_nagoya_2026/raw/sessions_20260810.json
+data/aichi_nagoya_2026/baseline/baseline_sessions_20260810.csv
+data/aichi_nagoya_2026/baseline/venue_selection_master_20260810.csv
+data/aichi_nagoya_2026/baseline/venue_candidates_20260810.csv
+```
+
+Google Sheetsの`アジア大会_大会前マスター`は、`baseline_sessions_20260810.csv`の
+505件を全列保持するimmutableな原本タブである。競技503件と開会式・閉会式各1件を
+保存し、採用会場による244件への絞り込みは行わない。将来の日程変更比較はこのタブを
+基準とし、実運用用の`アジア大会`タブを更新しても大会前の状態を消さない。
+
+`tools/event/sync_aichi_nagoya_2026_pre_event_master.py`は既存のGoogle Sheets認証、タブ作成、
+CSV読込、タブ読戻しの共通処理を使う。空タブだけに初回書込みを行い、同一snapshotと
+全セルが一致する再実行は`unchanged`とする。同一snapshotで差異がある場合、ヘッダーが
+異なる場合、別snapshotがすでに存在する場合は、clear、上書き、追記をせず505件の原本を保護する。
+
+`sessions_20260810.json`は`retrieved_at`、`source_url`、リクエスト条件、`total_records`と、
+各ページの公式JSONレスポンス全体を`pages`に無加工で保持する。生データの
+フィールドは削除しない。
+
+baseline CSVの保持項目:
+
+```text
+snapshot_date, event_type, idProduct, idPerformance, eventCategory, sessionCode, idVenue,
+date, time, end_time, venue, event_name, event_category_name, session_name,
+session_info, availability_status, selling_status, is_sellable, source
+```
+
+日付、開始、終了時刻は`dhStart` / `dhEnd`を正式ソースとし、`idMonth`などは
+主日時判定に使わない。将来は`idPerformance`、`idProduct`、`sessionCode`を安定キー候補とし、
+UNCHANGED / TIME_CHANGED / VENUE_CHANGED / INFO_CHANGED / ADDED / REMOVED /
+CANCELLEDなどの差分判定を検討するが、現時点では未実装である。
+
+会場はAPIの`idVenue`と`nmVenue`を保持し、Unicode NFKC、括弧、空白のみを
+安全に正規化して`venue.json`と突合する。同一と断定できない表記は推測せず
+`unresolved`とする。Google Sheetsの`https://docs.google.com/spreadsheets/d/12MNpRn0Krk3WVRFoj37bST2fXBGnomeQ-DQ4N9VA-7c`
+にある`アジア大会_会場候補`の◎・○26会場を2026-08-10時点の採用会場マスターとし、
+完全一致または上記正規化で一致した242セッションだけを`venue_candidates_20260810.csv`へ出力する。
+選定マスターの表記がAPI会場と一致しない場合は自動採用しない。
+
+同じsnapshot_dateのファイルが同一内容なら更新せず、内容が異なる場合は
+`--force`がない限り上書きを拒否する。販売サイトのQueue-it、Bot対策、reCAPTCHA、
+Cookie / Sessionチェックを回避する実装は行わない。通常取得できない場合は
+取得不能とし、既存baselineを保護する。
+
+回帰テストは競技許可判定、非競技除外、同日複数セッション、`dhStart` /
+`dhEnd`変換、会場正規化突合、採用会場限定、欠損日時の中断、同日不正上書き防止、
+0件時非更新を対象とする。
+
+### 2.5 愛知・名古屋2026営業用データ
+
+アジア大会データは次の3層に分ける。
+
+1. Google Sheetsの`アジア大会_大会前マスター`: 2026-08-10時点の505件を保持するimmutable原本
+2. `アジア大会_会場候補`: 名古屋市内・近郊を営業対象として採用する会場とDB表示名のマスター
+3. `アジア大会`: 採用会場に該当する244件を営業判断向けに整形した7列の実運用タブ
+
+`tools/event/build_aichi_nagoya_2026_operational.py`は、immutable原本
+`baseline_sessions_20260810.csv`と`venue_candidates_20260810.csv`を読み、
+次へ出力する。
+
+```text
+data/aichi_nagoya_2026/operational/asia_games_operational_20260810.csv
+```
+
+営業用CSVと`アジア大会`タブの列は次の順序に固定する。
+
+```text
+date,time,end_time,venue,event_name,session_info,availability_status
+```
+
+営業用の`venue`は、会場候補マスター由来の`db_display_name`を使用する。コード内へ
+別の会場名マッピングを重複定義しない。`db_display_name`がない候補は推測せず異常終了し、
+営業用CSVやSheetsを空更新しない。`event_name`は競技ではbaseline値を使用し、式典だけ
+`開会式` / `閉会式`へ簡潔化する。`session_info`は長文を切り捨てず、
+`availability_status`は販売状態のAPI原文を変換せず保持する。
+
+行は`date`、`time`、`venue`の昇順とする。同日・同時刻の複数セッションは
+別行として保持する。開会式と閉会式は必ず営業対象に含める。2026-08-10 snapshotでは
+競技242件、開会式1件、閉会式1件の計244件で、会場表示名未解決は0件である。
+
+生成時はbaselineのSHA-256を処理前後で比較し、営業用加工が原本を変更していないことを
+確認する。baseline、会場候補、抽出結果の0件、必須列不足、候補IDの原本不在、
+会場表示名未解決では出力・Sheets更新を行わない。
+
+`tools/event/sync_aichi_nagoya_2026_operational.py`は既存Google Sheets共通認証・読戻し処理を
+利用する。`アジア大会`タブに異なるデータ行や未知のヘッダーがある場合は自動置換しない。
+正常なCSVを先に書き込んでから旧列・余剰行だけを限定クリアし、同期失敗時もローカルCSVと
+`アジア大会_大会前マスター`を変更しない。Sheets表示はヘッダー固定、フィルター、
+`session_info`折り返しとし、7列だけを表示する。
+
+主な確認ログ:
+
+```text
+asia_operational_source_records
+asia_operational_candidate_records
+asia_operational_output_records
+asia_operational_competition_records
+asia_operational_opening_records
+asia_operational_closing_records
+asia_operational_venue_unresolved
+asia_operational_sheet_sync_status
+```
+
+### 2.6 愛知・名古屋2026イベントBOT
+
+大会固有のBOT処理は`tools/event/aichi_nagoya_2026_bot.py`へ集約する。通常の`main.py`は
+大会機能が有効な場合に専用の日次送信関数を呼ぶだけとし、他イベントの旧9列ローダー、
+本文生成、Discord通知には大会用の列変換やチケット表示を混在させない。
+
+大会機能は環境設定`ENABLE_AICHI_NAGOYA_2026`で一括制御し、既定値はtrueとする。
+falseの場合は次をすべて停止する。
+
+- 7列`アジア大会`Sheetおよびfallback CSVの読込
+- 既存`ajipara.csv`とGoogle Sheets`アジパラ`の読込
+- 大会専用のチケット日本語表示、Embed、footer、長文表示制御
+- 開会式強制テスト経路
+
+営業用入力スキーマ:
+
+```text
+date,time,end_time,venue,event_name,session_info,availability_status
+```
+
+BOTはGoogle Sheets`アジア大会`を一次入力とし、取得・7列検証に失敗した場合だけ
+`data/aichi_nagoya_2026/operational/asia_games_operational_20260810.csv`へfallbackする。
+大会前マスターと会場候補タブは読込・更新しない。旧9列の`csv_events/asia.csv`をSheetへ
+自動同期する処理と、営業用全日程を日次で削除するcleanup処理は通常BOTから外す。
+
+2026-08-10の営業用244件に存在する`availability_status`は次の3種類である。
+
+```text
+BUY: 104
+LIMITED: 64
+SOLD_OUT: 76
+```
+
+CSVとSheetでは原値を保持し、表示層だけで次のように日本語化する。
+
+- `BUY` → `販売中`
+- `LIMITED` → `残席わずか`
+- `SOLD_OUT` → `予定枚数終了`
+
+`availability_status`はイベント採否に使わず、`SOLD_OUT`も通知対象に残す。未知値も
+通知を落とさず原値を`🎫 チケット：<原値>`として表示し、
+`asia_ticket_status_unknown`を記録する。`session_info`の原データは変更せず、Discord表示時
+だけ1イベント700文字を上限に省略記号付きで安全に短縮する。日次件数が多い場合は
+Embed descriptionを複数投稿へ分割する。
+
+チケット状況を表示する大会Embedには、開会式・閉会式を含め、footerとして必ず次を付ける。
+
+```text
+チケット状況は公式チケット状況です。販路によって異なる場合があります😇
+```
+
+通常イベント通知には付けない。既存footerがある場合は`｜`で連結して上書きしない。
+
+開会式強制テスト:
+
+```bash
+# 送信なしpreview
+.venv/bin/python tools/event/test_asia_opening_discord.py
+
+# WEBHOOK_ASIAへ開会式1件だけ送信
+.venv/bin/python tools/event/test_asia_opening_discord.py --send
+```
+
+テストはローカル営業用CSVから2026-09-19の`開会式`を厳密に1件だけ選び、
+`🧪【テスト投稿】`付きEmbedを生成する。0件・2件以上・開会式以外なら送信しない。
+本番日付、CSV、Sheets、通常イベントの重複抑制stateは変更しない。送信時はWebhookへ
+`wait=true`を付け、Discordが返した投稿済みEmbedのfooterが上記文言と完全一致することを
+`asia_event_footer_verified=true`で確認する。
+
+主なBOTログ:
+
+```text
+asia_event_records
+asia_event_schema
+asia_ticket_status_counts
+asia_ticket_status_unknown
+asia_event_opening_found
+asia_event_opening_notification_target
+asia_event_test_mode
+asia_event_test_records
+asia_event_footer_verified
+asia_event_discord_status
+```
+
+大会終了後の撤去手順:
+
+1. 実行環境で`ENABLE_AICHI_NAGOYA_2026=false`にする。
+2. BOTをdry-runし、アジア大会・アジパラのSheet/CSV読込、特殊表示、footer、テスト投稿が出ないことを確認する。
+3. 必要なら`WEBHOOK_ASIA`、大会専用起動手順・監視設定を無効化する。
+4. 歴史データとしてbaseline、営業用CSV、テスト、Sheets 3タブを保持または別途アーカイブする。
+5. 完全削除する場合だけ、`tools/event/aichi_nagoya_2026_*.py`、本専用BOTモジュール、
+   `config.py`のフラグ、`main.py`の専用呼出し、Google Sheetsの大会専用タブを対象として確認後に削除する。
+
+通常運用からの撤去は手順1だけで成立し、通常イベントBOTの取得・通知は継続する。
+
 ## 3. 名古屋場所辞書DB
 
 場所辞書DB用の設定は `config.py` にある。
