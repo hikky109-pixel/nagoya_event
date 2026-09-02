@@ -38,6 +38,9 @@ ASIA_TICKET_STATUS_LABELS = {
 ASIA_TICKET_FOOTER = (
     "チケット状況は公式チケット状況です。販路によって異なる場合があります😇"
 )
+ASIA_MESSAGE_LIMIT = 2000
+ASIA_SEPARATOR = "────────────"
+WEEKDAYS_JA = ["月", "火", "水", "木", "金", "土", "日"]
 
 
 def is_enabled() -> bool:
@@ -148,74 +151,52 @@ def render_notice_item(event):
     if info:
         lines.append(f"📝 {_truncate(info, 700)}")
     if status:
-        lines.append(f"🎫 チケット：{ticket_label}")
-    return "\n".join(lines)
+        lines.append(f"🎟️ チケット：{ticket_label}")
+    return "\n\n".join(lines)
 
 
-def combine_embed_footer(embed, footer_text):
-    existing = str(embed.get("footer", {}).get("text", "")).strip()
-    if existing and footer_text not in existing:
-        footer_text = f"{existing}｜{footer_text}"
-    elif existing:
-        footer_text = existing
-    embed["footer"] = {"text": footer_text}
-    return embed
-
-
-def build_embed(events, target_date, test_mode=False):
-    _require_enabled()
+def _as_date(target_date):
     if isinstance(target_date, datetime):
-        target_date = target_date.date()
+        return target_date.date()
+    if isinstance(target_date, date):
+        return target_date
+    return datetime.strptime(str(target_date).replace("/", "-"), "%Y-%m-%d").date()
+
+
+def _message_header(target_date, event_count, test_mode=False):
+    target_date = _as_date(target_date)
+    prefix = "🧪【テスト投稿】" if test_mode else ""
+    return (
+        f"{prefix}🏟️ アジア大会情報\n\n"
+        f"{target_date:%m月%d日}（{WEEKDAYS_JA[target_date.weekday()]}）\n\n"
+        f"🏟️ 本日 {event_count}件\n\n"
+        f"{ASIA_SEPARATOR}"
+    )
+
+
+def build_messages(events, target_date, test_mode=False):
+    _require_enabled()
     if not events:
-        raise ValueError("アジア大会Embed対象0件")
+        raise ValueError("アジア大会メッセージ対象0件")
     if test_mode and (len(events) != 1 or events[0].get("event_name") != "開会式"):
         raise ValueError("開会式テストは開会式1件だけを対象にしてください")
-    prefix = "🧪【テスト投稿】" if test_mode else ""
-    description = (
-        target_date.strftime("%Y-%m-%d")
-        + f"\n🏟️ {len(events)}件\n────────────\n"
-        + "\n────────────\n".join(render_notice_item(event) for event in events)
-    )
-    embed = {
-        "title": f"{prefix}🏟️ アジア大会情報",
-        "description": _truncate(description, 4096),
-        "color": 0xE67E22,
-    }
-    if any(event.get("availability_status", "").strip() for event in events):
-        combine_embed_footer(embed, ASIA_TICKET_FOOTER)
-    return embed
-
-
-def build_embeds(events, target_date, test_mode=False):
-    _require_enabled()
-    if test_mode:
-        return [build_embed(events, target_date, test_mode=True)]
-    if isinstance(target_date, datetime):
-        target_date = target_date.date()
-    if not events:
-        raise ValueError("アジア大会Embed対象0件")
-    header = target_date.strftime("%Y-%m-%d") + f"\n🏟️ {len(events)}件\n────────────\n"
-    descriptions = []
+    header = _message_header(target_date, len(events), test_mode=test_mode)
+    messages = []
     current = header
     for event in events:
-        item = render_notice_item(event)
-        separator = "" if current == header else "\n────────────\n"
-        if len(current) + len(separator) + len(item) > 3800 and current != header:
-            descriptions.append(current)
-            current = header + item
+        block = f"\n\n{render_notice_item(event)}\n\n{ASIA_SEPARATOR}"
+        if len(current) + len(block) > ASIA_MESSAGE_LIMIT and current != header:
+            messages.append(current)
+            current = header + block
         else:
-            current += separator + item
-    descriptions.append(current)
-    embeds = []
-    for index, description in enumerate(descriptions, start=1):
-        title = "🏟️ アジア大会情報"
-        if len(descriptions) > 1:
-            title += f" ({index}/{len(descriptions)})"
-        embed = {"title": title, "description": description, "color": 0xE67E22}
-        if any(event.get("availability_status", "").strip() for event in events):
-            combine_embed_footer(embed, ASIA_TICKET_FOOTER)
-        embeds.append(embed)
-    return embeds
+            current += block
+    messages.append(current)
+    footer = f"\n\n{ASIA_TICKET_FOOTER}"
+    if len(messages[-1]) + len(footer) <= ASIA_MESSAGE_LIMIT:
+        messages[-1] += footer
+    else:
+        messages.append(ASIA_TICKET_FOOTER)
+    return messages
 
 
 def send_events(events, target_date, test_mode=False, webhook_url=None, http_post=requests.post):
@@ -227,7 +208,7 @@ def send_events(events, target_date, test_mode=False, webhook_url=None, http_pos
             "asia_event_opening_notification_target="
             + str(len(events) == 1 and events[0].get("event_name") == "開会式").lower()
         )
-    embeds = build_embeds(events, target_date, test_mode=test_mode)
+    messages = build_messages(events, target_date, test_mode=test_mode)
     webhook_url = webhook_url or os.getenv(ASIA_WEBHOOK_ENV)
     if not webhook_url:
         print("asia_event_discord_status=not_configured")
@@ -238,9 +219,9 @@ def send_events(events, target_date, test_mode=False, webhook_url=None, http_pos
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         query["wait"] = "true"
         post_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
-    footer_verified = not test_mode
-    for embed in embeds:
-        response = http_post(post_url, json={"embeds": [embed]}, timeout=10)
+    content_verified = not test_mode
+    for content in messages:
+        response = http_post(post_url, json={"content": content}, timeout=10)
         expected_statuses = {200} if test_mode else {204}
         if response.status_code not in expected_statuses:
             print(f"asia_event_discord_status=error status={response.status_code}")
@@ -249,15 +230,14 @@ def send_events(events, target_date, test_mode=False, webhook_url=None, http_pos
             )
         if test_mode:
             posted = response.json()
-            posted_embeds = posted.get("embeds") or []
-            footer_text = (
-                posted_embeds[0].get("footer", {}).get("text", "") if posted_embeds else ""
+            posted_content = str(posted.get("content", ""))
+            content_verified = posted_content == content and posted_content.endswith(
+                ASIA_TICKET_FOOTER
             )
-            footer_verified = footer_text == ASIA_TICKET_FOOTER
-            print(f"asia_event_footer_verified={str(footer_verified).lower()}")
-            if not footer_verified:
-                raise RuntimeError("Discord投稿後のfooter確認に失敗しました")
-    print(f"asia_event_discord_status=sent records={len(events)} embeds={len(embeds)}")
+            print(f"asia_event_content_verified={str(content_verified).lower()}")
+            if not content_verified:
+                raise RuntimeError("Discord投稿後のcontent確認に失敗しました")
+    print(f"asia_event_discord_status=sent records={len(events)} messages={len(messages)}")
     return True
 
 
@@ -270,8 +250,8 @@ def send_daily_notice(target_date, dry_run=False):
         print("アジア大会情報: 当日データなしのため送信スキップ")
         return False
     if dry_run:
-        for embed in build_embeds(events, target_date):
-            print(embed)
+        for message in build_messages(events, target_date):
+            print(message)
         return False
     return send_events(events, target_date)
 

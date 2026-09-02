@@ -1,9 +1,11 @@
 [Unit]
-Description=Run Nagoya Road Monthly PDF Watch on first day of each month
+Description=Retry Nagoya Road Monthly PDF Watch daily until acquired
 
 [Timer]
-OnCalendar=*-*-01 10:05:00 Asia/Tokyo
-OnCalendar=*-*-01 10:15:00 Asia/Tokyo
+OnCalendar=*-*-* 10:05:00 Asia/Tokyo
+OnCalendar=*-*-* 10:15:00 Asia/Tokyo
+OnCalendar=*-*-* 12:00:00 Asia/Tokyo
+OnCalendar=*-*-* 18:05:00 Asia/Tokyo
 AccuracySec=1min
 Persistent=true
 Unit=nagoya-road-monthly.service

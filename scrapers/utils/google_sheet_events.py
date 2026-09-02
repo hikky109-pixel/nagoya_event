@@ -28,8 +28,8 @@ ASIA_OPERATIONAL_COLUMNS = [
 ]
 ASIA_OPERATIONAL_SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/"
-    "12MNpRn0Krk3WVRFoj37bST2fXBGnomeQ-DQ4N9VA-7c/gviz/tq"
-    "?tqx=out:csv&sheet=%E3%82%A2%E3%82%B8%E3%82%A2%E5%A4%A7%E4%BC%9A"
+    "12MNpRn0Krk3WVRFoj37bST2fXBGnomeQ-DQ4N9VA-7c/export"
+    "?format=csv&gid=272979110"
 )
 ROAD_EXTRA_COLUMNS = [
     "actual_date",

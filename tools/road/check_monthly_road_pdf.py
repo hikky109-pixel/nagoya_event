@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import requests
+
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -31,6 +33,11 @@ STATE_PATH = ROOT / "data" / "road_monthly_pdf_state.json"
 CSV_PATH = ROOT / "csv_events" / "road.csv"
 LOG_DIR = ROOT / "logs"
 REQUEST_TIMEOUT_SECONDS = 30
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
+FINAL_FAILURE_TIME = time(18, 0)
 PUBLICATION_PAGE_URL = (
     "https://www.pref.aichi.jp/police/koutsu/ko-shidou/"
     "sokudokanri-issei.html"
@@ -82,30 +89,55 @@ def _cache_busted_url(url: str, now: datetime) -> str:
     return f"{url}{separator}_={int(now.timestamp())}"
 
 
+def _request_headers() -> dict[str, str]:
+    return {
+        "User-Agent": BROWSER_USER_AGENT,
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    }
+
+
+def as_jst(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=JST)
+    return value.astimezone(JST)
+
+
+def is_final_failure_time(value: datetime) -> bool:
+    return as_jst(value).time() >= FINAL_FAILURE_TIME
+
+
 def fetch_publication_page(now: datetime) -> dict[str, Any]:
-    request = urllib.request.Request(
-        _cache_busted_url(PUBLICATION_PAGE_URL, now),
-        headers={
-            "User-Agent": "nagoya-event-road-monthly/1.0",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        },
-    )
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            body = response.read()
-            return {
-                "ok": 200 <= int(response.status) < 300,
-                "status_code": int(response.status),
-                "final_url": response.geturl(),
-                "body": body.decode("utf-8", errors="replace"),
-                "length": len(body),
-                "last_modified": str(response.headers.get("Last-Modified") or ""),
-                "etag": str(response.headers.get("ETag") or ""),
-            }
-    except urllib.error.HTTPError as exc:
-        return {"ok": False, "status_code": int(exc.code), "error": str(exc)}
-    except (OSError, urllib.error.URLError) as exc:
+        response = requests.get(
+            _cache_busted_url(PUBLICATION_PAGE_URL, now),
+            headers=_request_headers(),
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            allow_redirects=True,
+        )
+        body = response.content
+        status_code = int(response.status_code)
+        content_type = str(response.headers.get("Content-Type") or "")
+        response.encoding = response.encoding or "utf-8"
+        body_text = response.text
+        ok = (
+            status_code == 200
+            and bool(body_text.strip())
+            and content_type.lower().split(";", 1)[0].strip()
+            in {"text/html", "application/xhtml+xml"}
+        )
+        return {
+            "ok": ok,
+            "status_code": status_code,
+            "final_url": response.url,
+            "body": body_text,
+            "length": len(body),
+            "content_type": content_type,
+            "error": "" if ok else "invalid_html_response",
+            "last_modified": str(response.headers.get("Last-Modified") or ""),
+            "etag": str(response.headers.get("ETag") or ""),
+        }
+    except requests.RequestException as exc:
         return {"ok": False, "status_code": 0, "error": str(exc)}
 
 
@@ -123,29 +155,42 @@ def page_month_info(html: str, month_key: str) -> dict[str, Any]:
 def download_pdf(month_key: str, now: datetime) -> dict[str, Any]:
     url = road_pdf.pdf_url(month_key)
     path = ROOT / road_pdf.pdf_path(month_key)
-    request = urllib.request.Request(
-        _cache_busted_url(url, now),
-        headers={
-            "User-Agent": "nagoya-event-road-monthly/1.0",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        },
-    )
-
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            body = response.read()
-            status_code = int(response.status)
-            final_url = response.geturl()
-            last_modified = str(response.headers.get("Last-Modified") or "")
-            etag = str(response.headers.get("ETag") or "")
-    except urllib.error.HTTPError as exc:
-        return {"ok": False, "status_code": int(exc.code), "error": str(exc), "url": url}
-    except (OSError, urllib.error.URLError) as exc:
+        response = requests.get(
+            _cache_busted_url(url, now),
+            headers=_request_headers(),
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            allow_redirects=True,
+        )
+        body = response.content
+        status_code = int(response.status_code)
+        final_url = response.url
+        last_modified = str(response.headers.get("Last-Modified") or "")
+        etag = str(response.headers.get("ETag") or "")
+        content_type = str(response.headers.get("Content-Type") or "")
+    except requests.RequestException as exc:
         return {"ok": False, "status_code": 0, "error": str(exc), "url": url}
 
-    if not 200 <= status_code < 300:
+    if status_code != 200:
         return {"ok": False, "status_code": status_code, "error": f"HTTP{status_code}", "url": url}
+    if content_type.lower().split(";", 1)[0].strip() != "application/pdf":
+        return {
+            "ok": False,
+            "status_code": status_code,
+            "error": f"invalid_content_type:{content_type or 'missing'}",
+            "content_type": content_type,
+            "length": len(body),
+            "url": url,
+        }
+    if not body:
+        return {
+            "ok": False,
+            "status_code": status_code,
+            "error": "empty_pdf",
+            "content_type": content_type,
+            "length": 0,
+            "url": url,
+        }
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(body)
@@ -156,6 +201,7 @@ def download_pdf(month_key: str, now: datetime) -> dict[str, Any]:
         "path": str(path),
         "url": url,
         "length": len(body),
+        "content_type": content_type,
         "last_modified": last_modified,
         "etag": etag,
     }
@@ -403,7 +449,7 @@ def build_failure_message(month: int, now: datetime, status: str) -> str:
     return "\n".join(
         [
             f"⚠️ 愛知県警 {month}月版取締予定PDF 未取得",
-            "10:15再試行後も公開・解析を確認できませんでした。",
+            "JST 18:00以降の最終確認でも公開・解析を確認できませんでした。",
             f"確認時刻: {now.isoformat(timespec='seconds')}",
             f"取得結果: {status}",
         ]
@@ -478,7 +524,7 @@ def mark_failure_notified(state: dict[str, Any], key: str, *, now: datetime, sta
 
 
 def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: datetime | None = None) -> dict[str, Any]:
-    current = now or datetime.now(JST)
+    current = as_jst(now or datetime.now(JST))
     target_month = month or current.month
     month_key = month_key_for(target_month, now=current)
     state_key = month_state_key(month_key)
@@ -569,8 +615,25 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
             )
             road_log("road_scraper_csv_records", "skipped existing_csv_preserved")
             road_log("road_sheet_sync_records", "skipped existing_sheet_preserved")
+            if is_final_failure_time(current):
+                if month_state.get("failure_notified") and not force:
+                    print(f"road_monthly_pdf: skipped failure already notified {month_key}", flush=True)
+                else:
+                    notify_ok, notify_status = post_admin_discord(
+                        build_failure_message(target_month, current, diagnosis)
+                    )
+                    if notify_ok:
+                        mark_failure_notified(
+                            state, state_key, now=current, status=diagnosis
+                        )
+                    print(f"road_monthly_pdf: missing after 18:00 {month_key}", flush=True)
+                    print(f"road_monthly_pdf: admin_notify={notify_status}", flush=True)
             return {
-                "status": "retry_scheduled" if attempts == 1 else diagnosis,
+                "status": (
+                    diagnosis
+                    if diagnosis == "official_no_schedule" or is_final_failure_time(current)
+                    else "retry_scheduled"
+                ),
                 "diagnosis": diagnosis,
                 "month_key": month_key,
                 "attempt": attempts,
@@ -656,7 +719,7 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
         current,
     )
     logging.info("road_monthly_pdf: not_available month=%s status=%s", month_key, status)
-    if attempts <= 1:
+    if not is_final_failure_time(current):
         print(f"road_monthly_pdf: retry scheduled {month_key} {status}", flush=True)
         return {
             "status": "retry_scheduled",
@@ -685,6 +748,8 @@ def check_monthly_pdf(*, month: int | None = None, force: bool = False, now: dat
         "download_status": status,
         "admin_notified": notify_ok,
         "admin_notify_status": notify_status,
+        "csv_preserved": True,
+        "sheet_preserved": True,
         "debug_path": str(debug_path),
     }
 

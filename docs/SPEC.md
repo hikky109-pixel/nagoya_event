@@ -71,13 +71,13 @@ Google SheetsのイベントDB IDは既存の `GOOGLE_SHEET_ID`、または `scr
 
 保護対象行はCSVに存在しなくても削除しない。CSVに存在しないSheets専用行も基本的に保持する。期間不整合の自動生成行だけは、保護対象でない場合に同期結果から除外できる。道路情報同期ではシート全体clearは禁止し、必要な場合も書き戻し後の余剰範囲だけを消す。
 
-愛知県警の月次取締予定は `tools/road/check_monthly_road_pdf.py` が対象ページと当月PDFを監視する。実行時刻は `nagoya-road-monthly.timer` で毎月1日の10:05 JST、再試行は10:15 JSTの1回だけとする。10:00ちょうどの公開更新と競合しないよう、タイマーには `Asia/Tokyo` を明記する。
+愛知県警の月次取締予定は `tools/road/check_monthly_road_pdf.py` が対象ページと当月PDFを監視する。実行時刻は `nagoya-road-monthly.timer` で毎日10:05、10:15、12:00、18:05 JSTとし、当月分を取得済みならstateにより即時skipする。月初に未公開・取得失敗でも後続日に再試行し、10:00ちょうどの公開更新と競合しないよう、タイマーには `Asia/Tokyo` を明記する。
 
 月次取得の流れ:
 
-1. 対象HTMLをキャッシュ抑止queryと `Cache-Control: no-cache` 付きで取得する。
+1. 対象HTMLを一般的なChrome User-Agent、キャッシュ抑止query、`Cache-Control: no-cache`付きで取得する。HTTP 200、HTML Content-Type、空でない本文を必須とする。
 2. HTML上の `torishimariyoteiR*.pdf` リンクから公開済み月を確認する。
-3. 当月PDFを同様にキャッシュ抑止付きで取得する。
+3. 当月PDFを同じUser-Agentとキャッシュ抑止付きで取得する。redirectは通常追従し、HTTP 200、`application/pdf`、空でない本文を必須とする。403、redirect loop、HTML応答、0 byteは取得失敗とし、既存PDFを上書きしない。
 4. 当月PDF単体を先に解析し、raw、重複排除後、当日以降の件数を確認する。
 5. 当月レコードを1件以上確認できた場合だけ、全月CSVを再生成してGoogle Sheetsへsafe upsertする。
 6. Sheets同期後、当日より前の行を `【過去】道路情報` へ移す。
@@ -90,7 +90,7 @@ PDF解析とCSV生成の成功は、Google Sheets同期の成否とは別にstat
 - `publication_not_updated_yet`: HTMLが前月リンクのみ、更新時刻が当日10時より前、または月初の再取得結果が同一ETagである。
 - `fetch_or_parse_error`: HTTP失敗、PDF取得失敗、HTML/PDF構造変更、予定なし表記のない解析0件。
 
-初回0件は10:15再試行対象とする。再試行後も0件の場合はdebug JSONと診断ログだけを保存し、既存 `road.csv` とGoogle Sheetsを更新・削除しない。空CSVを `sync_road_csv_to_sheet()` に渡した場合も `empty_csv` として書き込みを行わない。
+18:00より前の0件・取得失敗は試行回数にかかわらず再試行可能状態とし、JST 18:00以降の失敗だけを当日の最終失敗として管理者通知対象にする。最終失敗後も当月分を取得済みにはせず、後続日のtimerで再試行する。異常時はdebug JSONと診断ログだけを保存し、既存 `road.csv` とGoogle Sheetsを更新・削除しない。空CSVを `sync_road_csv_to_sheet()` に渡した場合も `empty_csv` として書き込みを行わない。
 
 主な診断ログ:
 
@@ -399,7 +399,7 @@ falseの場合は次をすべて停止する。
 
 - 7列`アジア大会`Sheetおよびfallback CSVの読込
 - 既存`ajipara.csv`とGoogle Sheets`アジパラ`の読込
-- 大会専用のチケット日本語表示、Embed、footer、長文表示制御
+- 大会専用のチケット日本語表示、プレーンテキスト通知、長文表示制御
 - 開会式強制テスト経路
 
 営業用入力スキーマ:
@@ -412,6 +412,18 @@ BOTはGoogle Sheets`アジア大会`を一次入力とし、取得・7列検証�
 `data/aichi_nagoya_2026/operational/asia_games_operational_20260810.csv`へfallbackする。
 大会前マスターと会場候補タブは読込・更新しない。旧9列の`csv_events/asia.csv`をSheetへ
 自動同期する処理と、営業用全日程を日次で削除するcleanup処理は通常BOTから外す。
+
+2026-09-03以降、一次取得URLは`gviz/tq?tqx=out:csv&sheet=アジア大会`を使用せず、
+対象タブの固定gidを指定した次のCSV export URLを使用する。
+
+```text
+https://docs.google.com/spreadsheets/d/12MNpRn0Krk3WVRFoj37bST2fXBGnomeQ-DQ4N9VA-7c/export?format=csv&gid=272979110
+```
+
+同日時点でgviz方式はGoogle側のCSVが列方向に崩れ、固定7列ヘッダー検証に失敗したためである。
+取得方式変更後も、列順を含む完全一致の7列schema検証、未知列・0件の異常扱い、取得失敗・
+schema不一致時の営業用CSV fallbackを維持する。この変更は`アジア大会`営業用タブの一次取得
+だけに限定し、通常イベント、道路情報、他のGoogle Sheets取得URL・処理には適用しない。
 
 2026-08-10の営業用244件に存在する`availability_status`は次の3種類である。
 
@@ -428,18 +440,21 @@ CSVとSheetでは原値を保持し、表示層だけで次のように日本語
 - `SOLD_OUT` → `予定枚数終了`
 
 `availability_status`はイベント採否に使わず、`SOLD_OUT`も通知対象に残す。未知値も
-通知を落とさず原値を`🎫 チケット：<原値>`として表示し、
+通知を落とさず原値を`🎟️ チケット：<原値>`として表示し、
 `asia_ticket_status_unknown`を記録する。`session_info`の原データは変更せず、Discord表示時
-だけ1イベント700文字を上限に省略記号付きで安全に短縮する。日次件数が多い場合は
-Embed descriptionを複数投稿へ分割する。
+だけ1イベント700文字を上限に省略記号付きで安全に短縮する。日次件数が多い場合は、
+Discordのcontent上限内でイベント単位に複数のプレーンテキスト投稿へ分割する。
 
-チケット状況を表示する大会Embedには、開会式・閉会式を含め、footerとして必ず次を付ける。
+大会通知はEmbedを使用せず、Webhook payloadの`content`へプレーンテキストとして設定する。
+見出し、日付、件数、イベントの順に空行を入れ、日付は`09月03日（木）`、件数は
+`🏟️ 本日 N件`形式とし、各イベントを`────────────`で区切る。チケット状況を
+表示する大会通知には、開会式・閉会式を含め、最終メッセージ末尾へ必ず次を付ける。
 
 ```text
 チケット状況は公式チケット状況です。販路によって異なる場合があります😇
 ```
 
-通常イベント通知には付けない。既存footerがある場合は`｜`で連結して上書きしない。
+通常イベント通知には付けない。
 
 開会式強制テスト:
 
@@ -452,10 +467,10 @@ Embed descriptionを複数投稿へ分割する。
 ```
 
 テストはローカル営業用CSVから2026-09-19の`開会式`を厳密に1件だけ選び、
-`🧪【テスト投稿】`付きEmbedを生成する。0件・2件以上・開会式以外なら送信しない。
+`🧪【テスト投稿】`付きプレーンテキストを生成する。0件・2件以上・開会式以外なら送信しない。
 本番日付、CSV、Sheets、通常イベントの重複抑制stateは変更しない。送信時はWebhookへ
-`wait=true`を付け、Discordが返した投稿済みEmbedのfooterが上記文言と完全一致することを
-`asia_event_footer_verified=true`で確認する。
+`wait=true`を付け、Discordが返した投稿済みcontentが送信内容と一致し、末尾に上記文言が
+あることを`asia_event_content_verified=true`で確認する。
 
 主なBOTログ:
 
@@ -468,7 +483,7 @@ asia_event_opening_found
 asia_event_opening_notification_target
 asia_event_test_mode
 asia_event_test_records
-asia_event_footer_verified
+asia_event_content_verified
 asia_event_discord_status
 ```
 
@@ -1060,7 +1075,7 @@ READMEでは、日次イベント処理はcronまたは同等の定期実行か�
 リポジトリ内のsystemdファイル:
 
 - `nagoya-scheduler.service`: `tools/scheduler/run_scheduler.py` を常駐実行する。現時点ではOpen-Meteo予報投稿の定時ジョブ用。
-- `nagoya-road-monthly.timer`: 毎月1日10:05 JSTに道路PDFを確認し、0件・未公開・取得異常時は10:15 JSTに1回だけ再実行する。
+- `nagoya-road-monthly.timer`: 毎日10:05、10:15、12:00、18:05 JSTに道路PDFを確認する。取得済み月はstateでskipし、未取得月は後続日も再試行する。18:05の失敗だけを当日の最終失敗通知対象とする。
 - GPS Web Appのsystemd user service化は `scripts/install_gps_systemd.sh` と `docs/gps_tailscale_funnel.md` を参照。
 
 リポジトリ内には、`main.py` を朝6:00に起動するtimerファイルは見当たらない。Oracle側のcronまたは外部systemd timerで `main.py` が朝6:00系に実行される前提の運用である。

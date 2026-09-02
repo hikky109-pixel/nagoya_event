@@ -61,6 +61,167 @@ def configure_paths(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(monthly, "post_admin_discord", lambda _message: (False, "disabled"))
 
 
+class RequestsResponse:
+    def __init__(self, body: bytes, content_type: str, url: str, status: int = 200):
+        self.content = body
+        self.url = url
+        self.status_code = status
+        self.encoding = "utf-8"
+        self.headers = {"Content-Type": content_type}
+
+    @property
+    def text(self) -> str:
+        return self.content.decode(self.encoding or "utf-8", errors="replace")
+
+
+def test_publication_page_uses_browser_ua_and_accepts_html(monkeypatch) -> None:
+    seen = {}
+
+    def get(url, headers, timeout, allow_redirects):
+        seen["ua"] = headers["User-Agent"]
+        seen["timeout"] = timeout
+        seen["allow_redirects"] = allow_redirects
+        return RequestsResponse(
+            b"<html><body>schedule</body></html>",
+            "text/html; charset=UTF-8",
+            monthly.PUBLICATION_PAGE_URL,
+        )
+
+    monkeypatch.setattr(monthly.requests, "get", get)
+    result = monthly.fetch_publication_page(datetime(2026, 9, 1, 10, 5, tzinfo=JST))
+
+    assert result["ok"] is True
+    assert "Chrome/" in seen["ua"]
+    assert seen["allow_redirects"] is True
+    assert result["content_type"].startswith("text/html")
+
+
+def test_pdf_uses_same_browser_ua_and_accepts_pdf(monkeypatch, tmp_path: Path) -> None:
+    seen = {}
+    monkeypatch.setattr(monthly, "ROOT", tmp_path)
+
+    def get(url, headers, timeout, allow_redirects):
+        seen["ua"] = headers["User-Agent"]
+        seen["allow_redirects"] = allow_redirects
+        return RequestsResponse(
+            b"%PDF-1.7 test",
+            "application/pdf",
+            "https://www.pref.aichi.jp/test.pdf",
+        )
+
+    monkeypatch.setattr(monthly.requests, "get", get)
+    result = monthly.download_pdf("R8.9", datetime(2026, 9, 1, 10, 5, tzinfo=JST))
+
+    assert result["ok"] is True
+    assert seen["ua"] == monthly.BROWSER_USER_AGENT
+    assert seen["allow_redirects"] is True
+    assert Path(result["path"]).read_bytes().startswith(b"%PDF")
+
+
+def test_pdf_rejects_non_pdf_content_type_without_overwriting(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(monthly, "ROOT", tmp_path)
+    existing_path = tmp_path / road_pdf.pdf_path("R8.9")
+    existing_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_path.write_bytes(b"existing-pdf")
+    monkeypatch.setattr(
+        monthly.requests,
+        "get",
+        lambda *_args, **_kwargs: RequestsResponse(
+            b"<html>blocked</html>", "text/html", "https://example.invalid/blocked"
+        ),
+    )
+
+    result = monthly.download_pdf("R8.9", datetime(2026, 9, 1, 10, 5, tzinfo=JST))
+
+    assert result["ok"] is False
+    assert result["error"].startswith("invalid_content_type")
+    assert existing_path.read_bytes() == b"existing-pdf"
+
+
+def test_pdf_rejects_zero_bytes_without_overwriting(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(monthly, "ROOT", tmp_path)
+    existing_path = tmp_path / road_pdf.pdf_path("R8.9")
+    existing_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_path.write_bytes(b"existing-pdf")
+    monkeypatch.setattr(
+        monthly.requests,
+        "get",
+        lambda *_args, **_kwargs: RequestsResponse(
+            b"", "application/pdf", "https://example.invalid/empty.pdf"
+        ),
+    )
+
+    result = monthly.download_pdf("R8.9", datetime(2026, 9, 1, 10, 5, tzinfo=JST))
+
+    assert result["ok"] is False
+    assert result["error"] == "empty_pdf"
+    assert existing_path.read_bytes() == b"existing-pdf"
+
+
+def test_failure_time_is_evaluated_in_jst() -> None:
+    assert monthly.is_final_failure_time(datetime(2026, 9, 1, 10, 15, tzinfo=JST)) is False
+    assert monthly.is_final_failure_time(datetime(2026, 9, 1, 18, 0, tzinfo=JST)) is True
+    assert monthly.is_final_failure_time(
+        datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc)
+    ) is True
+
+
+def test_403_retry_preserves_csv_and_sheet_before_1800(monkeypatch, tmp_path: Path) -> None:
+    configure_paths(monkeypatch, tmp_path)
+    existing = "date,time\n2026-08-31,未定\n"
+    (tmp_path / "road.csv").write_text(existing, encoding="utf-8")
+    (tmp_path / "state.json").write_text(
+        json.dumps({"R8_9": {"attempts": 4}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        monthly,
+        "fetch_publication_page",
+        lambda _now: {"ok": False, "status_code": 403, "body": "", "length": 0},
+    )
+    monkeypatch.setattr(
+        monthly,
+        "download_pdf",
+        lambda _key, _now: {"ok": False, "status_code": 403, "error": "HTTP Error 403"},
+    )
+    monkeypatch.setattr(
+        monthly,
+        "run_sheet_sync",
+        lambda _date: (_ for _ in ()).throw(AssertionError("sheet must not be touched")),
+    )
+
+    result = monthly.check_monthly_pdf(now=datetime(2026, 9, 1, 10, 15, tzinfo=JST))
+
+    assert result["status"] == "retry_scheduled"
+    assert result["attempt"] == 5
+    assert result["csv_preserved"] is True
+    assert result["sheet_preserved"] is True
+    assert (tmp_path / "road.csv").read_text(encoding="utf-8") == existing
+
+
+def test_403_after_1800_is_final_failure_and_notifies(monkeypatch, tmp_path: Path) -> None:
+    configure_paths(monkeypatch, tmp_path)
+    notifications = []
+    monkeypatch.setattr(monthly, "post_admin_discord", lambda message: notifications.append(message) or (True, "sent"))
+    monkeypatch.setattr(
+        monthly,
+        "fetch_publication_page",
+        lambda _now: {"ok": False, "status_code": 403, "body": "", "length": 0},
+    )
+    monkeypatch.setattr(
+        monthly,
+        "download_pdf",
+        lambda _key, _now: {"ok": False, "status_code": 403, "error": "HTTP Error 403"},
+    )
+
+    result = monthly.check_monthly_pdf(now=datetime(2026, 9, 1, 18, 5, tzinfo=JST))
+
+    assert result["status"] == "fetch_or_parse_error"
+    assert result["admin_notified"] is True
+    assert result["csv_preserved"] is True
+    assert result["sheet_preserved"] is True
+    assert len(notifications) == 1
+
+
 def test_july_to_august_month_key_and_pdf_year_month() -> None:
     now = datetime(2026, 8, 1, 10, 5, tzinfo=JST)
     assert monthly.month_key_for(8, now=now) == "R8.8"
@@ -203,10 +364,12 @@ def test_monthly_dedupe_prevents_duplicate_registration() -> None:
     assert road_pdf.dedupe_events([record, dict(record)]) == [record]
 
 
-def test_timer_uses_jst_1005_and_1015_only() -> None:
+def test_timer_uses_jst_daily_retries_and_final_failure_check() -> None:
     timer = (ROOT / "nagoya-road-monthly.timer").read_text(encoding="utf-8")
-    assert "10:05:00 Asia/Tokyo" in timer
-    assert "10:15:00 Asia/Tokyo" in timer
+    assert "*-*-* 10:05:00 Asia/Tokyo" in timer
+    assert "*-*-* 10:15:00 Asia/Tokyo" in timer
+    assert "*-*-* 12:00:00 Asia/Tokyo" in timer
+    assert "*-*-* 18:05:00 Asia/Tokyo" in timer
     assert "10:01:00" not in timer
 
 
