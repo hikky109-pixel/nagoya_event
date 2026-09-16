@@ -768,6 +768,15 @@ Bot対策、Cookie/Session制限の回避は行わない。
 現在Sheetの`availability_status`以外の6列を全行・同じ順序で比較する。1セルでも異なる場合は、
 古い内容分類を行番号へ適用せず実行全体を中断する。発火テストはTicket監査と同様に除外する。
 
+検証済みのsession_info F列更新後は、`--accepted-session-info-apply-report`に完全成功した
+session_info updaterのapply JSONを明示できる。共通の証跡検証関数で`mode=apply`、
+`sheet_write=true`、F列・session_info対象、`applied=planned`、`not_applied=unexpected=0`、
+物理行番号・Fセル・date/time/venue/event_name・旧F値の一致を確認し、その成果物に記録された
+F変更だけを内容監査参照へインメモリでrebaseする。その後、従来の6列identity比較を全行に
+実施する。証跡不正、部分適用、重複行、旧値・identity不一致はfail-closedで中断し、
+内容監査・Results snapshotファイル自体は変更しない。dry-runは引き続きwrite serviceを
+生成せず、availability updaterの書込み対象はG列だけである。
+
 `--apply`では計画生成後、書込み直前に次を行う。
 
 - spreadsheet IDとタブ名`アジア大会`をmetadataで確定する。

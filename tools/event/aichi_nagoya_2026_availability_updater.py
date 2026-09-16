@@ -52,6 +52,9 @@ from tools.event.aichi_nagoya_2026_ticket_status_audit import (
     summarize as summarize_ticket,
 )
 from tools.event.build_aichi_nagoya_2026_baseline import fetch_session_pages
+from tools.event.aichi_nagoya_2026_verified_session_apply import (
+    rebase_content_reference_after_verified_apply,
+)
 
 
 DEFAULT_OVERALL_TIMEOUT_SECONDS = 240.0
@@ -474,6 +477,7 @@ def run_refresh(
     ticket_fetcher: Callable[[], tuple[list[dict[str, Any]], list[dict[str, Any]]]] | None = None,
     sheet_loader: Callable[[], list[dict[str, str]]] | None = None,
     results_fetcher: Callable[[list[dict[str, str]], float], tuple[list[str], list[dict[str, Any]]]] | None = None,
+    accepted_session_info_apply_report: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """Re-fetch all live inputs and produce a fresh update plan."""
 
@@ -519,6 +523,11 @@ def run_refresh(
         reference_results = json.loads(
             content_reference_results_path.read_text(encoding="utf-8")
         )
+        if accepted_session_info_apply_report is not None:
+            reference_results = rebase_content_reference_after_verified_apply(
+                reference_results, accepted_session_info_apply_report
+            )
+            progress("availability_update stage=verified_session_info_apply_reference_accepted")
         validate_content_reference(current_rows, reference_results)
         content = parse_content_classifications(
             content_audit_path.read_text(encoding="utf-8")
@@ -715,6 +724,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--progress-log", type=Path)
     parser.add_argument(
+        "--accepted-session-info-apply-report",
+        type=Path,
+        help="fully verified F-only session_info apply JSON for in-memory content-reference rebase",
+    )
+    parser.add_argument(
         "--overall-timeout", type=float, default=DEFAULT_OVERALL_TIMEOUT_SECONDS
     )
     parser.add_argument(
@@ -746,6 +760,10 @@ def main(argv: list[str] | None = None) -> int:
             overall_timeout=args.overall_timeout,
             request_timeout=args.request_timeout,
             progress=progress,
+            accepted_session_info_apply_report=(
+                json.loads(args.accepted_session_info_apply_report.read_text(encoding="utf-8"))
+                if args.accepted_session_info_apply_report else None
+            ),
         )
         if args.apply:
             spreadsheet_id = _default_spreadsheet_id()

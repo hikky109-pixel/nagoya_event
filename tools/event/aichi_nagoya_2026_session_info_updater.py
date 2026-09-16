@@ -48,6 +48,9 @@ from tools.event.aichi_nagoya_2026_session_info_display_review import (
     NEEDS_REVIEW as DISPLAY_REVIEW,
     build_report as build_display_report,
 )
+from tools.event.aichi_nagoya_2026_verified_session_apply import (
+    rebase_content_reference_after_verified_apply,
+)
 
 
 TARGET_FIELD = "session_info"
@@ -289,44 +292,6 @@ def _important_counts(plan: list[dict[str, Any]]) -> dict[str, int]:
             for label in labels
         ),
     }
-
-
-def rebase_content_reference_after_verified_apply(
-    reference: dict[str, Any], apply_report: dict[str, Any]
-) -> dict[str, Any]:
-    """Accept only F changes certified by one completely successful apply report."""
-
-    result = json.loads(json.dumps(reference, ensure_ascii=False))
-    apply_result = apply_report.get("apply_result") or {}
-    planned = apply_report.get("planned_updates") or []
-    if (
-        apply_report.get("mode") != "apply"
-        or apply_report.get("sheet_write") is not True
-        or int(apply_result.get("applied") or 0) != len(planned)
-        or int(apply_result.get("not_applied") or 0) != 0
-        or int(apply_result.get("unexpected") or 0) != 0
-    ):
-        raise ValueError("accepted apply report is not a completely verified apply")
-    rows = result.get("rows") or []
-    seen: set[int] = set()
-    for item in planned:
-        sheet_row = int(item["sheet_row_number"])
-        data_index = sheet_row - 2
-        if data_index < 0 or data_index >= len(rows) or sheet_row in seen:
-            raise ValueError(f"invalid or duplicate applied Sheet row: {sheet_row}")
-        seen.add(sheet_row)
-        sheet = rows[data_index].get("sheet") or {}
-        for field in ("date", "time", "venue", "event_name"):
-            if str(sheet.get(field) or "").strip() != str(item.get(field) or "").strip():
-                raise ValueError(
-                    f"apply report identity differs from content reference at row {sheet_row}: {field}"
-                )
-        if str(sheet.get("session_info") or "").strip() != str(
-            item.get("old_session_info") or ""
-        ).strip():
-            raise ValueError(f"apply report old session_info differs at row {sheet_row}")
-        sheet["session_info"] = str(item.get("new_session_info") or "").strip()
-    return result
 
 
 def run_refresh(

@@ -61,6 +61,85 @@ def test_content_reference_requires_all_other_six_columns_to_match():
         )
 
 
+def verified_f_apply(**overrides):
+    item = {
+        "sheet_row_number": 2,
+        "sheet_data_row": 1,
+        "cell": "F2",
+        "date": "2026-09-20",
+        "time": "10:00:00",
+        "venue": "IGアリーナ",
+        "event_name": "バスケットボール",
+        "old_session_info": "男子準々決勝（4試合）",
+        "new_session_info": "男子準々決勝｜日本 vs 大韓民国",
+    }
+    report = {
+        "mode": "apply",
+        "sheet_write": True,
+        "target_column": "F",
+        "target_field": "session_info",
+        "planned_update_count": 1,
+        "planned_updates": [item],
+        "apply_result": {"applied": 1, "not_applied": 0, "unexpected": 0},
+    }
+    report.update(overrides)
+    return report
+
+
+def test_verified_f_apply_rebases_then_six_column_identity_passes():
+    reference = {"rows": [{"sheet": sheet_row()}]}
+    current = [sheet_row(session_info="男子準々決勝｜日本 vs 大韓民国")]
+    rebased = updater.rebase_content_reference_after_verified_apply(
+        reference, verified_f_apply()
+    )
+    updater.validate_content_reference(current, rebased)
+    assert reference["rows"][0]["sheet"]["session_info"] == "男子準々決勝（4試合）"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"apply_result": {"applied": 0, "not_applied": 1, "unexpected": 0}},
+        {"apply_result": {"applied": 1, "not_applied": 0, "unexpected": 1}},
+        {"mode": "dry-run"},
+        {"target_column": "G"},
+    ],
+)
+def test_unverified_f_apply_is_rejected(changes):
+    with pytest.raises(ValueError, match="completely verified"):
+        updater.rebase_content_reference_after_verified_apply(
+            {"rows": [{"sheet": sheet_row()}]}, verified_f_apply(**changes)
+        )
+
+
+@pytest.mark.parametrize(
+    ("item_change", "message"),
+    [
+        ({"old_session_info": "別の旧値"}, "old session_info"),
+        ({"venue": "別会場"}, "identity"),
+        ({"cell": "G2"}, "does not target"),
+    ],
+)
+def test_f_apply_row_mismatch_is_rejected(item_change, message):
+    report = verified_f_apply()
+    report["planned_updates"][0].update(item_change)
+    with pytest.raises(ValueError, match=message):
+        updater.rebase_content_reference_after_verified_apply(
+            {"rows": [{"sheet": sheet_row()}]}, report
+        )
+
+
+def test_duplicate_f_apply_rows_are_rejected():
+    report = verified_f_apply()
+    report["planned_updates"].append(dict(report["planned_updates"][0]))
+    report["planned_update_count"] = 2
+    report["apply_result"]["applied"] = 2
+    with pytest.raises(ValueError, match="duplicate"):
+        updater.rebase_content_reference_after_verified_apply(
+            {"rows": [{"sheet": sheet_row()}]}, report
+        )
+
+
 def test_apply_preflight_and_postflight_allow_only_planned_status_cell():
     before = [sheet_row()]
     after = [sheet_row(availability_status="LIMITED")]
@@ -169,14 +248,20 @@ def test_g_cell_validation_is_checked_before_write():
         updater.validate_planned_statuses_against_rules(plan, rules)
 
 
-def test_run_refresh_fetches_ticket_then_sheet_then_results(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("accept_verified_f_apply", [False, True])
+def test_run_refresh_fetches_ticket_then_sheet_then_results(
+    tmp_path: Path, monkeypatch, accept_verified_f_apply
+):
     order = []
-    current = sheet_row()
+    current = sheet_row(
+        session_info="男子準々決勝｜日本 vs 大韓民国"
+        if accept_verified_f_apply else "男子準々決勝（4試合）"
+    )
     content = tmp_path / "content.md"
     content.write_text("- `CONTENT_MATCH` (1): 1\n", encoding="utf-8")
     reference = tmp_path / "results.json"
     reference.write_text(
-        json.dumps({"rows": [{"sheet": current}]}), encoding="utf-8"
+        json.dumps({"rows": [{"sheet": sheet_row()}]}), encoding="utf-8"
     )
     monkeypatch.setattr(updater, "_read_candidate_rows", lambda _path: [{}])
     monkeypatch.setattr(
@@ -229,6 +314,9 @@ def test_run_refresh_fetches_ticket_then_sheet_then_results(tmp_path: Path, monk
         ticket_fetcher=tickets,
         sheet_loader=sheet,
         results_fetcher=results,
+        accepted_session_info_apply_report=(
+            verified_f_apply() if accept_verified_f_apply else None
+        ),
     )
     assert order == ["ticket", "sheet", "results"]
     assert report["sheet_write"] is False
@@ -257,3 +345,41 @@ def test_default_cli_mode_never_prepares_google_write_access(
     monkeypatch.setattr(updater, "prepare_google_sheet_access", forbidden)
     assert updater.main(["--output-prefix", str(tmp_path / "plan")]) == 0
     assert (tmp_path / "plan.json").exists()
+
+
+def test_dry_run_with_accepted_f_apply_never_prepares_write_service(
+    tmp_path: Path, monkeypatch
+):
+    apply_path = tmp_path / "verified_f_apply.json"
+    apply_path.write_text(json.dumps(verified_f_apply()), encoding="utf-8")
+    captured = []
+    report = {
+        "generated_at": "2026-09-17T12:00:00+09:00",
+        "mode": "dry-run",
+        "sheet_write": False,
+        "sheet_name": "アジア大会",
+        "sheet_range_read": "A:G",
+        "planned_update_count": 0,
+        "planned_transitions": {
+            f"{old} -> {new}": 0 for old, new in updater.TRANSITIONS
+        },
+        "planned_updates": [],
+    }
+
+    def fake_refresh(**kwargs):
+        captured.append(kwargs["accepted_session_info_apply_report"])
+        return report, [sheet_row()]
+
+    monkeypatch.setattr(updater, "run_refresh", fake_refresh)
+    monkeypatch.setattr(
+        updater,
+        "prepare_google_sheet_access",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("write service created")),
+    )
+    assert updater.main([
+        "--dry-run",
+        "--accepted-session-info-apply-report", str(apply_path),
+        "--output-prefix", str(tmp_path / "plan"),
+    ]) == 0
+    assert captured == [verified_f_apply()]
+    assert json.loads((tmp_path / "plan.json").read_text())["sheet_write"] is False

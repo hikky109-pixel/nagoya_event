@@ -232,6 +232,8 @@ def test_verified_apply_report_can_rebase_only_its_session_info_changes():
     reference = {"rows": [{"sheet": sheet_row()}]}
     item = {
         "sheet_row_number": 2,
+        "sheet_data_row": 1,
+        "cell": "F2",
         "date": "2026-09-20",
         "time": "10:00:00",
         "venue": "IGアリーナ",
@@ -242,6 +244,9 @@ def test_verified_apply_report_can_rebase_only_its_session_info_changes():
     apply_report = {
         "mode": "apply",
         "sheet_write": True,
+        "target_column": "F",
+        "target_field": "session_info",
+        "planned_update_count": 1,
         "planned_updates": [item],
         "apply_result": {"applied": 1, "not_applied": 0, "unexpected": 0},
     }
