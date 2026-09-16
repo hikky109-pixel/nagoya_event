@@ -795,6 +795,10 @@ Results各HTTP、Google API metadata/read/writeのstageとtimeoutを記録する
 timeoutの場合もA:Gを再読込し、`applied / not_applied / unexpected`件数を可能な限り記録する。
 各外部通信には既存の明示timeoutを使い、処理全体は既定240秒のhard timeoutで中断する。
 
+Markdown末尾は実行結果に応じて表示する。dry-runではSheet未変更、完全成功したapplyでは
+postwrite検証で確認した対象Gセルの更新とA:F・非対象G・行数・schema等の不変を明記する。
+部分適用や検証未完了のapplyを成功またはSheet未変更とは表示しない。
+
 dry-run例:
 
 ```bash

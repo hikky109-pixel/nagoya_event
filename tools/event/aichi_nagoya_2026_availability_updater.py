@@ -614,8 +614,9 @@ def _md(value: Any) -> str:
 
 def render_markdown(report: dict[str, Any]) -> str:
     safety = report.get("safety_summary", {})
+    mode = report.get("mode")
     lines = [
-        "# アジア大会 availability_status 更新予定セル dry-run",
+        f"# アジア大会 availability_status 更新予定セル {mode}",
         "",
         f"- 生成日時: `{report['generated_at']}`",
         f"- モード: `{report['mode']}`",
@@ -666,12 +667,33 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{_md(item['ticket_match_reason'])} | "
             f"{_md(item['results_audit_state'])} |"
         )
-    lines.extend(
-        [
-            "",
-            "この実行ではSheet、7列、行、列順、session_info、BOT状態を変更していない。",
-        ]
-    )
+    lines.append("")
+    if mode == "dry-run" and report.get("sheet_write") is False:
+        lines.append(
+            "この実行ではSheet、7列、行、列順、session_info、BOT状態を変更していない。"
+        )
+    elif mode == "apply":
+        result = report.get("apply_result") or {}
+        planned = report.get("planned_update_count")
+        if (
+            report.get("sheet_write") is True
+            and type(planned) is int
+            and result.get("applied") == planned
+            and result.get("not_applied") == 0
+            and result.get("unexpected") == 0
+        ):
+            lines.append(
+                f"postwrite検証済み: 予定されたG列availability_statusの対象{planned}セルのみ更新。"
+                "7列スキーマ、行数・行順・列順、A:F（session_infoを含む）、"
+                "非対象Gセルは変更なし。BOT状態はこのupdaterでは変更していない。"
+            )
+        else:
+            lines.append(
+                "applyの完全成功は確認できていない。部分適用・想定外変更の可能性があるため"
+                "成功扱いにしない。"
+            )
+    else:
+        lines.append("実行モードまたは検証結果が不明のため、Sheet変更なしとは判定しない。")
     return "\n".join(lines) + "\n"
 
 

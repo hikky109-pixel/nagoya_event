@@ -347,6 +347,58 @@ def test_default_cli_mode_never_prepares_google_write_access(
     assert (tmp_path / "plan.json").exists()
 
 
+def markdown_report(**overrides):
+    report = {
+        "generated_at": "2026-09-17T12:00:00+09:00",
+        "mode": "dry-run",
+        "sheet_write": False,
+        "sheet_name": "アジア大会",
+        "sheet_range_read": "A:G",
+        "planned_update_count": 3,
+        "planned_transitions": {},
+        "planned_updates": [],
+    }
+    report.update(overrides)
+    return report
+
+
+def test_dry_run_markdown_reports_no_sheet_change():
+    rendered = updater.render_markdown(markdown_report())
+    assert "Sheet、7列、行、列順、session_info、BOT状態を変更していない" in rendered
+    assert "対象3セルのみ更新" not in rendered
+
+
+def test_verified_apply_markdown_reports_only_g_cells_changed():
+    rendered = updater.render_markdown(
+        markdown_report(
+            mode="apply",
+            sheet_write=True,
+            apply_result={"applied": 3, "not_applied": 0, "unexpected": 0},
+        )
+    )
+    assert "Sheet、7列、行、列順、session_info、BOT状態を変更していない" not in rendered
+    assert "G列availability_statusの対象3セルのみ更新" in rendered
+    assert "A:F（session_infoを含む）、非対象Gセルは変更なし" in rendered
+    assert "行数・行順・列順" in rendered
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"applied": 2, "not_applied": 1, "unexpected": 0},
+        {"applied": 3, "not_applied": 0, "unexpected": 1},
+        None,
+    ],
+)
+def test_incomplete_apply_markdown_does_not_claim_success(result):
+    rendered = updater.render_markdown(
+        markdown_report(mode="apply", sheet_write=True, apply_result=result)
+    )
+    assert "対象3セルのみ更新" not in rendered
+    assert "成功扱いにしない" in rendered
+    assert "Sheet、7列、行、列順、session_info、BOT状態を変更していない" not in rendered
+
+
 def test_dry_run_with_accepted_f_apply_never_prepares_write_service(
     tmp_path: Path, monkeypatch
 ):
