@@ -48,6 +48,31 @@ def _stable_ids(row: dict[str, str]) -> tuple[str, str, str]:
     return row["idPerformance"], row["idProduct"], row["sessionCode"]
 
 
+def operational_row_from_candidate(row: dict[str, str]) -> dict[str, str]:
+    """Project one selected baseline candidate onto the fixed Sheet schema."""
+
+    display_venue = row.get("db_display_name", "").strip()
+    if not display_venue:
+        raise ValueError("operational venue resolution failed")
+    event_type = row.get("event_type", "")
+    if event_type not in {"competition", "opening_ceremony", "closing_ceremony"}:
+        raise ValueError(f"unexpected event_type={event_type!r}")
+    event_name = row.get("event_name", "")
+    if event_type == "opening_ceremony":
+        event_name = "開会式"
+    elif event_type == "closing_ceremony":
+        event_name = "閉会式"
+    return {
+        "date": row.get("date", ""),
+        "time": row.get("time", ""),
+        "end_time": row.get("end_time", ""),
+        "venue": display_venue,
+        "event_name": event_name,
+        "session_info": row.get("session_info", ""),
+        "availability_status": row.get("availability_status", ""),
+    }
+
+
 def build_operational_rows(
     baseline_rows: list[dict[str, str]],
     candidate_rows: list[dict[str, str]],
@@ -67,29 +92,13 @@ def build_operational_rows(
     for row in candidate_rows:
         if _stable_ids(row) not in baseline_ids:
             raise ValueError(f"candidate not found in immutable baseline: {_stable_ids(row)}")
-        display_venue = row.get("db_display_name", "").strip()
-        if not display_venue:
+        if not row.get("db_display_name", "").strip():
             unresolved += 1
             continue
         event_type = row.get("event_type", "")
         if event_type not in event_type_counts:
             raise ValueError(f"unexpected event_type={event_type!r}")
-        event_name = row.get("event_name", "")
-        if event_type == "opening_ceremony":
-            event_name = "開会式"
-        elif event_type == "closing_ceremony":
-            event_name = "閉会式"
-        output.append(
-            {
-                "date": row.get("date", ""),
-                "time": row.get("time", ""),
-                "end_time": row.get("end_time", ""),
-                "venue": display_venue,
-                "event_name": event_name,
-                "session_info": row.get("session_info", ""),
-                "availability_status": row.get("availability_status", ""),
-            }
-        )
+        output.append(operational_row_from_candidate(row))
         event_type_counts[event_type] += 1
     if unresolved:
         raise ValueError(f"operational venue resolution failed for {unresolved} records")

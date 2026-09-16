@@ -7,10 +7,11 @@ import argparse
 import csv
 import json
 import re
+import time
 import unicodedata
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
@@ -40,9 +41,9 @@ CANDIDATE_FIELDS = BASELINE_FIELDS + [
 ]
 
 
-def fetch_json(url: str) -> tuple[bytes, dict[str, Any]]:
+def fetch_json(url: str, *, timeout: float = 30.0) -> tuple[bytes, dict[str, Any]]:
     request = Request(url, headers={"User-Agent": "nagoya-event-baseline/1.0"})
-    with urlopen(request, timeout=30) as response:
+    with urlopen(request, timeout=timeout) as response:
         if response.status != 200:
             raise RuntimeError(f"HTTP {response.status}: {url}")
         raw = response.read()
@@ -61,17 +62,52 @@ def extract_allowed_categories(kyougi: dict[str, Any]) -> set[int]:
     return categories
 
 
-def fetch_session_pages() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def fetch_session_pages(
+    *,
+    request_timeout: float = 30.0,
+    overall_timeout: float | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fetch the existing ticket session feed with bounded, visible paging."""
+
+    request_timeout = float(request_timeout)
+    if request_timeout <= 0:
+        raise ValueError("request_timeout must be greater than zero")
+    if overall_timeout is not None and float(overall_timeout) <= 0:
+        raise ValueError("overall_timeout must be greater than zero")
+    deadline = (
+        time.monotonic() + float(overall_timeout)
+        if overall_timeout is not None
+        else None
+    )
     pages: list[dict[str, Any]] = []
     products: list[dict[str, Any]] = []
     page_number = 1
     expected_total: int | None = None
     while True:
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("ticket session paging overall timeout expired")
+            current_timeout = min(request_timeout, remaining)
+        else:
+            current_timeout = request_timeout
         url = (
             f"{SESSIONS_URL}?nohistory=true&eventCategoryFather={EVENT_CATEGORY_FATHER}"
             f"&currentPage={page_number}&rowsNumber={ROWS_PER_PAGE}"
         )
-        _, page = fetch_json(url)
+        if progress is not None:
+            progress(
+                "ticket_http_start source=official_ticket "
+                f"page={page_number} timeout_s={current_timeout:g}"
+            )
+        request_started = time.monotonic()
+        _, page = fetch_json(url, timeout=current_timeout)
+        if progress is not None:
+            progress(
+                "ticket_http_done source=official_ticket "
+                f"page={page_number} elapsed_s={time.monotonic() - request_started:.3f}"
+            )
         if page.get("successfull") is not True or not isinstance(page.get("products"), list):
             raise ValueError(f"invalid session response on page {page_number}")
         total = page.get("totalRecords")
@@ -83,6 +119,12 @@ def fetch_session_pages() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             raise ValueError(f"totalRecords changed while paging: {expected_total} -> {total}")
         pages.append(page)
         products.extend(page["products"])
+        if progress is not None:
+            progress(
+                "ticket_paging_progress "
+                f"page={page_number} fetched={len(products)} total={expected_total} "
+                f"has_more={str(bool(page.get('hasMoreRecords'))).lower()}"
+            )
         if not page.get("hasMoreRecords"):
             break
         if not page["products"] or page_number > 1000:

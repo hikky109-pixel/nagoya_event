@@ -11,6 +11,7 @@ from tools.event.build_aichi_nagoya_2026_operational import (
     OPERATIONAL_FIELDS,
     build_operational_rows,
     create_operational_csv,
+    operational_row_from_candidate,
 )
 
 
@@ -44,6 +45,13 @@ def test_operational_rows_use_fixed_columns_display_venue_and_keep_source_values
     assert rows[0]["availability_status"] == "LIMITED"
     assert rows[0]["session_info"] == long_info
     assert stats["asia_operational_output_records"] == 1
+
+
+def test_single_candidate_projection_uses_the_same_fixed_schema():
+    row = operational_row_from_candidate(source_row())
+    assert list(row) == OPERATIONAL_FIELDS
+    assert row["venue"] == "IGアリーナ"
+    assert row["availability_status"] == "LIMITED"
 
 
 def test_opening_closing_and_same_time_sessions_are_all_kept_and_sorted():

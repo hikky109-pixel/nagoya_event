@@ -1,6 +1,6 @@
 # nagoya_event 現状仕様
 
-最終更新: 2026-08-06
+最終更新: 2026-09-15
 
 この文書は、現時点のコード実装を正として整理する。未実装の構想は末尾の「今後の予定」に分ける。仕様変更時は該当章へ追記し、運用上の注意が変わる場合は「運用メモ」も更新する。
 
@@ -497,6 +497,423 @@ asia_event_discord_status
    `config.py`のフラグ、`main.py`の専用呼出し、Google Sheetsの大会専用タブを対象として確認後に削除する。
 
 通常運用からの撤去は手順1だけで成立し、通常イベントBOTの取得・通知は継続する。
+
+### 2.7 愛知・名古屋2026公式Results API
+
+`tools/event/aichi_nagoya_2026_results.py`は、大会公式Results APIから日程を取得し、
+API固有の圧縮レスポンスを展開して、競技別dailyを後続処理用の辞書へ正規化する。
+現時点では取得・展開・正規化だけを行い、Google Sheets、営業用CSV、既存7列スキーマ、
+Discord通知へは書込み・自動反映しない。
+
+取得エンドポイント:
+
+```text
+https://back.results.asiangames2026.org/s/AG2026/ja/ALL/schedule/matrix
+https://back.results.asiangames2026.org/s/AG2026/ja/ALL/schedule/day/YYYY-MM-DD
+https://back.results.asiangames2026.org/s/AG2026/ja/{Disc}/schedule/daily/YYYY-MM-DD
+```
+
+既定言語は`ja`とする。比較・診断時だけ各公開取得関数の`language="en"`またはCLIの
+`--language en`で英語版を明示選択できる。2026-09-16の同一`ResCode`比較では、BKBは
+`DiscDesc`、`VenueDesc`、`EventDesc`、`PhaseDesc`、`UnitDesc`、Home/Awayの`Name`が
+日本語になった。VVOも説明系5項目は日本語になった一方、Home/Awayの`Name`は英語のままで、
+一部`UnitDesc`には`プ?ル`という公式データ上の欠損があった。このため競技名、会場名、
+event、phase、sessionは`ja`レスポンスの公式値を優先し、自前の英語から日本語への変換は
+行わない。
+
+リクエストヘッダーは次の最小構成に固定する。ETag由来の`If-None-Match`やブラウザ固有の
+`sec-*`ヘッダーは付けない。
+
+```text
+Accept: application/json, text/plain, */*
+Origin: https://results.asiangames2026.org
+Referer: https://results.asiangames2026.org/
+User-Agent: Mozilla/5.0
+```
+
+レスポンス本文は通常のJSONではない。HTTP本文をUTF-8文字列として復号し、その文字列を
+Latin-1 bytesへ戻した後、`zlib.decompress`で展開し、展開結果をUTF-8 JSONとして読む。
+文字コード、zlib、JSONのいずれかが不正な場合は空データとして扱わず
+`ResultsPayloadError`とする。
+
+公開関数の役割:
+
+- `fetch_schedule_matrix()`: 全競技の開催日matrixを取得・展開する。
+- `fetch_day_schedule(date)`: 指定日の全競技概要を取得・展開する。
+- `extract_discipline_codes(payload)`: 日別概要内の`Disc`を出現順・重複なしで抽出する。
+- `fetch_discipline_daily(Disc, date)`: 競技別dailyの展開済み公式JSONを無加工で返す。
+- `fetch_normalized_discipline_daily(Disc, date)`: 競技別dailyを取得・展開・正規化する。
+
+正規化データは取得言語、公式の識別子、競技名、`DateTimeRaw`、日付、時刻、status、会場、
+event、phase、round、sessionを保持する。`isH2H=true`では`Home.Name/Org`と
+`Away.Name/Org`を`competitors.home/away`へ構造化し、`matchup`も生成する。団体競技の
+対戦国・地域名は`Org`の3文字コードを正として大会呼称の日本語表示名に正規化する。
+`JPN`は必ず`日本`、`HKG`は`ホンコン・チャイナ`とする。既知コードではAPIの`Name`は
+診断用の原値として保持し、未知コードだけ`Name`へfallbackして勝手に翻訳しない。
+個人競技の選手名は`Org`へ置換せずAPIの`Name`をそのまま使う。`isH2H=false`では対戦者を
+生成せず、`PhaseDesc` / `PhaseDescA`と`UnitDesc` / `UnitDescA`をround・session情報として
+保持する。
+
+コマンドライン確認:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_results.py matrix
+.venv/bin/python tools/event/aichi_nagoya_2026_results.py day 2026-09-16
+.venv/bin/python tools/event/aichi_nagoya_2026_results.py daily BKB 2026-09-16
+.venv/bin/python tools/event/aichi_nagoya_2026_results.py daily BKB 2026-09-16 --raw
+.venv/bin/python tools/event/aichi_nagoya_2026_results.py daily BKB 2026-09-16 --language en
+```
+
+### 2.8 公式Resultsと営業用Sheetのdry-run照合
+
+`tools/event/aichi_nagoya_2026_results_dry_run.py`は、公式Resultsの日別正規化データと
+Google Sheetsの`アジア大会`タブを読み取り専用で照合する。Google Sheets更新、営業用CSV更新、
+Discord通知は行わず、既存の`session_info`と`availability_status`も変更しない。
+
+Sheet読込は既存タブの固定gidを使うHTTP GETに限定し、`range=A:G`を明示する。読込対象と
+列順は次の7列だけで、ヘッダー不一致または0件は異常終了する。
+
+```text
+date,time,end_time,venue,event_name,session_info,availability_status
+```
+
+外部通信はGoogle Sheets GET、Results日別overview GET、競技別daily GETのすべてで
+接続timeout 5秒、読取timeout 15秒、1リクエストのhard wall-clock timeout 20秒を設定する。
+さらにdry-run全体を既定90秒で中断し、競技別dailyの逐次取得が累積して無制限に待つことを
+禁止する。全体上限は`--overall-timeout`で短縮できる。
+
+進捗は標準エラーへ即時flushし、Sheet、overview、各dailyの開始・完了・失敗、競技コード、
+`index=N/total`、timeout値、経過秒、取得件数を出す。JSONまたはtextの照合結果は標準出力へ
+分離するため、停止時は最後の`external_http_start`または`results_daily_start`から待機先を
+特定できる。timeout時は部分照合結果を出さず終了コード1とする。
+
+処理の流れ:
+
+1. 指定日の`ALL/schedule/day`から競技コードを抽出する。
+2. 各競技の`schedule/daily`を取得し、対戦者を含む正規化データを作る。
+3. Sheetの指定日行ごとに`date`、`time`、会場alias、競技aliasの順で完全一致照合する。
+4. 完全一致が1件なら`MATCH`、2件以上なら`AMBIGUOUS`、0件なら`NOT_FOUND`とする。
+
+会場aliasは表記揺れを明示的な同値グループとして定義する。未知の会場名はNFKC、空白、
+括弧、区切り記号を正規化した完全一致だけを許可し、部分一致や類似度による推測は行わない。
+`名古屋市総合体育館［レインボーホール］`と`NGKホール`、
+`名古屋市総合体育館［レインボープール］`と`NGKアリーナ`は別々のaliasグループとする。
+競技もResultsの競技コードまたは明示的な日英aliasで照合し、たとえばバスケットボールと
+3x3バスケットボールを混同しない。
+
+dry-run出力はSheet側の日時・会場・競技、Results側の日時・会場・競技・phase・round・session、
+H2Hの対戦名、候補`session_info`、照合理由、候補数を含む。完全一致が複数ある場合は候補を
+すべて表示し、1件へ自動確定しない。公式dailyが競技単位で空の場合も部分結果を
+`NOT_FOUND`として確定せず異常終了する。`NOT_FOUND`では、残り3キーが一致するResultsを
+`Nearby Results (not selected)`として診断表示できるが、候補数には含めず自動確定もしない。
+
+候補`session_info`は表示だけに使用する。`PhaseDesc`の公式日本語値を元に表示用の空白・
+区切りを整え、H2Hは`男子準々決勝｜ヨルダン vs 大韓民国`、
+`男子グループA｜タイ vs キルギス`、`女子予選プールA｜日本 vs ネパール`のように生成する。
+非H2Hは公式`PhaseDesc`を優先する。`PhaseDesc`が正常で`UnitDesc`に`?`がある場合は
+`PhaseDesc`を採用する。いずれもSheetへは書き込まない。
+
+実行例:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_results_dry_run.py 2026-09-16
+.venv/bin/python tools/event/aichi_nagoya_2026_results_dry_run.py 2026-09-16 --format json
+.venv/bin/python tools/event/aichi_nagoya_2026_results_dry_run.py 2026-09-16 --overall-timeout 60
+```
+
+### 2.9 公式Resultsとの全期間日程監査
+
+`tools/event/aichi_nagoya_2026_results_audit.py`は、`アジア大会`タブの固定7列`A:G`を
+全行読み取り、`ja/ALL/schedule/matrix`にある全公式日付について、Sheetに存在する競技だけの
+日別overviewと競技別dailyを取得して監査する。公式競技コードはmatrixの値に合わせ、
+クリケット`CKT`、7人制ラグビー`RU7`、セパタクロー`SPK`、ソフトテニス`TST`を使用する。
+
+分類は次の優先順とする。
+
+1. date/time/venue alias/sportが1件一致: `EXACT_MATCH`
+2. 同じ完全キーが複数: `MULTIPLE_CANDIDATES`
+3. date/venue alias/sport一致、time不一致: `TIME_MISMATCH`
+4. date/time/sport一致、venue alias不一致: `VENUE_MISMATCH`
+5. time/venue alias/sportが別日で一致: `DATE_MISMATCH`
+6. 上記に該当しない: `RESULTS_NOT_FOUND`
+
+`TIME_MISMATCH`は同日・同会場・同競技のResultsを全件表示する。
+`VENUE_MISMATCH`は同日・同時刻・同競技の候補を全件表示し、公式`VenueDesc`が空の場合は
+Sheet会場を検証不能であることを理由へ明記する。`DATE_MISMATCH`は日付差が最小の候補だけを
+表示する。`RESULTS_NOT_FOUND`でも同競技が存在する場合は、会場alias一致、日付差、時刻差で
+並べた上位5件を診断表示する。いずれの候補も`auto_selected=false`であり、自動修正や
+`session_info`生成結果の書込みには使用しない。
+
+Sheet、matrix、overview、dailyには既存の接続5秒・読取15秒・1通信20秒hard timeoutを適用し、
+監査全体にも既定90秒のwall-clock timeoutを適用する。進捗ログには全25日の日付index、
+各dailyのrequest index、競技コード、件数、経過時間、失敗中のstageを出す。取得途中で
+dailyが空または対象日レコードが0件になった場合は、部分監査結果を出さず異常終了する。
+
+実行例:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_results_audit.py
+.venv/bin/python tools/event/aichi_nagoya_2026_results_audit.py --format json
+.venv/bin/python tools/event/aichi_nagoya_2026_results_audit.py --format markdown
+.venv/bin/python tools/event/aichi_nagoya_2026_results_audit.py --overall-timeout 90
+```
+
+### 2.10 公式チケット販売状況のdry-run監査
+
+`tools/event/aichi_nagoya_2026_ticket_status_audit.py`は、2026-08-10 baseline作成で使用した
+`getFilteredProductsJSON.th`のページング取得関数を再利用し、現在の公式
+`availabilityStatus`と`アジア大会`タブの`availability_status`を読み取り専用で比較する。
+新規のHTMLスクレーパーは持たず、Queue-it、reCAPTCHA、Bot対策、Cookie/Session制限の
+回避は行わない。通常のJSON取得が失敗した場合、ページ数・`totalRecords`・取得件数が
+不整合の場合、または取得結果が空の場合は部分結果を出さず異常終了する。
+
+Sheetは固定7列`A:G`だけをGETし、`【発火テスト】`行を営業用監査から除外する。各営業用行を
+immutableな`venue_candidates_20260810.csv`へ次の順で照合する。
+
+1. `availability_status`以外の6列完全一致
+2. `session_info`を除くdate/time/end_time/venue/event_name一致
+3. date/time/venue/event_name一致
+4. date/venue/event_name一致
+
+各段階で1件に絞れた場合だけbaselineの`idPerformance / idProduct / sessionCode`を採用する。
+複数残る場合は`MULTIPLE_CANDIDATES`とし、時刻の近さなどで自動選択しない。現在の公式商品も
+3つの安定IDが完全一致する場合だけ対応セッションとする。
+
+分類:
+
+- `UNCHANGED`: 安定IDが一意に一致し、Sheetと公式の販売状態が同じ
+- `STATUS_CHANGED`: 安定IDが一意に一致し、販売状態が異なる
+- `MULTIPLE_CANDIDATES`: baselineまたは現在公式側で複数候補が残る
+- `NOT_FOUND`: baseline対応、現在の安定ID、または既知の公式販売状態を安全に得られない
+
+公式販売状態として自動比較する値は`BUY / LIMITED / SOLD_OUT`だけとし、未知値は変更扱いに
+せず`NOT_FOUND`で保護する。Markdown/CSV/任意JSONはローカル診断成果物であり、Google Sheet、
+`session_info`、`availability_status`、その他6列、列順、BOT状態を書き換える経路はない。
+集計では安定ID一致行の公式内訳とは別に、`NOT_FOUND / MULTIPLE_CANDIDATES`のSheet値を保持した
+保護後の実効内訳も表示する。
+
+公式チケット各ページには既定15秒の明示timeout、Sheetには2.8と同じtimeoutを適用し、監査全体を
+既定120秒のhard timeoutで囲む。進捗ログにはSheet取得、baseline読込、公式ページ番号、累積件数、
+総件数、完了分類件数、失敗stageを出す。
+
+実行例:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_ticket_status_audit.py \
+  --markdown-output logs/aichi_nagoya_2026_ticket_status_audit.md \
+  --csv-output logs/aichi_nagoya_2026_ticket_status_audit.csv \
+  --json-output logs/aichi_nagoya_2026_ticket_status_audit.json \
+  --overall-timeout 120 --request-timeout 15
+```
+
+### 2.11 availability_status更新可否の突合dry-run
+
+`tools/event/aichi_nagoya_2026_availability_update_audit.py`は、2.10の販売状況監査JSON、
+2.9のResults全期間監査JSON、内容監査の行別分類を突合する。入力成果物だけを読み、
+Google Sheetsおよび外部APIへの接続経路や書込み経路を持たない。対象は
+`STATUS_CHANGED`と保護対象のTicket `NOT_FOUND / MULTIPLE_CANDIDATES`で、`UNCHANGED`は
+更新対象外として件数だけ記録する。
+
+`STATUS_CHANGED`は、2026-08-10 baselineと現在の公式チケット商品の
+date/time/venue/event_nameが一致し、次のいずれかを満たす場合だけ`SAFE_TO_UPDATE`とする。
+
+- Resultsが`EXACT_MATCH`で、内容監査が`CONTENT_MATCH`または`AGGREGATED_OK`
+- 開会式・閉会式であり、Resultsに存在しない一方、チケットの3安定IDが一意で商品コアが不変
+
+競技行の内容監査は許可状態を列挙するfail-closed方式とする。Resultsが`EXACT_MATCH`でも、
+`CONTENT_OUTDATED`は`HOLD_CONTENT_OUTDATED`、`INSUFFICIENT_SHEET_INFO / NEEDS_REVIEW`または
+未知の内容分類は`NEEDS_REVIEW`として旧値を保持する。開会式・閉会式は内容監査の対象外であり、
+上記の明示的なResults対象外例外を維持する。
+
+Resultsの`TIME_MISMATCH / VENUE_MISMATCH / DATE_MISMATCH / RESULTS_NOT_FOUND`は
+`HOLD_RESULTS_MISMATCH`、ResultsまたはTicketの`MULTIPLE_CANDIDATES`は`NEEDS_REVIEW`とし、
+候補を自動選択しない。Ticket `NOT_FOUND`は`HOLD_TICKET_NOT_FOUND`として旧Sheet値を保持する。
+販売状態は短時間にも変化し得るため、実書込みを将来実装する場合も、dry-run成果物の値を
+そのまま使用せず、直前に同じ公式取得・安定ID・商品コア・Results条件を再検証する。
+
+出力はMarkdown/CSV/JSONとし、`SAFE_TO_UPDATE`の対象行、旧値・新値、Ticket根拠、Results状態、
+6種類の状態遷移、保留理由、実書込み時の変更セル数を含む。現段階では
+`availability_status`を含む固定7列、列順、`session_info`、BOT状態を一切変更しない。
+
+実行例:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_availability_update_audit.py \
+  --ticket-audit logs/aichi_nagoya_2026_ticket_status_audit.json \
+  --results-audit logs/aichi_nagoya_2026_results_audit.json \
+  --content-audit logs/aichi_nagoya_2026_content_audit.md \
+  --markdown-output logs/aichi_nagoya_2026_availability_update_audit.md \
+  --csv-output logs/aichi_nagoya_2026_availability_update_audit.csv \
+  --json-output logs/aichi_nagoya_2026_availability_update_audit.json
+```
+
+### 2.12 availability_statusの限定セル更新
+
+`tools/event/aichi_nagoya_2026_availability_updater.py`は、固定された更新候補一覧を入力にせず、
+起動のたびに次の順で更新予定セルを作り直す。
+
+1. 2.4と同じ公式Ticket JSON APIを全ページ再取得する。
+2. `アジア大会`の固定7列`A:G`を再取得する。
+3. Results `/ja/`のmatrix、全日overview、対象競技dailyを再取得して全期間監査を作り直す。
+4. Ticket安定ID、現在の商品date/time/venue/event_name、Results監査、内容監査を2.11の条件で再評価する。
+5. その時点の`SAFE_TO_UPDATE`のうち、Sheetと公式値が異なる`availability_status`セルだけを計画する。
+
+引数なしと`--dry-run`は同じread-onlyモードであり、Google Sheets認証サービスを生成せず、
+書込みAPIを呼ばない。`--apply`が明示された場合だけ、認証付きGoogle Sheets APIを準備する。
+`--dry-run`と`--apply`は同時指定できない。Ticket、Sheet、Resultsのいずれかが取得不能、空、
+不完全、timeoutになった場合は更新計画を確定せず、Sheet値を保持する。Queue-it、reCAPTCHA、
+Bot対策、Cookie/Session制限の回避は行わない。
+
+内容監査は人手確認済みMarkdownの行別分類を使用するが、対応するResults監査snapshotと
+現在Sheetの`availability_status`以外の6列を全行・同じ順序で比較する。1セルでも異なる場合は、
+古い内容分類を行番号へ適用せず実行全体を中断する。発火テストはTicket監査と同様に除外する。
+
+`--apply`では計画生成後、書込み直前に次を行う。
+
+- spreadsheet IDとタブ名`アジア大会`をmetadataで確定する。
+- 対象範囲`A1:G<最終行>`を認証付きで再読込し、計画時の7列全セルと完全一致することを確認する。
+- G列のdata validationを読取り、`ONE_OF_LIST`の場合は新値が許可値に含まれることを確認する。
+- `spreadsheets.values.batchUpdate`の離散した`G<行番号>`だけを、`RAW`で単一batch更新する。
+- 直後に同じ`A:G`を再読込し、他6列、行数、非対象Gセルが不変で、対象Gセルだけが新値になったことを確認する。
+
+Sheet全体更新、A:F更新、行・列の追加、削除、並び替え、列順変更、`session_info`更新、BOT state更新、
+曖昧候補の選択を行うコード経路は持たない。Ticket `NOT_FOUND`、Ticket/Results
+`MULTIPLE_CANDIDATES`、Results mismatch、内容監査が`CONTENT_MATCH / AGGREGATED_OK`以外の競技行は
+旧値を保持する。開会式・閉会式の明示的なResults対象外例外だけは2.11の条件を適用する。
+
+進捗はstderrと`<output-prefix>.progress.log`の両方へ即時出力する。Ticket各HTTP、Sheet取得、
+Results各HTTP、Google API metadata/read/writeのstageとtimeoutを記録する。batch更新の応答が失敗・
+timeoutの場合もA:Gを再読込し、`applied / not_applied / unexpected`件数を可能な限り記録する。
+各外部通信には既存の明示timeoutを使い、処理全体は既定240秒のhard timeoutで中断する。
+
+dry-run例:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_availability_updater.py --dry-run \
+  --content-audit logs/aichi_nagoya_2026_content_audit_2026-09-15.md \
+  --content-reference-results logs/aichi_nagoya_2026_results_audit_2026-09-15.json \
+  --output-prefix logs/aichi_nagoya_2026_availability_update_plan_2026-09-15
+```
+
+`--apply`は人間が直前のdry-run Markdown/CSV/JSONにある更新予定セルを確認した後だけ明示する。
+applyでもTicket、Sheet、Resultsの再取得と安全性再評価を省略しない。
+
+### 2.13 session_infoの公式Results補完read-only監査
+
+`tools/event/aichi_nagoya_2026_session_info_audit.py`は、`アジア大会`の固定7列`A:G`と
+Results `/ja/`をread-onlyで再取得し、2.7〜2.9の正規化、Orgコード日本語名、会場alias、
+競技alias、全期間監査を再利用して`session_info`候補を分類する。Google Sheets認証サービス、
+書込みAPI、BOT state、営業用CSVを変更する経路は持たない。
+
+date/time/venue/sportが一意に`EXACT_MATCH`し、Results候補が1件、内容監査が
+`CONTENT_MATCH / AGGREGATED_OK`、候補文字列と`ResCode`が非空の場合だけ候補を自動更新可能とする。
+チーム競技はOrgコード由来の両対戦国がそろう場合だけ`ラウンド｜国 vs 国`を生成する。
+個人競技は`isH2H`でも選手名・matchupを使わず、公式`PhaseDesc`優先のラウンド・セッション名だけを
+候補とする。現在値と候補がNFKC、空白、表示用括弧・区切りの差だけなら`UNCHANGED`、異なる場合は
+`SAFE_TO_UPDATE`とするが、本監査ではいずれもSheetへ書き込まない。
+
+分類:
+
+- `SAFE_TO_UPDATE`
+- `UNCHANGED`
+- `HOLD_TIME_MISMATCH`
+- `HOLD_DATE_MISMATCH`
+- `HOLD_VENUE_MISMATCH`
+- `HOLD_MULTIPLE_CANDIDATES`
+- `HOLD_RESULTS_NOT_FOUND`
+- `HOLD_CONTENT_OUTDATED`
+- `NEEDS_REVIEW`
+
+同一完全キーにResultsが複数ある場合は`HOLD_MULTIPLE_CANDIDATES`かつ
+`aggregation_state=MULTIPLE_RESULTS_NOT_COMBINED`とし、1試合を選ばず、初回監査では複数候補を
+自動結合しない。開会式、閉会式、発火テストはResults対象外として候補を生成しない。
+内容監査が`CONTENT_OUTDATED`なら候補を診断用に保持して`HOLD_CONTENT_OUTDATED`、
+`INSUFFICIENT_SHEET_INFO / NEEDS_REVIEW`や未知分類は`NEEDS_REVIEW`とする。
+
+Markdown / CSV / JSONには物理Sheet行番号、date/time/venue/event_name、現在値、候補値、
+Results `ResCode`、Results・内容・集約状態、判定理由を保存する。集計には全分類、日本戦、
+準々決勝、準決勝、3位決定戦、決勝の一意候補数を含む。内容監査の行番号を安全に再利用するため、
+対応するResults監査snapshotと現在Sheetの`availability_status`以外の6列が全245行一致することを
+取得前に検証する。内容監査Markdownの索引はヘッダーを除くデータ行番号として読み、成果物では
+ヘッダーを含む物理Sheet行番号へ1を加えて表示する。
+
+実行例:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_session_info_audit.py \
+  --content-audit logs/aichi_nagoya_2026_content_audit_2026-09-15.md \
+  --content-reference-results logs/aichi_nagoya_2026_results_audit_2026-09-15.json \
+  --output-prefix logs/aichi_nagoya_2026_session_info_audit_2026-09-16 \
+  --overall-timeout 240
+```
+
+### 2.14 session_info候補の表示品質read-onlyレビュー
+
+`tools/event/aichi_nagoya_2026_session_info_display_review.py`は、2.13のJSONにある
+`SAFE_TO_UPDATE`だけを対象に、Sheet・Resultsへの再接続や書込みを行わず表示品質を検査する。
+各行を`DISPLAY_OK / DISPLAY_NEEDS_FIX / NEEDS_REVIEW`へ分類し、物理Sheet行、日時、会場、競技、
+現在値、元候補、推奨候補、ResCode、日本戦、重要ラウンド、理由をMarkdown / CSV / JSONへ保存する。
+
+検査対象は男女ラベルやPhase/Unitの重複、`? / �`等の欠損、`vs`以外の連続英字、区切り数、
+国名表示、個人競技への選手名混入である。チーム候補は2.13でOrgコードを正としたもの、個人候補は
+対戦者名を含まないものだけを前提とする。一般化できる表示修正はレビュー成果物の推奨値として
+示し、この段階では2.13の生成器やGoogle Sheetへ反映しない。
+
+表示品質レビューで確認した一般化ルールはsession_info生成器へ適用する。NFKCと空白除去後、
+`予選ラウンド`と`グループ / プール`の間にあるハイフン類、長音、区切り点、または区切りなしを
+吸収し、`予選グループ / 予選プール`へ簡潔化する。特定行番号、競技、ResCode、過去の57件の
+固定リストには依存しない。準々決勝、準決勝、3位決定戦、決勝、順位決定戦、メダル関連など
+対象外のラウンド名、Orgコード由来の国名、Home/Away、個人競技の選手名除外仕様は変更しない。
+
+実行例:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_session_info_display_review.py \
+  --session-audit logs/aichi_nagoya_2026_session_info_audit_2026-09-16.json \
+  --output-prefix logs/aichi_nagoya_2026_session_info_display_review_2026-09-16
+```
+
+### 2.15 session_infoの限定セル更新
+
+`tools/event/aichi_nagoya_2026_session_info_updater.py`は、固定候補を使用せず、起動ごとに
+`アジア大会`の固定7列`A:G`と公式Results `/ja/`を再取得し、2.13の監査と2.14の表示品質判定を
+作り直す。`SAFE_TO_UPDATE`かつ`DISPLAY_OK`で、候補が非空、欠損・文字化け記号を含まず、現在値と
+異なり、かつ既存の有用な情報を失わない行だけをF列`session_info`の更新予定セルとする。
+既存値に2件以上の試合数、男女両区分、複数の独立したラウンド・セッション、メダル情報があり、
+単一Results候補でそれらを保持できない場合は`HOLD_AGGREGATED_SESSION_INFO`とする。区切りを含むが
+複数内容か安全に判定できない場合は`NEEDS_REVIEW`へ倒す。単一ラウンドから同じラウンドの対戦カードを
+加える詳細化は更新可能とし、単なる中黒等の表記区切りだけで集約扱いしない。
+
+それ以外のResults不一致、複数候補、
+内容不整合、表示修正必要、未知分類、開会式、閉会式、発火テストはfail-closedで保持する。
+
+引数なしと`--dry-run`は完全なread-onlyで、認証付きGoogle Sheetsサービス、metadata、prewrite、
+batchUpdate、postwriteのいずれも生成・実行しない。`--apply`が明示された場合だけ、2.12で使用する
+共通の単一列更新処理へF列と`new_session_info`を指定する。
+
+applyでは書込み直前に`A:G`を再取得して計画時snapshotとの完全一致を要求し、離散したFセルだけを
+単一batchで更新する。書込み後に`A:G`を再取得し、A:E、G、非対象F、行数、行順、7列schemaが
+不変で、対象Fだけが計画値になったことを検証する。`planned / applied / not_applied / unexpected`を
+記録し、部分失敗を含め`unexpected != 0`または完全適用でない場合は成功扱いにしない。
+
+apply直後のread-only再監査では、`applied=planned`、`not_applied=0`、`unexpected=0`を満たす
+完全成功済みapply JSONを`--accepted-apply-report`で指定できる。この場合だけ、その成果物に記録された
+旧F値から新F値への変更を内容監査参照へインメモリで反映する。日時・会場・競技・旧F値のいずれかが
+参照と異なる場合、部分適用、unexpected、重複行、不正行がある場合はfail-closedで拒否する。
+ファイル上の内容監査参照は変更せず、dry-runのGoogle Sheets書込み経路も生成しない。
+
+成果物はMarkdown / CSV / JSON / progress.logとし、物理Sheet行、日時、会場、競技、旧値、新値、
+ResCode、監査分類、表示分類、更新適格性を保存する。Google Sheet全体の再生成、A:EやGの更新、
+非対象Fの更新、行・列の追加・削除・並び替え、7列schema変更は行わない。
+
+dry-run例:
+
+```bash
+.venv/bin/python tools/event/aichi_nagoya_2026_session_info_updater.py --dry-run \
+  --content-audit logs/aichi_nagoya_2026_content_audit_2026-09-15.md \
+  --content-reference-results logs/aichi_nagoya_2026_results_audit_2026-09-15.json \
+  --output-prefix logs/aichi_nagoya_2026_session_info_update_plan_2026-09-16
+```
 
 ## 3. 名古屋場所辞書DB
 
@@ -1554,6 +1971,31 @@ git diff --check
 - 0件・1件および前回比50%以上減少時に既存CSVを更新しないこと
 - 異常時にHTMLと診断JSONを保存すること
 - Health Dashboardの前回比50%以上減少警告を維持すること
+
+公式Results照合の重要テスト:
+
+- `tests/test_aichi_nagoya_2026_results.py`
+- `tests/test_aichi_nagoya_2026_results_dry_run.py`
+- `tests/test_aichi_nagoya_2026_results_audit.py`
+- `tests/test_aichi_nagoya_2026_ticket_status_audit.py`
+- `tests/test_aichi_nagoya_2026_availability_update_audit.py`
+- `tests/test_aichi_nagoya_2026_availability_updater.py`
+- 圧縮レスポンスを展開し、H2Hと個人競技を正規化できること
+- Results APIの既定言語が`ja`で、明示時だけ`en`を選択できること
+- 団体戦の既知`Org`を日本語大会呼称へ変換し、未知`Org`と個人選手名はAPI名へfallbackすること
+- Sheet読込がHTTP GETかつ固定7列`A:G`に限定されること
+- SheetとResultsのGETに接続・読取timeoutとhard wall-clock timeoutがあること
+- Sheet、overview、各競技dailyの進捗と失敗箇所を即時ログで特定できること
+- dry-run全体timeoutを超えた場合、後続の外部通信へ進まないこと
+- 既知の会場aliasと競技aliasで一致できること
+- `MATCH`、`AMBIGUOUS`、`NOT_FOUND`を分類できること
+- 全期間監査の6分類、近接候補、TIME_MISMATCH全候補、公式VenueDesc空を区別できること
+- 曖昧候補を1件へ自動確定しないこと
+- `session_info`候補を表示しても入力行と`availability_status`を変更しないこと
+- Ticket/Results/内容監査の突合で、完全一致だけを更新可能とし、複数候補と不一致を保留すること
+- 開会式・閉会式のResults不在を例外処理し、Ticket `NOT_FOUND`は旧値保持にすること
+- updaterの既定モードがread-onlyで、物理Sheet行を含むG列セルだけを計画すること
+- apply直前snapshot不一致、他6列の変化、data validation違反、部分失敗を検出すること
 
 PlaceInfo同期の重要テスト:
 

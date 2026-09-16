@@ -6,6 +6,7 @@ from tools.event.build_aichi_nagoya_2026_baseline import (
     build_rows,
     classify_event_type,
     extract_allowed_categories,
+    fetch_session_pages,
     parse_datetime,
     protected_write,
 )
@@ -114,3 +115,38 @@ def test_zero_sessions_does_not_write_baseline(monkeypatch, tmp_path: Path):
     with pytest.raises(ValueError, match="unsafe competition session count=0"):
         baseline_module.create_baseline(tmp_path)
     assert not list(tmp_path.rglob("*"))
+
+
+def test_session_paging_has_explicit_timeout_and_progress(monkeypatch):
+    responses = [
+        {
+            "successfull": True,
+            "products": [{"idProduct": 1}],
+            "totalRecords": 2,
+            "hasMoreRecords": True,
+        },
+        {
+            "successfull": True,
+            "products": [{"idProduct": 2}],
+            "totalRecords": 2,
+            "hasMoreRecords": False,
+        },
+    ]
+    timeouts = []
+    progress = []
+
+    def fake_fetch(_url, *, timeout):
+        timeouts.append(timeout)
+        return b"{}", responses.pop(0)
+
+    monkeypatch.setattr(baseline_module, "fetch_json", fake_fetch)
+    pages, products = fetch_session_pages(
+        request_timeout=7,
+        overall_timeout=20,
+        progress=progress.append,
+    )
+    assert len(pages) == 2
+    assert [item["idProduct"] for item in products] == [1, 2]
+    assert all(0 < timeout <= 7 for timeout in timeouts)
+    assert any("page=1" in message for message in progress)
+    assert any("fetched=2 total=2" in message for message in progress)
