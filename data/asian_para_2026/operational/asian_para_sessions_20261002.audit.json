@@ -1,0 +1,1136 @@
+{
+  "source_url": "https://www.asianparagames-2026.org/wp-content/uploads/2026/10/Session-schedule-for-Aichi-Nagoya-2026-Asian-Para-Games-Ver7-as-of-2-Oct-2026.pdf",
+  "source_revision": "2026-10-02",
+  "sha256": "a52aff85eb5f969c4b630b7116787de0061a5ef8a65ab9825be3421b31f50940",
+  "competition_sessions": 151,
+  "sport_rows": 19,
+  "cells": [
+    {
+      "date": "2026-10-19",
+      "venue": "Okazaki Chuo Sogo Park Multipurpose Square",
+      "sport": "Para Archery",
+      "pdf_row": 1,
+      "color": "competition_day",
+      "raw_codes": "M/W",
+      "time_ranges": [
+        "08:00-11:30",
+        "12:45-16:15"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Okazaki Chuo Sogo Park Multipurpose Square",
+      "sport": "Para Archery",
+      "pdf_row": 1,
+      "color": "competition_day",
+      "raw_codes": "M/W/X",
+      "time_ranges": [
+        "08:00-10:30",
+        "11:30-15:45"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Okazaki Chuo Sogo Park Multipurpose Square",
+      "sport": "Para Archery",
+      "pdf_row": 1,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/X/F",
+      "time_ranges": [
+        "09:00-11:40",
+        "12:40-16:40"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Okazaki Chuo Sogo Park Multipurpose Square",
+      "sport": "Para Archery",
+      "pdf_row": 1,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/X/F",
+      "time_ranges": [
+        "09:00-13:50",
+        "14:50-17:10"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Okazaki Chuo Sogo Park Multipurpose Square",
+      "sport": "Para Archery",
+      "pdf_row": 1,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/X/F",
+      "time_ranges": [
+        "09:00-11:40",
+        "12:50-15:00"
+      ]
+    },
+    {
+      "date": "2026-10-24",
+      "venue": "Okazaki Chuo Sogo Park Multipurpose Square",
+      "sport": "Para Archery",
+      "pdf_row": 1,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/F",
+      "time_ranges": [
+        "09:00-11:08"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Nagoya City Mizuho Park Athletic Stadium",
+      "sport": "Para Athletics",
+      "pdf_row": 2,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/F",
+      "time_ranges": [
+        "17:00-22:00"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Nagoya City Mizuho Park Athletic Stadium",
+      "sport": "Para Athletics",
+      "pdf_row": 2,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/F",
+      "time_ranges": [
+        "09:00-13:30",
+        "15:30-22:00"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Nagoya City Mizuho Park Athletic Stadium",
+      "sport": "Para Athletics",
+      "pdf_row": 2,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/F",
+      "time_ranges": [
+        "09:00-13:30",
+        "15:30-22:00"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Nagoya City Mizuho Park Athletic Stadium",
+      "sport": "Para Athletics",
+      "pdf_row": 2,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/F",
+      "time_ranges": [
+        "09:00-13:30",
+        "15:30-22:00"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Nagoya City Mizuho Park Athletic Stadium",
+      "sport": "Para Athletics",
+      "pdf_row": 2,
+      "color": "gold_medal_day",
+      "raw_codes": "M/W/X/F",
+      "time_ranges": [
+        "09:00-13:30",
+        "15:30-22:00"
+      ]
+    },
+    {
+      "date": "2026-10-16",
+      "venue": "Ichinomiya City Municipal Gymnasium",
+      "sport": "Para Badminton",
+      "pdf_row": 3,
+      "color": "competition_day",
+      "raw_codes": "W/M/X",
+      "time_ranges": [
+        "09:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "venue": "Ichinomiya City Municipal Gymnasium",
+      "sport": "Para Badminton",
+      "pdf_row": 3,
+      "color": "competition_day",
+      "raw_codes": "W/M/X",
+      "time_ranges": [
+        "09:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Ichinomiya City Municipal Gymnasium",
+      "sport": "Para Badminton",
+      "pdf_row": 3,
+      "color": "competition_day",
+      "raw_codes": "W/M/X",
+      "time_ranges": [
+        "09:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Ichinomiya City Municipal Gymnasium",
+      "sport": "Para Badminton",
+      "pdf_row": 3,
+      "color": "competition_day",
+      "raw_codes": "W/M/X",
+      "time_ranges": [
+        "09:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Ichinomiya City Municipal Gymnasium",
+      "sport": "Para Badminton",
+      "pdf_row": 3,
+      "color": "competition_day",
+      "raw_codes": "W/M/X",
+      "time_ranges": [
+        "09:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Ichinomiya City Municipal Gymnasium",
+      "sport": "Para Badminton",
+      "pdf_row": 3,
+      "color": "competition_day",
+      "raw_codes": "W/M/X/SF",
+      "time_ranges": [
+        "09:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Ichinomiya City Municipal Gymnasium",
+      "sport": "Para Badminton",
+      "pdf_row": 3,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "09:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "venue": "Nagoya City General Gymnasium [Rainbow Hall]",
+      "sport": "Boccia",
+      "pdf_row": 4,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "09:30-14:05",
+        "15:35-20:10"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Nagoya City General Gymnasium [Rainbow Hall]",
+      "sport": "Boccia",
+      "pdf_row": 4,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "09:30-14:05",
+        "15:35-20:10"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Nagoya City General Gymnasium [Rainbow Hall]",
+      "sport": "Boccia",
+      "pdf_row": 4,
+      "color": "competition_day",
+      "raw_codes": "W/M/QF",
+      "time_ranges": [
+        "09:30-14:05",
+        "15:35-20:10"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Nagoya City General Gymnasium [Rainbow Hall]",
+      "sport": "Boccia",
+      "pdf_row": 4,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/SF/F",
+      "time_ranges": [
+        "09:30-13:00",
+        "14:30-19:50"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Nagoya City General Gymnasium [Rainbow Hall]",
+      "sport": "Boccia",
+      "pdf_row": 4,
+      "color": "competition_day",
+      "raw_codes": "X",
+      "time_ranges": [
+        "09:30-13:50",
+        "15:20-19:40"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Nagoya City General Gymnasium [Rainbow Hall]",
+      "sport": "Boccia",
+      "pdf_row": 4,
+      "color": "competition_day",
+      "raw_codes": "X/SF",
+      "time_ranges": [
+        "09:30-13:50",
+        "15:20-18:30"
+      ]
+    },
+    {
+      "date": "2026-10-24",
+      "venue": "Nagoya City General Gymnasium [Rainbow Hall]",
+      "sport": "Boccia",
+      "pdf_row": 4,
+      "color": "gold_medal_day",
+      "raw_codes": "X/F",
+      "time_ranges": [
+        "09:30-15:05"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Izu Velodrome",
+      "sport": "Para Cycling - Track",
+      "pdf_row": 5,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:00-13:00",
+        "14:30-18:30"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Izu Velodrome",
+      "sport": "Para Cycling - Track",
+      "pdf_row": 5,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:00-12:30",
+        "13:30-17:30"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Cycle Sports Center 5km Circuit Course",
+      "sport": "Para Cycling - Road",
+      "pdf_row": 6,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "09:00-12:15",
+        "12:30-16:45"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Cycle Sports Center 5km Circuit Course",
+      "sport": "Para Cycling - Road",
+      "pdf_row": 6,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "09:00-11:35",
+        "12:00-16:55"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Cycle Sports Center 5km Circuit Course",
+      "sport": "Para Cycling - Road",
+      "pdf_row": 6,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "09:00-11:35",
+        "12:00-16:55"
+      ]
+    },
+    {
+      "date": "2026-10-16",
+      "venue": "Nagoya City Tsuruma Park Multipurpose Sports Field [Terraspo Tsuruma]",
+      "sport": "Blind Football",
+      "pdf_row": 7,
+      "color": "competition_day",
+      "raw_codes": "M",
+      "time_ranges": [
+        "10:00-11:40",
+        "12:30-14:10",
+        "15:00-16:40"
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "venue": "Nagoya City Tsuruma Park Multipurpose Sports Field [Terraspo Tsuruma]",
+      "sport": "Blind Football",
+      "pdf_row": 7,
+      "color": "competition_day",
+      "raw_codes": "M",
+      "time_ranges": [
+        "10:00-11:40",
+        "12:30-14:10",
+        "15:00-16:40"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Nagoya City Tsuruma Park Multipurpose Sports Field [Terraspo Tsuruma]",
+      "sport": "Blind Football",
+      "pdf_row": 7,
+      "color": "competition_day",
+      "raw_codes": "M",
+      "time_ranges": [
+        "10:00-11:40",
+        "12:30-14:10",
+        "15:00-16:40"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Nagoya City Tsuruma Park Multipurpose Sports Field [Terraspo Tsuruma]",
+      "sport": "Blind Football",
+      "pdf_row": 7,
+      "color": "competition_day",
+      "raw_codes": "M",
+      "time_ranges": [
+        "10:00-11:40",
+        "12:30-14:10",
+        "15:00-16:40"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Nagoya City Tsuruma Park Multipurpose Sports Field [Terraspo Tsuruma]",
+      "sport": "Blind Football",
+      "pdf_row": 7,
+      "color": "competition_day",
+      "raw_codes": "M",
+      "time_ranges": [
+        "10:00-11:40",
+        "12:30-14:10",
+        "15:00-16:40"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Nagoya City Tsuruma Park Multipurpose Sports Field [Terraspo Tsuruma]",
+      "sport": "Blind Football",
+      "pdf_row": 7,
+      "color": "gold_medal_day",
+      "raw_codes": "M/F",
+      "time_ranges": [
+        "13:00-14:40",
+        "15:30-19:00"
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "venue": "Toyohashi Gymnasium",
+      "sport": "Goalball",
+      "pdf_row": 8,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "9:00-15:20"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Toyohashi Gymnasium",
+      "sport": "Goalball",
+      "pdf_row": 8,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "9:00-16:40"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Toyohashi Gymnasium",
+      "sport": "Goalball",
+      "pdf_row": 8,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "9:00-15:20"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Toyohashi Gymnasium",
+      "sport": "Goalball",
+      "pdf_row": 8,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "9:00-15:20"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Toyohashi Gymnasium",
+      "sport": "Goalball",
+      "pdf_row": 8,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "9:00-14:50"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Toyohashi Gymnasium",
+      "sport": "Goalball",
+      "pdf_row": 8,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "9:00-14:50"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Aichi Prefectural Martial Arts Hall",
+      "sport": "Para Judo",
+      "pdf_row": 9,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/SF/F",
+      "time_ranges": [
+        "10:00-13:00",
+        "16:00-18:00"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Aichi Prefectural Martial Arts Hall",
+      "sport": "Para Judo",
+      "pdf_row": 9,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/SF/F",
+      "time_ranges": [
+        "10:00-13:00",
+        "16:00-18:00"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Aichi Prefectural Martial Arts Hall",
+      "sport": "Para Judo",
+      "pdf_row": 9,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/SF/F",
+      "time_ranges": [
+        "10:00-13:00",
+        "16:00-18:00"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Nagoya City Trade and Industry Center",
+      "sport": "Para Powerlifting",
+      "pdf_row": 10,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:20-13:10",
+        "14:50-19:20"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Nagoya City Trade and Industry Center",
+      "sport": "Para Powerlifting",
+      "pdf_row": 10,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:20-13:15",
+        "14:50-19:15"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Nagoya City Trade and Industry Center",
+      "sport": "Para Powerlifting",
+      "pdf_row": 10,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:20-13:30",
+        "14:50-19:25"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Nagoya City Trade and Industry Center",
+      "sport": "Para Powerlifting",
+      "pdf_row": 10,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:20-13:10",
+        "14:50-19:10"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Nagoya City Trade and Industry Center",
+      "sport": "Para Powerlifting",
+      "pdf_row": 10,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:15-12:50",
+        "14:15-17:00"
+      ]
+    },
+    {
+      "date": "2026-10-24",
+      "venue": "Nagoya City Trade and Industry Center",
+      "sport": "Para Powerlifting",
+      "pdf_row": 10,
+      "color": "gold_medal_day",
+      "raw_codes": "X/F",
+      "time_ranges": [
+        "10:15-13:10"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Aichi Prefectural General Shooting Gallery",
+      "sport": "Shooting Para Sport",
+      "pdf_row": 11,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "10:00-17:10"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Aichi Prefectural General Shooting Gallery",
+      "sport": "Shooting Para Sport",
+      "pdf_row": 11,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "10:00-18:50"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Aichi Prefectural General Shooting Gallery",
+      "sport": "Shooting Para Sport",
+      "pdf_row": 11,
+      "color": "gold_medal_day",
+      "raw_codes": "X/F",
+      "time_ranges": [
+        "10:00-17:40"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Aichi Prefectural General Shooting Gallery",
+      "sport": "Shooting Para Sport",
+      "pdf_row": 11,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "9:45-19:25"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Okazaki Chuo Sogo Park Gymnasium",
+      "sport": "Sitting Volleyball",
+      "pdf_row": 12,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "10:00-18:30"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Okazaki Chuo Sogo Park Gymnasium",
+      "sport": "Sitting Volleyball",
+      "pdf_row": 12,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "10:00-18:30"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Okazaki Chuo Sogo Park Gymnasium",
+      "sport": "Sitting Volleyball",
+      "pdf_row": 12,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "10:00-18:30"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Okazaki Chuo Sogo Park Gymnasium",
+      "sport": "Sitting Volleyball",
+      "pdf_row": 12,
+      "color": "competition_day",
+      "raw_codes": "W/M/SF",
+      "time_ranges": [
+        "09:00-21:15"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Okazaki Chuo Sogo Park Gymnasium",
+      "sport": "Sitting Volleyball",
+      "pdf_row": 12,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:30-20:30"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Nagoya City General Gymnasium [Rainbow Pool]",
+      "sport": "Para Swimming",
+      "pdf_row": 13,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "10:00-11:19",
+        "17:00-21:17"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Nagoya City General Gymnasium [Rainbow Pool]",
+      "sport": "Para Swimming",
+      "pdf_row": 13,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:00-11:11",
+        "17:00-21:04"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Nagoya City General Gymnasium [Rainbow Pool]",
+      "sport": "Para Swimming",
+      "pdf_row": 13,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "10:00-11:30",
+        "17:00-20:53"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Nagoya City General Gymnasium [Rainbow Pool]",
+      "sport": "Para Swimming",
+      "pdf_row": 13,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "10:00-11:14",
+        "17:00-21:12"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Nagoya City General Gymnasium [Rainbow Pool]",
+      "sport": "Para Swimming",
+      "pdf_row": 13,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "10:00-11:38",
+        "17:00-21:12"
+      ]
+    },
+    {
+      "date": "2026-10-16",
+      "venue": "SKY HALL TOYOTA",
+      "sport": "Para Table Tennis",
+      "pdf_row": 14,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "09:30-13:15"
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "venue": "SKY HALL TOYOTA",
+      "sport": "Para Table Tennis",
+      "pdf_row": 14,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "09:30-12:30",
+        "15:00-21:00"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "SKY HALL TOYOTA",
+      "sport": "Para Table Tennis",
+      "pdf_row": 14,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "09:30-14:00",
+        "15:00-20:15"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "SKY HALL TOYOTA",
+      "sport": "Para Table Tennis",
+      "pdf_row": 14,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "09:30-13:15",
+        "15:00-19:15"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "SKY HALL TOYOTA",
+      "sport": "Para Table Tennis",
+      "pdf_row": 14,
+      "color": "competition_day",
+      "raw_codes": "W/M/X",
+      "time_ranges": [
+        "09:30-14:00",
+        "15:00-20:15"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "SKY HALL TOYOTA",
+      "sport": "Para Table Tennis",
+      "pdf_row": 14,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/QF/SF/F",
+      "time_ranges": [
+        "09:30-13:15",
+        "15:00-19:30"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "SKY HALL TOYOTA",
+      "sport": "Para Table Tennis",
+      "pdf_row": 14,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "09:30-11:45"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Nagoya City Mizuho Park Gymnasium",
+      "sport": "Para Taekwondo",
+      "pdf_row": 15,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/QF/SF/F",
+      "time_ranges": [
+        "09:00-12:30",
+        "15:00-19:00"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Nagoya City Mizuho Park Gymnasium",
+      "sport": "Para Taekwondo",
+      "pdf_row": 15,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/QF/SF/F",
+      "time_ranges": [
+        "09:00-13:30",
+        "16:00-21:15"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Nagoya City Mizuho Park Gymnasium",
+      "sport": "Para Taekwondo",
+      "pdf_row": 15,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/QF/SF/F",
+      "time_ranges": [
+        "09:00-12:30",
+        "15:00-19:00"
+      ]
+    },
+    {
+      "date": "2026-10-16",
+      "venue": "Aichi International Arena",
+      "sport": "Wheelchair Basketball",
+      "pdf_row": 16,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "9:30-21:45"
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "venue": "Aichi International Arena",
+      "sport": "Wheelchair Basketball",
+      "pdf_row": 16,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "9:30-21:45"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Aichi International Arena",
+      "sport": "Wheelchair Basketball",
+      "pdf_row": 16,
+      "color": "competition_day",
+      "raw_codes": "W/M",
+      "time_ranges": [
+        "10:00-22:15"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Aichi International Arena",
+      "sport": "Wheelchair Basketball",
+      "pdf_row": 16,
+      "color": "competition_day",
+      "raw_codes": "W/M/QF",
+      "time_ranges": [
+        "09:30-21:45"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Aichi International Arena",
+      "sport": "Wheelchair Basketball",
+      "pdf_row": 16,
+      "color": "competition_day",
+      "raw_codes": "W/M/SF",
+      "time_ranges": [
+        "09:30-21:45"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Aichi International Arena",
+      "sport": "Wheelchair Basketball",
+      "pdf_row": 16,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "09:30-16:00",
+        "19:00-21:30"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Aichi International Arena",
+      "sport": "Wheelchair Basketball",
+      "pdf_row": 16,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/F",
+      "time_ranges": [
+        "10:00-15:30",
+        "18:30-21:00"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Nagoya City Inae Sports Center",
+      "sport": "Para Fencing",
+      "pdf_row": 17,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/SF/F",
+      "time_ranges": [
+        "09:00-20:30"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Nagoya City Inae Sports Center",
+      "sport": "Para Fencing",
+      "pdf_row": 17,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/QF/SF/F",
+      "time_ranges": [
+        "09:00-17:30"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Nagoya City Inae Sports Center",
+      "sport": "Para Fencing",
+      "pdf_row": 17,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/SF/F",
+      "time_ranges": [
+        "09:00-20:40"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Nagoya City Inae Sports Center",
+      "sport": "Para Fencing",
+      "pdf_row": 17,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/QF/SF/F",
+      "time_ranges": [
+        "09:00-17:30"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Nagoya City Inae Sports Center",
+      "sport": "Para Fencing",
+      "pdf_row": 17,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/SF/F",
+      "time_ranges": [
+        "09:00-19:40"
+      ]
+    },
+    {
+      "date": "2026-10-24",
+      "venue": "Nagoya City Inae Sports Center",
+      "sport": "Para Fencing",
+      "pdf_row": 17,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/QF/SF/F",
+      "time_ranges": [
+        "08:30-14:30"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "WING ARENA KARIYA",
+      "sport": "Wheelchair Rugby",
+      "pdf_row": 18,
+      "color": "competition_day",
+      "raw_codes": "X",
+      "time_ranges": [
+        "10:00-15:00"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "WING ARENA KARIYA",
+      "sport": "Wheelchair Rugby",
+      "pdf_row": 18,
+      "color": "competition_day",
+      "raw_codes": "X",
+      "time_ranges": [
+        "10:00-15:00"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "WING ARENA KARIYA",
+      "sport": "Wheelchair Rugby",
+      "pdf_row": 18,
+      "color": "competition_day",
+      "raw_codes": "X",
+      "time_ranges": [
+        "10:00-15:00"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "WING ARENA KARIYA",
+      "sport": "Wheelchair Rugby",
+      "pdf_row": 18,
+      "color": "gold_medal_day",
+      "raw_codes": "X/F",
+      "time_ranges": [
+        "13:00-16:30"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "venue": "Nagoya City Higashiyama Park Tennis Center",
+      "sport": "Wheelchair Tennis",
+      "pdf_row": 19,
+      "color": "competition_day",
+      "raw_codes": "W/M/X",
+      "time_ranges": [
+        "11:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "venue": "Nagoya City Higashiyama Park Tennis Center",
+      "sport": "Wheelchair Tennis",
+      "pdf_row": 19,
+      "color": "competition_day",
+      "raw_codes": "W/M/X/QF",
+      "time_ranges": [
+        "11:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "venue": "Nagoya City Higashiyama Park Tennis Center",
+      "sport": "Wheelchair Tennis",
+      "pdf_row": 19,
+      "color": "competition_day",
+      "raw_codes": "W/M/X/QF/SF",
+      "time_ranges": [
+        "11:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "venue": "Nagoya City Higashiyama Park Tennis Center",
+      "sport": "Wheelchair Tennis",
+      "pdf_row": 19,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/SF/F",
+      "time_ranges": [
+        "11:00-20:00"
+      ]
+    },
+    {
+      "date": "2026-10-23",
+      "venue": "Nagoya City Higashiyama Park Tennis Center",
+      "sport": "Wheelchair Tennis",
+      "pdf_row": 19,
+      "color": "gold_medal_day",
+      "raw_codes": "W/M/X/F",
+      "time_ranges": [
+        "11:00-20:00"
+      ]
+    }
+  ],
+  "review_notes": [
+    "Venue and sport labels are outlines: visually transcribed, retained in official English.",
+    "Codes describe the whole daily cell; do not infer which individual time slot contains a final.",
+    "OC 2026-10-18 and CC 2026-10-24 lack venue and times; excluded pending human confirmation.",
+    "Blue denotes Competition Day, not official practice; included per user clarification."
+  ]
+}

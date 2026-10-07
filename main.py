@@ -51,6 +51,7 @@ from scrapers.utils.road_validation import is_road_event_seasonally_valid
 from tools.location.sync_placeinfo_review_sheet import sync_placeinfo_review_sheet
 from tools.event.aichi_nagoya_2026_bot import (
     is_enabled as aichi_nagoya_2026_enabled,
+    is_para_operation,
     send_daily_notice as send_aichi_nagoya_2026_notice,
 )
 
@@ -285,7 +286,7 @@ def load_non_road_manual_csv_events():
     events += load_csv_events("misonoza.csv", "misonoza")
     events += load_csv_events("shiki.csv", "shiki")
     events += load_csv_events("spot.csv", "spot")
-    if aichi_nagoya_2026_enabled():
+    if aichi_nagoya_2026_enabled() and not is_para_operation():
         events += load_csv_events("ajipara.csv", "ajipara")
 
     return events

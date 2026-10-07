@@ -8,6 +8,13 @@ import config
 import scrapers.utils.google_sheet_events as sheet_events
 
 
+@pytest.fixture(autouse=True)
+def legacy_asian_games_operation(monkeypatch):
+    """Keep the previous Games behavior covered separately from Para operation."""
+    monkeypatch.setattr(asia, "ASIAN_PARA_SHORT_OPERATION", False)
+    monkeypatch.setattr(config, "ASIAN_PARA_SHORT_OPERATION", False)
+
+
 def asia_event(**overrides):
     event = {
         "date": "2026-09-19",

@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
-from config import ENABLE_AICHI_NAGOYA_2026
+from config import ENABLE_AICHI_NAGOYA_2026, ASIAN_PARA_SHORT_OPERATION
 from scrapers.utils.google_sheet_events import load_asia_operational_google_sheet_events
 
 
@@ -21,6 +21,7 @@ ASIA_WEBHOOK_ENV = "WEBHOOK_ASIA"
 ASIA_CSV_PATH = Path(
     "data/aichi_nagoya_2026/operational/asia_games_operational_20260810.csv"
 )
+PARA_CSV_PATH = Path("data/asian_para_2026/operational/asian_para_sessions_20261002.csv")
 ASIA_OPERATIONAL_COLUMNS = [
     "date",
     "time",
@@ -47,6 +48,10 @@ def is_enabled() -> bool:
     return ENABLE_AICHI_NAGOYA_2026
 
 
+def is_para_operation() -> bool:
+    return ASIAN_PARA_SHORT_OPERATION
+
+
 def _require_enabled() -> None:
     if not is_enabled():
         raise RuntimeError("ENABLE_AICHI_NAGOYA_2026=false: 大会専用機能は無効です")
@@ -61,8 +66,10 @@ def _target_date_strings(target_date):
     return {text, text.replace("/", "-"), text.replace("-", "/")}
 
 
-def read_operational_csv(csv_path=ASIA_CSV_PATH):
+def read_operational_csv(csv_path=None):
     _require_enabled()
+    if csv_path is None:
+        csv_path = PARA_CSV_PATH if is_para_operation() else ASIA_CSV_PATH
     csv_path = Path(csv_path)
     if not csv_path.exists():
         raise FileNotFoundError(f"アジア大会CSVなし: {csv_path}")
@@ -83,10 +90,12 @@ def read_operational_csv(csv_path=ASIA_CSV_PATH):
     return events
 
 
-def load_notice_events(target_date, csv_path=ASIA_CSV_PATH, prefer_sheet=True):
+def load_notice_events(target_date, csv_path=None, prefer_sheet=True):
     _require_enabled()
+    default_path = PARA_CSV_PATH if is_para_operation() else ASIA_CSV_PATH
+    csv_path = default_path if csv_path is None else csv_path
     source = "csv"
-    if prefer_sheet and Path(csv_path) == ASIA_CSV_PATH:
+    if prefer_sheet and Path(csv_path) == default_path:
         try:
             all_events = load_asia_operational_google_sheet_events()
             source = "google_sheet"
@@ -142,7 +151,7 @@ def render_notice_item(event):
     title = event.get("event_name", "").strip()
     venue = event.get("venue", "").strip() or "不明"
     info = event.get("session_info", "").strip()
-    status = event.get("availability_status", "").strip()
+    status = "" if is_para_operation() else (event.get("availability_status") or "").strip()
     ticket_label = ASIA_TICKET_STATUS_LABELS.get(status, status)
     if status and status not in ASIA_TICKET_STATUS_LABELS:
         print(f"asia_ticket_status_unknown={status}")
@@ -167,7 +176,7 @@ def _message_header(target_date, event_count, test_mode=False):
     target_date = _as_date(target_date)
     prefix = "🧪【テスト投稿】" if test_mode else ""
     return (
-        f"{prefix}🏟️ アジア大会情報\n\n"
+        f"{prefix}🏟️ {'アジアパラ大会' if is_para_operation() else 'アジア大会情報'}\n\n"
         f"{target_date:%m月%d日}（{WEEKDAYS_JA[target_date.weekday()]}）\n\n"
         f"🏟️ 本日 {event_count}件\n\n"
         f"{ASIA_SEPARATOR}"
@@ -191,6 +200,8 @@ def build_messages(events, target_date, test_mode=False):
         else:
             current += block
     messages.append(current)
+    if is_para_operation():
+        return messages
     footer = f"\n\n{ASIA_TICKET_FOOTER}"
     if len(messages[-1]) + len(footer) <= ASIA_MESSAGE_LIMIT:
         messages[-1] += footer
@@ -231,8 +242,8 @@ def send_events(events, target_date, test_mode=False, webhook_url=None, http_pos
         if test_mode:
             posted = response.json()
             posted_content = str(posted.get("content", ""))
-            content_verified = posted_content == content and posted_content.endswith(
-                ASIA_TICKET_FOOTER
+            content_verified = posted_content == content and (
+                is_para_operation() or posted_content.endswith(ASIA_TICKET_FOOTER)
             )
             print(f"asia_event_content_verified={str(content_verified).lower()}")
             if not content_verified:
@@ -258,6 +269,8 @@ def send_daily_notice(target_date, dry_run=False):
 
 def opening_test_event():
     _require_enabled()
+    if is_para_operation():
+        raise RuntimeError("アジパラ短期運用中は旧アジア大会開会式テストを使用できません")
     opening_date = date(2026, 9, 19)
     events = load_notice_events(opening_date, ASIA_CSV_PATH, prefer_sheet=False)
     opening = [event for event in events if event.get("event_name") == "開会式"]

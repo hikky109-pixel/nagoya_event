@@ -1,6 +1,6 @@
 # nagoya_event 現状仕様
 
-最終更新: 2026-09-15
+最終更新: 2026-10-08
 
 この文書は、現時点のコード実装を正として整理する。未実装の構想は末尾の「今後の予定」に分ける。仕様変更時は該当章へ追記し、運用上の注意が変わる場合は「運用メモ」も更新する。
 
@@ -389,6 +389,29 @@ asia_operational_sheet_sync_status
 ```
 
 ### 2.6 愛知・名古屋2026イベントBOT
+
+#### 2026-10-08 アジパラ短期運用への切替
+
+`config.py`の`ASIAN_PARA_SHORT_OPERATION = True`で、既存朝6時の
+`main.py → send_asia_info() → send_daily_notice()`をアジパラ通知へ切り替える。
+以下の従来アジア大会仕様はこの定数をfalseにした場合の仕様として保持する。
+`ENABLE_AICHI_NAGOYA_2026`による全体停止は従来どおり有効。
+
+- 一次入力は同じ`アジア大会`タブ・同じCSV export URL・固定7列を維持。
+- fallbackは`data/asian_para_2026/operational/asian_para_sessions_20261002.csv`。
+- タイトルは`🏟️ アジアパラ大会`。チケット行とチケット注意書きは値の有無にかかわらず表示しない。
+- availability_statusは空欄。既存の時刻、会場、競技名、詳細、日付、件数、区切り、2000文字内の分割を再利用する。
+- 旧9列`アジパラ`タブ・`ajipara.csv`の通常BOT別経路読込を停止し、旧アジア大会開会式テストを拒否する。
+- 原本は公式2026-10-02版PDF。ユーザー確認により青色（Competition Day）と黄色（Gold Medal Event day）をともに採用し、19競技・151セッションを保存。青色は練習日ではない。
+- 1時刻枠を1行とし、日ごとのW/M/X/QF/SF/F等は日本語と原記号をsession_infoに保持。各時刻枠への種目・決勝割当は推測しない。
+- OC（10月18日）とCC（10月24日）は会場・時刻がPDFにないため未投入。確認後は従来同様`開会式`・`閉会式`として同じ7列に手動追加できる。
+- 抽出ツールは保存済みPDFだけを読む。チケットAPI・Results API・Sheet書込・cron変更は行わない。
+
+本番切替前に旧F列session_info updater、G列availability updaterと旧アジア大会CSV同期を停止する必要がある。
+本番cronの定義はリポジトリに含まれず、実際の停止は運用担当者が確認して行う。
+手順・確認事項・検証結果は[短期運用メモ](asian_para_2026_short_operation.md)を参照。
+
+#### 従来アジア大会運用
 
 大会固有のBOT処理は`tools/event/aichi_nagoya_2026_bot.py`へ集約する。通常の`main.py`は
 大会機能が有効な場合に専用の日次送信関数を呼ぶだけとし、他イベントの旧9列ローダー、

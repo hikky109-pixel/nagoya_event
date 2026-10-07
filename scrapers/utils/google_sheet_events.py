@@ -87,10 +87,10 @@ def load_google_sheet_csv(url, default_source):
 
 def load_all_google_sheet_events():
     events = []
-    from config import ENABLE_AICHI_NAGOYA_2026
+    from config import ENABLE_AICHI_NAGOYA_2026, ASIAN_PARA_SHORT_OPERATION
 
     for source in EVENT_SHEET_SOURCES:
-        if source == "ajipara" and not ENABLE_AICHI_NAGOYA_2026:
+        if source == "ajipara" and (not ENABLE_AICHI_NAGOYA_2026 or ASIAN_PARA_SHORT_OPERATION):
             continue
         url = SHEET_URLS.get(source)
         if not url:
