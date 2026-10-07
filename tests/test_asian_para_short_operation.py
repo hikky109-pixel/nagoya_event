@@ -38,7 +38,7 @@ def test_notice_has_existing_fields_and_no_ticket_information(status):
     row["availability_status"] = status
     content = "\n".join(bot.build_messages([row], date(2026, 10, 16)))
     assert content.startswith("🏟️ アジアパラ大会\n\n10月16日（金）")
-    for text in ["🏟️ 本日 1件", row["venue"], row["event_name"], row["session_info"], f"{row['time']}〜{row['end_time']}"]:
+    for text in ["🏟️ 本日 1件", bot._para_display_name(row["venue"], "venue_alias_20261008.csv"), bot._para_display_name(row["event_name"], "sport_alias_20261008.csv"), row["session_info"], f"{row['time']}〜{row['end_time']}"]:
         assert text in content
     for text in ["チケット", "🎟️", bot.ASIA_TICKET_FOOTER, "SOLD_OUT", "BUY", "UNKNOWN"]:
         assert text not in content

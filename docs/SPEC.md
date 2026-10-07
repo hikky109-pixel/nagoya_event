@@ -2116,3 +2116,14 @@ Railway Incident管理の重要テスト:
 3. 運用コマンド、環境変数、Google Sheets列が変わる場合は必ず追記
 4. 未実装の構想は「今後の予定」へ移す
 5. 手動レビュー列を破壊する可能性がある同期変更は、必ずテストを追加してから反映する
+
+## アジアパラ大会 Discord通知の日本語表示（2026-10-08）
+
+- `ASIAN_PARA_SHORT_OPERATION = True` の場合のみ、会場名・競技名を日本語表示する。
+- 会場名は `data/asian_para_2026/master/venue_alias_20261008.csv` を参照する（19会場）。
+- 競技名は `data/asian_para_2026/master/sport_alias_20261008.csv` を参照する（19競技）。
+- 変換は `tools/event/aichi_nagoya_2026_bot.py` の通知本文生成時に限定する。
+- Google Sheetsと運用CSVの原本は変更しない。
+- 未登録の名称は原文のまま表示する。
+- 通常のアジア大会モードには影響させない。
+- アジパラ151件の変換検証、Discord送信なしプレビュー、pytest 473件合格を確認済み。

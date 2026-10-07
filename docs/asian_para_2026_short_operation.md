@@ -123,3 +123,14 @@ PDFに時刻がないためtimeは従来どおり`未定`。本番道路Sheetへ
 - この配布フォルダにはGit実行ファイル・`.git`がないため`git diff --check`は実行不可。変更前コピーとのローカルdiffを確認し、変更行・新規ファイルの末尾空白チェックは成功。元からあるconfig.pyの未変更行の空白は触れていない。
 - 変更コードの`py_compile`成功。10/19サンプル27件の通知本文をローカル生成し、すべて2000文字以内、販売情報なしを確認。検証用の外側`.tools/`は本番配置対象ではない。
 - 本番Sheet書込、cron変更、本番Discord送信、commit、push、credentials/tokenの表示・変更は行っていない。
+
+## 2026-10-08 Discord通知の日本語表示対応
+
+- アジアパラ大会のDiscord通知では、会場名と競技名を日本語で表示する。
+- 会場名の対応表: `data/asian_para_2026/master/venue_alias_20261008.csv`（19会場）
+- 競技名の対応表: `data/asian_para_2026/master/sport_alias_20261008.csv`（19競技）
+- 変換は `tools/event/aichi_nagoya_2026_bot.py` の通知本文生成時のみ実施する。
+- Google Sheetsおよび運用CSVの英語原本は変更しない。
+- 対応表に存在しない名称は原文のまま表示する。
+- 通常のアジア大会モードには適用しない。
+- 151件の変換検証、Discord送信なしプレビュー、pytest 473件合格を確認済み。

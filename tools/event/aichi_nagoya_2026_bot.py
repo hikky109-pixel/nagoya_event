@@ -146,10 +146,32 @@ def _truncate(text, limit):
     return text[: max(limit - 1, 0)].rstrip() + "…"
 
 
+
+def _para_display_name(value, filename):
+    """アジパラ通知専用。元のSheet/CSVデータは変更しない。"""
+    import csv
+
+    path = Path("data/asian_para_2026/master") / filename
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as f:
+            aliases = {
+                row["english_name"]: row["japanese_name"]
+                for row in csv.DictReader(f)
+            }
+    except (OSError, KeyError, csv.Error) as exc:
+        logging.warning("asian_para_alias_unavailable: %s", exc)
+        return value
+
+    return aliases.get(value, value)
+
+
 def render_notice_item(event):
     _require_enabled()
     title = event.get("event_name", "").strip()
     venue = event.get("venue", "").strip() or "不明"
+    if is_para_operation():
+        title = _para_display_name(title, "sport_alias_20261008.csv")
+        venue = _para_display_name(venue, "venue_alias_20261008.csv")
     info = event.get("session_info", "").strip()
     status = "" if is_para_operation() else (event.get("availability_status") or "").strip()
     ticket_label = ASIA_TICKET_STATUS_LABELS.get(status, status)
